@@ -7,6 +7,7 @@ import { ShareModal } from './components/ShareModal';
 import { ShortsSidebar } from './components/ShortsSidebar';
 import { TopBar } from './components/TopBar';
 import { YouTubeShortPlayer } from './components/YouTubeShortPlayer';
+import { loadYouTubeIframeApi } from './utils/youtubePlayerApi';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -42,7 +43,7 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [savedIds, setSavedIds] = useState<string[]>(() => readSavedIds());
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(true);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(true);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -113,8 +114,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // Pre-warm YouTube IFrame Player API immediately on mount for faster first playback
+    loadYouTubeIframeApi().catch(() => {});
     loadShorts(false);
   }, [loadShorts]);
+
+  useEffect(() => {
+    if (audioUnlocked) return;
+    const unlock = () => setAudioUnlocked(true);
+    window.addEventListener('pointerdown', unlock, { passive: true, once: true });
+    window.addEventListener('touchstart', unlock, { passive: true, once: true });
+    window.addEventListener('keydown', unlock, { passive: true, once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('touchstart', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, [audioUnlocked]);
 
   useEffect(() => {
     try {
@@ -206,7 +222,7 @@ export function App() {
     };
   }, [visibleShorts.length]);
 
-  // Keyboard navigation (ArrowDown / ArrowUp / J / K / M)
+  // Keyboard navigation (ArrowDown / ArrowUp / J / K)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -217,13 +233,12 @@ export function App() {
 
       if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'J') {
         e.preventDefault();
+        setAudioUnlocked(true);
         scrollToIndex(activeIndex + 1);
       } else if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'K') {
         e.preventDefault();
+        setAudioUnlocked(true);
         scrollToIndex(activeIndex - 1);
-      } else if (e.key === 'm' || e.key === 'M') {
-        e.preventDefault();
-        setIsMuted((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -236,9 +251,19 @@ export function App() {
     );
   }, []);
 
-  const handleToggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev);
+  const handleUnlockAudio = useCallback(() => {
+    setAudioUnlocked(true);
   }, []);
+
+  // Prefetch next 2 thumbnails so swiping feels instantaneous without keeping extra video iframes open
+  useEffect(() => {
+    const upcoming = visibleShorts.slice(activeIndex + 1, activeIndex + 3);
+    for (const item of upcoming) {
+      const img = new Image();
+      img.referrerPolicy = 'no-referrer';
+      img.src = item.thumbnailUrl;
+    }
+  }, [activeIndex, visibleShorts]);
 
   const handleVideoEnded = useCallback(() => {
     if (activeIndex < visibleShorts.length - 1) {
@@ -387,11 +412,10 @@ export function App() {
                     <YouTubeShortPlayer
                       short={short}
                       isActive={idx === activeIndex}
-                      shouldMountPlayer={Math.abs(idx - activeIndex) <= 1}
-                      isMuted={isMuted}
+                      audioUnlocked={audioUnlocked}
                       autoAdvance={autoAdvance}
                       isSaved={savedSet.has(short.id)}
-                      onToggleMute={handleToggleMute}
+                      onAudioUnlocked={handleUnlockAudio}
                       onToggleSave={handleToggleSave}
                       onShare={setShareTarget}
                       onEnded={handleVideoEnded}

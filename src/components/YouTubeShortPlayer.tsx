@@ -5,8 +5,6 @@ import {
   Pause,
   Play,
   Share2,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 import type { ChristianShort } from '../types/shorts';
 import { loadYouTubeIframeApi, type YTPlayer } from '../utils/youtubePlayerApi';
@@ -14,11 +12,10 @@ import { loadYouTubeIframeApi, type YTPlayer } from '../utils/youtubePlayerApi';
 interface YouTubeShortPlayerProps {
   short: ChristianShort;
   isActive: boolean;
-  shouldMountPlayer: boolean;
-  isMuted: boolean;
+  audioUnlocked: boolean;
   autoAdvance: boolean;
   isSaved: boolean;
-  onToggleMute: () => void;
+  onAudioUnlocked: () => void;
   onToggleSave: (shortId: string) => void;
   onShare: (short: ChristianShort) => void;
   onEnded: () => void;
@@ -34,17 +31,17 @@ function formatViews(views: number | null): string | null {
 export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
   short,
   isActive,
-  shouldMountPlayer,
-  isMuted,
+  audioUnlocked,
   autoAdvance,
   isSaved,
-  onToggleMute,
+  onAudioUnlocked,
   onToggleSave,
   onShare,
   onEnded,
 }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YTPlayer | null>(null);
+  const autoplayCheckTimerRef = useRef<number | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -52,28 +49,38 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
   const [feedbackState, setFeedbackState] = useState<'play' | 'pause' | null>(null);
 
   const isActiveRef = useRef(isActive);
-  const isMutedRef = useRef(isMuted);
+  const audioUnlockedRef = useRef(audioUnlocked);
   const autoAdvanceRef = useRef(autoAdvance);
   const onEndedRef = useRef(onEnded);
+  const onAudioUnlockedRef = useRef(onAudioUnlocked);
 
   isActiveRef.current = isActive;
-  isMutedRef.current = isMuted;
+  audioUnlockedRef.current = audioUnlocked;
   autoAdvanceRef.current = autoAdvance;
   onEndedRef.current = onEnded;
+  onAudioUnlockedRef.current = onAudioUnlocked;
 
   useEffect(() => {
-    if (!shouldMountPlayer || !hostRef.current) {
+    if (!isActive || !hostRef.current) {
+      if (autoplayCheckTimerRef.current) {
+        window.clearTimeout(autoplayCheckTimerRef.current);
+        autoplayCheckTimerRef.current = null;
+      }
       if (playerRef.current) {
         try {
+          playerRef.current.stopVideo();
           playerRef.current.destroy();
         } catch {
           // Ignore destroy cleanup error
         }
         playerRef.current = null;
-        setIsReady(false);
-        setIsPlaying(false);
-        setProgress(0);
       }
+      if (hostRef.current) {
+        hostRef.current.innerHTML = '';
+      }
+      setIsReady(false);
+      setIsPlaying(false);
+      setProgress(0);
       return;
     }
 
@@ -87,14 +94,14 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
 
     loadYouTubeIframeApi()
       .then((YT) => {
-        if (cancelled || !hostRef.current) return;
+        if (cancelled || !hostRef.current || !isActiveRef.current) return;
 
         const player = new YT.Player(mountNode, {
           videoId: short.id,
           width: '100%',
           height: '100%',
           playerVars: {
-            autoplay: isActiveRef.current ? 1 : 0,
+            autoplay: 1,
             controls: 0,
             disablekb: 1,
             fs: 0,
@@ -102,31 +109,61 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
             modestbranding: 1,
             playsinline: 1,
             rel: 0,
-            mute: isMutedRef.current ? 1 : 0,
+            mute: 0,
             origin: window.location.origin,
           },
           events: {
             onReady: (event) => {
-              if (cancelled) return;
+              if (cancelled || !isActiveRef.current) {
+                try {
+                  event.target.stopVideo();
+                  event.target.destroy();
+                } catch {
+                  // Ignore
+                }
+                return;
+              }
               playerRef.current = event.target;
               setIsReady(true);
 
-              if (isMutedRef.current) {
-                event.target.mute();
-              } else {
+              try {
                 event.target.unMute();
-              }
-
-              if (isActiveRef.current) {
+                event.target.setVolume(100);
                 event.target.playVideo();
-              } else {
-                event.target.pauseVideo();
+
+                autoplayCheckTimerRef.current = window.setTimeout(() => {
+                  if (cancelled || !isActiveRef.current) return;
+                  try {
+                    const state = event.target.getPlayerState();
+                    const isStarted =
+                      state === YT.PlayerState.PLAYING ||
+                      state === YT.PlayerState.BUFFERING;
+                    if (!isStarted && !audioUnlockedRef.current) {
+                      event.target.mute();
+                      event.target.playVideo();
+                    } else if (isStarted) {
+                      onAudioUnlockedRef.current();
+                    }
+                  } catch {
+                    // Ignore transient state errors
+                  }
+                }, 260);
+              } catch {
+                // Ignore transient play errors
               }
             },
             onStateChange: (event) => {
-              if (cancelled) return;
+              if (cancelled || !isActiveRef.current) return;
               if (event.data === YT.PlayerState.PLAYING) {
                 setIsPlaying(true);
+                if (audioUnlockedRef.current) {
+                  try {
+                    event.target.unMute();
+                    event.target.setVolume(100);
+                  } catch {
+                    // Ignore
+                  }
+                }
               } else if (
                 event.data === YT.PlayerState.PAUSED ||
                 event.data === YT.PlayerState.CUED
@@ -156,55 +193,40 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
 
     return () => {
       cancelled = true;
+      if (autoplayCheckTimerRef.current) {
+        window.clearTimeout(autoplayCheckTimerRef.current);
+        autoplayCheckTimerRef.current = null;
+      }
       if (playerRef.current) {
         try {
+          playerRef.current.stopVideo();
           playerRef.current.destroy();
         } catch {
           // Ignore cleanup
         }
         playerRef.current = null;
       }
+      if (hostRef.current) {
+        hostRef.current.innerHTML = '';
+      }
       setIsReady(false);
       setIsPlaying(false);
+      setProgress(0);
     };
-  }, [short.id, shouldMountPlayer]);
+  }, [short.id, isActive]);
 
-  // Sync active playback
+  // Unmute automatically as soon as user interacts anywhere with the page
   useEffect(() => {
-    const player = playerRef.current;
-    if (!player || !isReady) return;
+    if (!audioUnlocked || !isActive || !isReady || !playerRef.current) return;
     try {
-      if (isActive) {
-        if (isMuted) {
-          player.mute();
-        } else {
-          player.unMute();
-        }
-        player.playVideo();
-      } else {
-        player.pauseVideo();
-      }
-    } catch {
-      // Player might still be transitioning
-    }
-  }, [isActive, isReady, isMuted]);
-
-  // Sync mute changes immediately
-  useEffect(() => {
-    const player = playerRef.current;
-    if (!player || !isReady) return;
-    try {
-      if (isMuted) {
-        player.mute();
-      } else {
-        player.unMute();
-      }
+      playerRef.current.unMute();
+      playerRef.current.setVolume(100);
     } catch {
       // Ignore
     }
-  }, [isMuted, isReady]);
+  }, [audioUnlocked, isActive, isReady]);
 
-  // Poll video playback progress while active & playing
+  // Snappy 100ms progress polling while playing
   useEffect(() => {
     if (!isActive || !isReady || !isPlaying) return;
     const interval = window.setInterval(() => {
@@ -219,23 +241,25 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
       } catch {
         // Ignore
       }
-    }, 250);
+    }, 100);
     return () => window.clearInterval(interval);
   }, [isActive, isReady, isPlaying]);
 
   const handleTogglePlayPause = () => {
+    onAudioUnlocked();
     const player = playerRef.current;
     if (!player || !isReady) return;
     try {
+      player.unMute();
+      player.setVolume(100);
       if (isPlaying) {
         player.pauseVideo();
         setFeedbackState('pause');
       } else {
-        if (!isMuted) player.unMute();
         player.playVideo();
         setFeedbackState('play');
       }
-      window.setTimeout(() => setFeedbackState(null), 450);
+      window.setTimeout(() => setFeedbackState(null), 240);
     } catch {
       // Ignore
     }
@@ -258,11 +282,11 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
         />
       </div>
 
-      {/* Embedded YouTube IFrame Player */}
+      {/* Single Active YouTube IFrame Player */}
       <div
         ref={hostRef}
-        className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${
-          isReady && !hasError ? 'opacity-100' : 'opacity-0'
+        className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+          isActive && isReady && !hasError ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       />
 
@@ -274,24 +298,24 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
         className="absolute inset-0 z-10 w-full h-full cursor-pointer focus:outline-none"
       />
 
-      {/* Subtle transient Play/Pause tap feedback */}
+      {/* Snappy transient Play/Pause tap feedback */}
       {feedbackState && (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
         >
-          <div className="w-16 h-16 rounded-full bg-black/55 backdrop-blur-sm text-white flex items-center justify-center">
+          <div className="w-14 h-14 rounded-full bg-black/55 backdrop-blur-sm text-white flex items-center justify-center transition-transform duration-150 scale-100">
             {feedbackState === 'play' ? (
-              <Play className="w-7 h-7 fill-current ml-0.5" />
+              <Play className="w-6 h-6 fill-current ml-0.5" />
             ) : (
-              <Pause className="w-7 h-7 fill-current" />
+              <Pause className="w-6 h-6 fill-current" />
             )}
           </div>
         </div>
       )}
 
       {/* Fallback message if embed fails */}
-      {hasError && (
+      {hasError && isActive && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center px-6 text-center bg-slate-950/80 text-white space-y-3">
           <p className="text-sm font-medium text-slate-200">
             Este vídeo restringiu a reprodução incorporada neste navegador.
@@ -305,24 +329,6 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
             <ExternalLink className="w-4 h-4" aria-hidden="true" />
             <span>Assistir no YouTube</span>
           </a>
-        </div>
-      )}
-
-      {/* Top subtle scrim & sound unlock cue */}
-      <div className="pointer-events-none absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-black/55 to-transparent z-20" />
-      {isActive && isMuted && (
-        <div className="absolute top-3.5 left-3.5 z-30">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleMute();
-            }}
-            className="inline-flex items-center gap-2 px-3.5 min-h-[40px] rounded-xl bg-black/60 hover:bg-black/75 backdrop-blur-md text-white text-xs font-semibold border border-white/15 transition-colors cursor-pointer"
-          >
-            <VolumeX className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <span>Ativar som</span>
-          </button>
         </div>
       )}
 
@@ -361,7 +367,7 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
         </div>
       </div>
 
-      {/* Right-side thumb-zone vertical controls (>=44x44px hitboxes) */}
+      {/* Right-side streamlined thumb-zone controls (>=44x44px hitboxes) */}
       <div className="absolute right-2.5 bottom-5 z-30 flex flex-col items-center gap-3">
         <button
           type="button"
@@ -370,7 +376,7 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
             handleTogglePlayPause();
           }}
           aria-label={isPlaying ? 'Pausar vídeo' : 'Reproduzir vídeo'}
-          className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-colors cursor-pointer"
+          className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150 cursor-pointer"
         >
           {isPlaying ? (
             <Pause className="w-5 h-5" aria-hidden="true" />
@@ -383,26 +389,11 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onToggleMute();
-          }}
-          aria-label={isMuted ? 'Ativar som' : 'Silenciar vídeo'}
-          className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-colors cursor-pointer"
-        >
-          {isMuted ? (
-            <VolumeX className="w-5 h-5" aria-hidden="true" />
-          ) : (
-            <Volume2 className="w-5 h-5" aria-hidden="true" />
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
+            onAudioUnlocked();
             onToggleSave(short.id);
           }}
           aria-label={isSaved ? 'Remover dos salvos' : 'Salvar vídeo'}
-          className={`w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center border transition-colors cursor-pointer ${
+          className={`w-11 h-11 rounded-full active:scale-95 backdrop-blur-md flex items-center justify-center border transition-all duration-150 cursor-pointer ${
             isSaved
               ? 'bg-sky-600 text-white border-sky-400'
               : 'bg-black/50 hover:bg-black/70 text-white border-white/15'
@@ -418,10 +409,11 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            onAudioUnlocked();
             onShare(short);
           }}
           aria-label="Compartilhar este vídeo"
-          className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-colors cursor-pointer"
+          className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150 cursor-pointer"
         >
           <Share2 className="w-5 h-5" aria-hidden="true" />
         </button>
@@ -432,19 +424,19 @@ export const YouTubeShortPlayer: React.FC<YouTubeShortPlayerProps> = ({
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
           aria-label="Abrir vídeo no YouTube"
-          className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-colors"
+          className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150"
         >
           <ExternalLink className="w-4 h-4" aria-hidden="true" />
         </a>
       </div>
 
-      {/* Bottom hairline progress bar (compositor-only transform) */}
+      {/* Bottom hairline progress bar */}
       <div
         aria-hidden="true"
         className="absolute bottom-0 left-0 right-0 h-1 bg-white/20 z-30 overflow-hidden"
       >
         <div
-          className="h-full w-full bg-sky-400 origin-left transition-transform duration-200 ease-out"
+          className="h-full w-full bg-sky-400 origin-left transition-transform duration-100 ease-linear"
           style={{ transform: `scaleX(${progress})` }}
         />
       </div>

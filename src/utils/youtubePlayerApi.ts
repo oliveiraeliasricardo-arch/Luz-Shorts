@@ -5,6 +5,7 @@ export interface YTPlayer {
   seekTo: (seconds: number, allowSeekAhead?: boolean) => void;
   mute: () => void;
   unMute: () => void;
+  setVolume: (volume: number) => void;
   isMuted: () => boolean;
   getCurrentTime: () => number;
   getDuration: () => number;
