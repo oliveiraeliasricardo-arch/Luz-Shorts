@@ -1,11 +1,11 @@
 import React from 'react';
-import { Share2 } from 'lucide-react';
+import { Bookmark } from 'lucide-react';
 import type { ShortCategory } from '../types/shorts';
 
 interface TopBarProps {
   activeCategory: ShortCategory;
+  savedCount: number;
   onSelectCategory: (category: ShortCategory) => void;
-  onShareActive: () => void;
 }
 
 const NAV_ITEMS: Array<{ id: ShortCategory; label: string }> = [
@@ -18,9 +18,11 @@ const NAV_ITEMS: Array<{ id: ShortCategory; label: string }> = [
 
 export const TopBar: React.FC<TopBarProps> = ({
   activeCategory,
+  savedCount,
   onSelectCategory,
-  onShareActive,
 }) => {
+  const isSavedActive = activeCategory === 'salvos';
+
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200">
       <div className="max-w-[1360px] mx-auto px-4 sm:px-6 h-[52px] lg:h-16 flex items-center justify-between gap-8">
@@ -71,15 +73,22 @@ export const TopBar: React.FC<TopBarProps> = ({
           })}
         </nav>
 
-        {/* Zone 3: Single Primary Action */}
+        {/* Zone 3: Single Primary Action (Salvos) */}
         <div className="flex items-center shrink-0">
           <button
             type="button"
-            onClick={onShareActive}
-            className="inline-flex items-center gap-2 px-4 py-2 min-h-[40px] text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700 focus-visible:ring-offset-2"
+            onClick={() => onSelectCategory(isSavedActive ? 'all' : 'salvos')}
+            className={`inline-flex items-center gap-2 px-4 py-2 min-h-[40px] text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700 focus-visible:ring-offset-2 ${
+              isSavedActive
+                ? 'bg-sky-700 text-white'
+                : 'bg-slate-900 hover:bg-slate-800 text-white'
+            }`}
           >
-            <Share2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-            <span>Compartilhar</span>
+            <Bookmark
+              className={`w-3.5 h-3.5 shrink-0 ${isSavedActive ? 'fill-current' : ''}`}
+              aria-hidden="true"
+            />
+            <span>Salvos{savedCount > 0 ? ` (${savedCount})` : ''}</span>
           </button>
         </div>
       </div>

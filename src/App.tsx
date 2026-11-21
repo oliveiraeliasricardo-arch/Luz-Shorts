@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Bookmark, RefreshCw, Search, X } from 'lucide-react';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { PWAInstallButton } from './components/PWAInstallButton';
 import { RightQueuePanel } from './components/RightQueuePanel';
 import { ShareModal } from './components/ShareModal';
 import { ShortsSidebar } from './components/ShortsSidebar';
@@ -273,16 +272,12 @@ export function App() {
     }
   }, [activeIndex, visibleShorts.length, scrollToIndex]);
 
-  const activeShort = visibleShorts[activeIndex] ?? visibleShorts[0] ?? null;
-
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       <TopBar
         activeCategory={activeCategory}
+        savedCount={savedIds.length}
         onSelectCategory={handleSelectCategory}
-        onShareActive={() => {
-          if (activeShort) setShareTarget(activeShort);
-        }}
       />
 
       {/* Mobile compact single-line category bar (stays well below 15% sticky height cap) */}
@@ -339,7 +334,6 @@ export function App() {
                 );
               })}
             </div>
-            <PWAInstallButton variant="compact" />
           </>
         )}
       </div>
