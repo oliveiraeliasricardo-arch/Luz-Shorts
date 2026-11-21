@@ -88,7 +88,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     if (!player) return;
     try {
       player.mute();
-      player.pauseVideo();
+      player.stopVideo();
     } catch {
       // Ignore if player is still initializing
     }
@@ -117,6 +117,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
         if (isFirstMount) {
           player.playVideo();
         } else {
+          player.stopVideo();
           player.loadVideoById({ videoId, startSeconds: 0 });
         }
 
@@ -137,7 +138,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
           } catch {
             // Ignore transient state errors
           }
-        }, 220);
+        }, 200);
       } catch {
         // Ignore transient play errors
       }
@@ -200,7 +201,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
             },
             onStateChange: (event) => {
               if (cancelled) return;
-              if (event.data === YT.PlayerState.PLAYING) {
+              // Reveal player immediately on BUFFERING as well as PLAYING so the video decoder
+              // paints frames before audio begins (zero audio-before-video desync).
+              if (event.data === YT.PlayerState.BUFFERING) {
+                setIsVideoVisible(true);
+              } else if (event.data === YT.PlayerState.PLAYING) {
                 setIsPlaying(true);
                 setIsVideoVisible(true);
                 if (audioUnlockedRef.current) {
@@ -278,7 +283,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     }
   }, [activeVideoId, playerReady, isScrolling, startPlaybackOnPlayer]);
 
-  // Cut audio synchronously on first pixel of scroll and load next video immediately on settle
+  // Cut audio synchronously on scroll start and finalize immediately when aligned
   useEffect(() => {
     const container = feedRef.current;
     if (!container) return;
@@ -301,27 +306,35 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       const h = container.clientHeight;
       if (h <= 0) return;
 
-      const exactOffset = activeIndexRef.current * h;
-      const movedPixels = Math.abs(container.scrollTop - exactOffset);
-
-      // Immediately cut previous video audio at frame 0 of scroll movement
-      if (movedPixels > 4) {
-        setIsScrolling(true);
-        silenceCurrentVideoImmediately();
-      }
-
       const nearestIdx = Math.max(
         0,
         Math.min(items.length - 1, Math.round(container.scrollTop / h))
       );
+      const distanceFromNearest = Math.abs(container.scrollTop - nearestIdx * h);
+
       if (nearestIdx !== activeIndexRef.current) {
+        silenceCurrentVideoImmediately();
         onActiveIndexChangeRef.current(nearestIdx);
       }
+
+      // If already snapped to a slide (e.g. instant jump or scroll just landed), finalize immediately
+      if (distanceFromNearest <= 2) {
+        if (settleTimerRef.current) {
+          window.clearTimeout(settleTimerRef.current);
+          settleTimerRef.current = null;
+        }
+        setIsScrolling(false);
+        return;
+      }
+
+      // Actively mid-swipe between two slides: cut audio and show thumbnail deck
+      setIsScrolling(true);
+      silenceCurrentVideoImmediately();
 
       if (settleTimerRef.current) {
         window.clearTimeout(settleTimerRef.current);
       }
-      settleTimerRef.current = window.setTimeout(finalizeScroll, 70);
+      settleTimerRef.current = window.setTimeout(finalizeScroll, 45);
     };
 
     const handleScrollEnd = () => {
@@ -396,9 +409,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
 
   return (
     <div className="relative w-full h-full bg-slate-950 overflow-hidden select-none">
-      {/* Persistent Single YouTube Player Layer (fixed over active viewport, 0ms bleed) */}
+      {/* Persistent Single YouTube Player Layer (zero transition delay so video frames paint in sync with audio) */}
       <div
-        className={`absolute inset-0 z-10 pointer-events-none transition-opacity duration-100 ${
+        className={`absolute inset-0 z-10 pointer-events-none ${
           isVideoVisible && !isScrolling && !hasError ? 'opacity-100' : 'opacity-0'
         }`}
       >
@@ -423,9 +436,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
               data-short-id={short.id}
               className="relative w-full h-full snap-start snap-always flex items-center justify-center overflow-hidden"
             >
-              {/* Thumbnail Poster (visible instantly during scroll & initial buffer) */}
+              {/* Thumbnail Poster (instant cut when video starts buffering/playing—no slow fade) */}
               <div
-                className={`absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 transition-opacity duration-100 ${
+                className={`absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 ${
                   hidePosterForVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
                 }`}
               >
