@@ -63,15 +63,17 @@ async function fetchFromYoutubeApi(
         key: apiKey,
         part: 'snippet',
         type: 'video',
-        videoDuration: 'short',
         videoEmbeddable: 'true',
         safeSearch: 'strict',
         relevanceLanguage: 'pt',
         regionCode: 'BR',
         maxResults: '15',
         order: plan.order || 'relevance',
-        q: plan.q,
+        q: plan.hintCategory === 'louvores' ? plan.q.replace(/\s*#shorts/i, '') : plan.q,
       });
+      if (plan.hintCategory !== 'louvores') {
+        params.set('videoDuration', 'short');
+      }
       if (plan.channelId) {
         params.set('channelId', plan.channelId);
       }
@@ -188,7 +190,6 @@ async function fetchFromYoutubeApi(
   for (const c of candidates.values()) {
     const meta = videoMeta.get(c.id);
     if (meta && !meta.embeddable) continue;
-    if (meta?.durationSeconds && meta.durationSeconds > 185) continue;
 
     const fullDesc = meta?.fullDescription || c.description;
     const classified = classifyShort(
@@ -199,6 +200,14 @@ async function fetchFromYoutubeApi(
       c.hintCategory
     );
     if (!classified) continue;
+
+    if (
+      classified.category !== 'louvores' &&
+      meta?.durationSeconds &&
+      meta.durationSeconds > 185
+    ) {
+      continue;
+    }
 
     verifiedShorts.push(
       buildShortRecord({

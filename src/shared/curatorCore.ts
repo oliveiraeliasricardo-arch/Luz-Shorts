@@ -61,7 +61,7 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     title: 'Adventistas Sul',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'biblia', 'testemunhos', 'louvores'],
   },
   {
     id: 'UCoWb0aR2SIR4UnizdQ37tiw',
@@ -111,13 +111,6 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     doctrineScope: 'adventista',
     defaultCategory: 'louvores',
     allowInCategories: ['louvores', 'testemunhos'],
-  },
-  {
-    id: 'UCaguCXr6xlC5ytGAloOrR5A',
-    title: 'Desbravadores DSA',
-    doctrineScope: 'adventista',
-    defaultCategory: 'testemunhos',
-    allowInCategories: ['testemunhos', 'pregacoes', 'biblia'],
   },
 ];
 
@@ -179,13 +172,6 @@ export const CHRISTIAN_GENERAL_CHANNELS: CuratedChannelSpec[] = [
     allowInCategories: ['louvores', 'testemunhos'],
   },
   {
-    id: 'UC8Ni3V6ZtpGJiFTqxjHjPAw',
-    title: 'Ministério Zoe',
-    doctrineScope: 'cristao_geral',
-    defaultCategory: 'louvores',
-    allowInCategories: ['louvores', 'testemunhos'],
-  },
-  {
     id: 'UCz47owLttsWIx5b9PX3itHg',
     title: 'Theo Rubia',
     doctrineScope: 'cristao_geral',
@@ -202,13 +188,6 @@ export const CHRISTIAN_GENERAL_CHANNELS: CuratedChannelSpec[] = [
   {
     id: 'UCAHUhfptduo5zq102PC9jew',
     title: 'Sarah Farias',
-    doctrineScope: 'cristao_geral',
-    defaultCategory: 'louvores',
-    allowInCategories: ['louvores', 'testemunhos'],
-  },
-  {
-    id: 'UCgxdaV6GyDg-WxXU7yMzrYA',
-    title: 'Jefferson & Suellen',
     doctrineScope: 'cristao_geral',
     defaultCategory: 'louvores',
     allowInCategories: ['louvores', 'testemunhos'],
@@ -338,74 +317,200 @@ const CHRISTIAN_RELEVANCE_PATTERNS = [
   /\bprofecia\b/i,
 ];
 
-const TESTIMONY_PATTERNS = [
-  /\btestemunh/i,
-  /\bmilagre/i,
-  /\bcura(do|da|r)?\b/i,
-  /\bconvers[aã]o\b/i,
-  /\bbatism/i,
-  /\bmudou (a )?minha vida\b/i,
-  /\bdeus me (salvou|curou|resgatou|livrou)\b/i,
-  /\blivramento\b/i,
-  /\bhist[oó]ria real\b/i,
-  /\bhist[oó]ria de f[eé]\b/i,
-  /\benxergue milagres\b/i,
-  /\btoda ora[cç][aã]o tem um rosto\b/i,
-  /\baposentadoria com prop[oó]sito\b/i,
-  /\bimpacto esperan[cç]a\b/i,
-  /\bmiss[aã]o\b/i,
+const NON_PORTUGUESE_PATTERNS = [
+  /[¿¡]/,
+  /\b(despierta am[eé]rica|univision|semana del pa[ñn]uelo|reina para siempre|mil gracias|conquistadores)\b/i,
 ];
 
-const WORSHIP_PATTERNS = [
-  /\blouvor/i,
-  /\badora[cç][aã]o\b/i,
-  /\bhino\b/i,
-  /\bm[uú]sica/i,
-  /\bcantar|can[cç][aã]o\b/i,
-  /\bcoral\b/i,
-  /\bclipe\b/i,
-  /\bac[uú]stic/i,
-  /\bgravadora\b/i,
-  /\barautos\b/i,
-  /\badoradores\b/i,
-  /\bplayback\b/i,
-  /\bmedley\b/i,
-  /\bsess[aã]o\b/i,
-  /\baovivo|ao vivo\b/i,
-];
-
-const BIBLE_GOSPEL_PATTERNS = [
-  /\bb[ií]bli/i,
-  /\bvers[ií]culo\b/i,
-  /\bevangelho\b/i,
-  /\bprofecia\b/i,
-  /\bapocalipse\b/i,
-  /\bdaniel\b/i,
-  /\bg[eê]nesis\b/i,
-  /\bsalmos?\b/i,
-  /\barqueologia\b/i,
-  /\bs[aá]bado\b/i,
-  /\b1844\b/i,
-  /\bsantu[aá]rio\b/i,
-  /\bestudo\b/i,
-  /\bdoutrina\b/i,
-  /\bmandamento/i,
-  /\bvolta de jesus\b/i,
-  /\bna mira\b/i,
-  /\brodrigo silva\b/i,
-  /\bpor que\b/i,
-  /\bo que jesus falou\b/i,
-  /\bdeus criou\b/i,
-];
-
-const NON_SPIRITUAL_NOISE_PATTERNS = [
-  /\binscri[cç][oõ]es (na|para)\b/i,
+const NOISE_AND_PROMO_PATTERNS = [
+  /\binscri[cç][oõ]es (na|para|abertas)\b/i,
   /\bmatricule-se\b/i,
   /\bgyd25\b/i,
   /\baviso importante\b/i,
   /\btrailer oficial\b/i,
   /\bsorteio\b/i,
   /\bcupom\b/i,
+  /\bskincare\b/i,
+  /\brotina de\b/i,
+  /\bmilh[oõ]es de inscritos\b/i,
+  /\bmil visualiza[cç][oõ]es\b/i,
+  /\bouvintes no spotify\b/i,
+  /\bgaranta seu ingresso\b/i,
+  /\bingressos?\b/i,
+  /\bpromo\b/i,
+  /\bfornalha tour\b/i,
+  /\bpreparando novidades\b/i,
+  /\bn[aã]o perca o lan[cç]amento\b/i,
+  /\bchega em \d+ dias\b/i,
+  /\bbastidores\b/i,
+  /\bentrevista\b/i,
+  /\btchau portugal\b/i,
+  /\b24\s*h(oras)?\b/i,
+  /\besta[cç][aã]o\b.*\b(24h|melhores)\b/i,
+  /\bcolet[aâ]nea\b/i,
+  /\banos da tv\b/i,
+  /\bvem correr\b/i,
+  /\bsala da calma\b/i,
+  /\bdia do pastor\b/i,
+  /\bdia da(s)? mulher(es)?\b/i,
+  /\bperfil da sua igreja\b/i,
+  /\bredes sociais\b/i,
+  /\bvoluntariado\b/i,
+  /\bassista ao vivo aqui\b/i,
+  /\bvoc[eê] n[aã]o conseguiu vir\b/i,
+  /\bquem a[ií] est[aá] empolgado\b/i,
+  /\bculto jovem especial\b/i,
+  /\bgerac[aã]o mission[aá]ria\b/i,
+  /\bganhou e ai\b/i,
+  /\blouvor come[cç]a antes dos ensaios\b/i,
+  /\bum registro especial\b/i,
+  /\bexerc[ií]cio f[ií]sico:\s*movimento/i,
+  /\b[aá]gua:\s*a ess[eê]ncia da vida\b/i,
+];
+
+const STRICT_TESTIMONY_TITLE_PATTERNS = [
+  /\btestemunh/i,
+  /\bdepoimento\b/i,
+  /\bconvers[aã]o\b/i,
+  /\bmudou (a )?minha vida\b/i,
+  /\bdeus me (salvou|curou|resgatou|livrou|transformou)\b/i,
+  /\bsalvou (a )?minha vida\b/i,
+  /\bhist[oó]ria (real|de f[eé]|de vida|de supera[cç][aã]o)\b/i,
+  /\bcomo (conheci|encontrei) (a )?(deus|jesus|igreja|verdade)\b/i,
+  /\bpor que (me tornei|voltei|aceitei)\b/i,
+  /\bex-?\s*(traficante|ateu|atriz|cantor|usu[aá]rio|l[ií]der)\b/i,
+  /\b(salvou|salva) dezenas de pessoas\b/i,
+  /\bconheci .* aos \d+ anos\b/i,
+  /\bmeu vizinho nem sabia que eu era pastor\b/i,
+];
+
+const STRICT_TESTIMONY_DESC_PATTERNS = [
+  /\bmeu testemunho\b/i,
+  /\bo testemunho de\b/i,
+  /\btestemunho real\b/i,
+  /\bhist[oó]ria de convers[aã]o\b/i,
+];
+
+const WORSHIP_SONG_POSITIVE_PATTERNS = [
+  /\blouvor(es)?\b/i,
+  /\badora[cç][aã]o\b/i,
+  /\bhino\b/i,
+  /\bnova m[uú]sica\b/i,
+  /\bm[uú]sica\b/i,
+  /\bc[aâ]ntico\b/i,
+  /\bcoral\b/i,
+  /\bclipe( oficial)?\b/i,
+  /\bv[ií]deo oficial\b/i,
+  /\bvideo oficial\b/i,
+  /\bac[uú]stic[oa]?\b/i,
+  /\bao vivo\b/i,
+  /\blyric(s)?\b/i,
+  /\bletra\b/i,
+  /\bplayback\b/i,
+  /\bmedley\b/i,
+  /\bsess[aã]o\b/i,
+  /\bsession\b/i,
+  /\bcanta\b/i,
+  /\bvoz da profecia\b/i,
+  /\bnovo tom\b/i,
+  /\barautos do rei\b/i,
+  /\bfhop music\b/i,
+  /\bmorad[a]?\b/i,
+  /\bmergulhar\b/i,
+  /\bou[cç]a agora\b/i,
+  /\bfeat\.?\b|\bft\.?\b/i,
+  /\bcom coral\b/i,
+  /\brevela[cç][aã]o de jesus\b/i,
+  /\bfeliz s[aá]bado\b/i,
+  /\bcarruagem\b/i,
+  /\bem meio a tua gl[oó]ria\b/i,
+  /\bem meio a tua gra[cç]a\b/i,
+  /\bnada al[eé]m de ti\b/i,
+  /\bperdoa-me\b/i,
+  /\bverdadeiro sentido\b/i,
+  /\bencontro das mar[eé]s\b/i,
+  /\b[uú]ltima can[cç][aã]o\b/i,
+  /\bvoc[eê] [eé] luz\b/i,
+  /\breina\b/i,
+  /\beu vi algu[eé]m mais belo\b/i,
+  /\brenova minha mente\b/i,
+  /\bos que olham para ti\b/i,
+  /\bvaso de alabastro\b/i,
+  /\bprimeiro milagre\b/i,
+  /\bacontecer[aá]\b/i,
+  /\bse ele n[aã]o for o primeiro\b/i,
+  /\bem seu nome\b/i,
+  /\bbrilhar por ti\b/i,
+  /\bele vem\b/i,
+];
+
+const NON_SONG_TALK_PATTERNS = [
+  /\bpol[ií]tica\b/i,
+  /\bidolatrias\b/i,
+  /\ba reforma\b/i,
+  /\bprega[cç][aã]o\b/i,
+  /\bserm[aã]o\b/i,
+  /\bpodcast\b/i,
+  /\bbate-?papo\b/i,
+];
+
+const STRICT_BIBLE_TITLE_PATTERNS = [
+  /\bb[ií]bli/i,
+  /\bvers[ií]culo\b/i,
+  /\bprofecia\b/i,
+  /\bapocalipse\b/i,
+  /\bdaniel\b/i,
+  /\bg[eê]nesis\b/i,
+  /\bsalmos?\b/i,
+  /\barqueologia\b/i,
+  /\bsantu[aá]rio\b/i,
+  /\b1844\b/i,
+  /\bmandamento/i,
+  /\bescola sabatina\b/i,
+  /\bli[cç][oõ]es da b[ií]blia\b/i,
+  /\bestudo b[ií]blico\b/i,
+  /\blei de deus\b/i,
+  /\bs[aá]bado\b.*\b(deus|selo|mandamento|b[ií]blia|presente)\b/i,
+  /\bvolta de jesus\b/i,
+  /\bo que jesus falou\b/i,
+  /\bna mira\b/i,
+  /\brodrigo silva\b/i,
+  /\bcrist[aã]o pode\b/i,
+  /\bevangelho\b/i,
+];
+
+const SERMON_SPIRITUAL_PATTERNS = [
+  /\bdeus\b/i,
+  /\bjesus\b/i,
+  /\bcristo\b/i,
+  /\besp[ií]rito santo\b/i,
+  /\bora[cç][aã]o\b/i,
+  /\borar\b/i,
+  /\bf[eé]\b/i,
+  /\besperan[cç]a\b/i,
+  /\bpaz\b/i,
+  /\bamor\b/i,
+  /\bgra[cç]a\b/i,
+  /\bperd[aã]o\b/i,
+  /\bperdoar\b/i,
+  /\bsalva[cç][aã]o\b/i,
+  /\bcruz\b/i,
+  /\bc[eé]u\b/i,
+  /\beternidade\b/i,
+  /\bmilagre\b/i,
+  /\bserm[aã]o\b/i,
+  /\bprega[cç][aã]o\b/i,
+  /\bpastor\b/i,
+  /\bpalavra\b/i,
+  /\bevangelho\b/i,
+  /\bcora[cç][aã]o\b/i,
+  /\bconfian[cç]a\b/i,
+  /\bprop[oó]sito\b/i,
+  /\bvida saud[aá]vel\b/i,
+  /\bpecado/i,
+  /\buniverso\b/i,
+  /\bpagou o pre[cç]o\b/i,
+  /\bmission[aá]rio\b/i,
 ];
 
 export function decodeXmlEntities(str: string): string {
@@ -450,6 +555,22 @@ function hasChristianRelevance(
   return CHRISTIAN_RELEVANCE_PATTERNS.some((re) => re.test(combined));
 }
 
+function looksLikeWorshipSong(title: string, description: string, isWorshipChannel: boolean): boolean {
+  if (NON_SONG_TALK_PATTERNS.some((re) => re.test(title))) {
+    return false;
+  }
+  if (WORSHIP_SONG_POSITIVE_PATTERNS.some((re) => re.test(title))) {
+    return true;
+  }
+  if (isWorshipChannel) {
+    // Allow descriptions that clearly describe a music release/song
+    return /\b(ou[cç]a nas plataformas|letra|compositor|produ[cç][aã]o musical|gravadora|clipe|m[uú]sica|louvor|adora[cç][aã]o|hino)\b/i.test(
+      description
+    );
+  }
+  return false;
+}
+
 export function classifyShort(
   channelId: string,
   channelTitle: string,
@@ -462,7 +583,10 @@ export function classifyShort(
   if (containsBlockedTerms(combined, BLOCKED_GENERAL_TERMS)) {
     return null;
   }
-  if (NON_SPIRITUAL_NOISE_PATTERNS.some((re) => re.test(title))) {
+  if (NON_PORTUGUESE_PATTERNS.some((re) => re.test(title))) {
+    return null;
+  }
+  if (NOISE_AND_PROMO_PATTERNS.some((re) => re.test(title))) {
     return null;
   }
 
@@ -473,28 +597,47 @@ export function classifyShort(
     return null;
   }
 
-  let detectedCategory: ContentCategory =
-    hintCategory ?? channelSpec?.defaultCategory ?? 'pregacoes';
+  const isWorshipChannel = channelSpec?.defaultCategory === 'louvores';
+  const isBibleChannel = channelSpec?.defaultCategory === 'biblia';
 
-  const titleIndicatesTestimony = TESTIMONY_PATTERNS.some((re) => re.test(title));
-  const titleIndicatesWorship = WORSHIP_PATTERNS.some((re) => re.test(title));
-  const titleIndicatesBible = BIBLE_GOSPEL_PATTERNS.some((re) => re.test(title));
+  const isExplicitTestimony =
+    STRICT_TESTIMONY_TITLE_PATTERNS.some((re) => re.test(title)) ||
+    STRICT_TESTIMONY_DESC_PATTERNS.some((re) => re.test(description));
+  const isSong = looksLikeWorshipSong(title, description, isWorshipChannel);
+  const isBibleTitle = STRICT_BIBLE_TITLE_PATTERNS.some((re) => re.test(title));
 
-  if (titleIndicatesTestimony && !titleIndicatesWorship) {
+  let detectedCategory: ContentCategory | null = null;
+
+  if (isWorshipChannel) {
+    // Worship channels only enter 'louvores' (when actual music) or 'testemunhos' (only if explicit spoken testimony)
+    if (isSong) {
+      detectedCategory = 'louvores';
+    } else if (isExplicitTestimony && !isSong) {
+      detectedCategory = 'testemunhos';
+    } else {
+      return null;
+    }
+  } else if (isExplicitTestimony) {
     detectedCategory = 'testemunhos';
-  } else if (titleIndicatesWorship) {
+  } else if (isSong) {
     detectedCategory = 'louvores';
-  } else if (titleIndicatesBible) {
+  } else if (isBibleTitle || isBibleChannel) {
     detectedCategory = 'biblia';
-  } else if (channelSpec?.defaultCategory === 'louvores') {
-    detectedCategory = 'louvores';
-  } else if (TESTIMONY_PATTERNS.some((re) => re.test(combined))) {
-    detectedCategory = 'testemunhos';
-  } else if (channelSpec) {
-    detectedCategory = channelSpec.defaultCategory;
+  } else if (hintCategory === 'biblia') {
+    detectedCategory = 'biblia';
+  } else if (hintCategory === 'louvores') {
+    return null;
+  } else if (hintCategory === 'testemunhos') {
+    return null;
+  } else {
+    // Default for preaching / Adventist general channels: require clear spiritual/sermon relevance
+    if (!SERMON_SPIRITUAL_PATTERNS.some((re) => re.test(combined))) {
+      return null;
+    }
+    detectedCategory = 'pregacoes';
   }
 
-  // Sermons (pregacoes) & Bible/Gospel (biblia) MUST adhere to Seventh-day Adventist doctrine
+  // Sermons (pregacoes) & Bible/Gospel (biblia) MUST adhere strictly to Seventh-day Adventist doctrine
   if (detectedCategory === 'pregacoes' || detectedCategory === 'biblia') {
     if (!adventist) {
       return null;
@@ -576,7 +719,8 @@ function extractXmlTag(block: string, tag: string): string {
 export function parseChannelRssXml(
   xml: string,
   spec: CuratedChannelSpec,
-  isDedicatedShortsPlaylist: boolean
+  isDedicatedShortsPlaylist: boolean,
+  allowFullLengthForWorship = false
 ): ChristianShort[] {
   const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map((m) => m[1]);
   const results: ChristianShort[] = [];
@@ -588,10 +732,6 @@ export function parseChannelRssXml(
     const linkMatch = entry.match(/<link\s+rel="alternate"\s+href="([^"]+)"/i);
     const linkHref = linkMatch ? linkMatch[1] : '';
 
-    if (!isDedicatedShortsPlaylist && !linkHref.includes('/shorts/')) {
-      continue;
-    }
-
     const title = extractXmlTag(entry, 'title');
     if (!title) continue;
 
@@ -599,12 +739,23 @@ export function parseChannelRssXml(
     const publishedAt = extractXmlTag(entry, 'published') || new Date().toISOString();
     const authorName = extractXmlTag(entry, 'name') || spec.title;
 
+    const classified = classifyShort(spec.id, authorName, title, description);
+    if (!classified) continue;
+
+    // Keep Shorts for Sermons/Bible/Testimonies, while allowing full-length music videos for Louvores
+    const isShortLink = linkHref.includes('/shorts/');
+    if (!isDedicatedShortsPlaylist && !isShortLink) {
+      const canIncludeFullVideo =
+        (allowFullLengthForWorship && classified.category === 'louvores') ||
+        classified.category === 'testemunhos';
+      if (!canIncludeFullVideo) {
+        continue;
+      }
+    }
+
     const thumbMatch = entry.match(/<media:thumbnail\s+url="([^"]+)"/i);
     const viewsMatch = entry.match(/<media:statistics\s+views="(\d+)"/i);
     const viewCount = viewsMatch ? Number(viewsMatch[1]) : null;
-
-    const classified = classifyShort(spec.id, authorName, title, description);
-    if (!classified) continue;
 
     results.push(
       buildShortRecord({
@@ -628,28 +779,81 @@ export function parseChannelRssXml(
 export async function fetchCuratedRssWithAdapter(
   fetchXml: (url: string) => Promise<string | null>
 ): Promise<ChristianShort[]> {
-  const responses = await Promise.allSettled(
-    ALL_CURATED_CHANNELS.map(async (spec) => {
-      const uushPlaylistId = `UUSH${spec.id.slice(2)}`;
-      const urls = [
-        `https://www.youtube.com/feeds/videos.xml?playlist_id=${uushPlaylistId}`,
-        `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`,
-      ];
+  const tasks: Array<Promise<ChristianShort[]>> = [];
 
-      for (let i = 0; i < urls.length; i++) {
-        try {
-          const text = await fetchXml(urls[i]);
-          if (text && text.includes('<entry>')) {
-            return parseChannelRssXml(text, spec, i === 0);
+  for (const spec of ALL_CURATED_CHANNELS) {
+    const uushPlaylistId = `UUSH${spec.id.slice(2)}`;
+
+    if (spec.defaultCategory === 'louvores') {
+      // Worship channels: fetch BOTH full-length music videos (channel_id) AND worship Shorts (UUSH)
+      tasks.push(
+        (async () => {
+          const collected: ChristianShort[] = [];
+          const feeds: Array<{ url: string; isShorts: boolean }> = [
+            {
+              url: `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`,
+              isShorts: false,
+            },
+            {
+              url: `https://www.youtube.com/feeds/videos.xml?playlist_id=${uushPlaylistId}`,
+              isShorts: true,
+            },
+          ];
+          const results = await Promise.allSettled(
+            feeds.map(async (f) => {
+              const xml = await fetchXml(f.url);
+              if (!xml || !xml.includes('<entry>')) return [];
+              return parseChannelRssXml(xml, spec, f.isShorts, true);
+            })
+          );
+          for (const r of results) {
+            if (r.status === 'fulfilled') collected.push(...r.value);
           }
-        } catch {
-          // Try fallback feed URL
-        }
-      }
-      return [] as ChristianShort[];
-    })
-  );
+          return collected;
+        })()
+      );
+    } else {
+      // Sermons, Bible, Testimonies: Shorts feed + check Adventist channels for explicit testimonies
+      tasks.push(
+        (async () => {
+          const collected: ChristianShort[] = [];
+          const uushUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uushPlaylistId}`;
+          const channelUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
 
+          let gotUush = false;
+          try {
+            const uushXml = await fetchXml(uushUrl);
+            if (uushXml && uushXml.includes('<entry>')) {
+              collected.push(...parseChannelRssXml(uushXml, spec, true, false));
+              gotUush = true;
+            }
+          } catch {
+            // Fall through
+          }
+
+          if (!gotUush || spec.allowInCategories.includes('testemunhos')) {
+            try {
+              const chXml = await fetchXml(channelUrl);
+              if (chXml && chXml.includes('<entry>')) {
+                const parsed = parseChannelRssXml(chXml, spec, false, false);
+                for (const item of parsed) {
+                  if (!gotUush || item.category === 'testemunhos') {
+                    collected.push(item);
+                  }
+                }
+              }
+            } catch {
+              // Ignore
+            }
+          }
+
+          return collected;
+        })()
+      );
+    }
+  }
+
+  const responses = await Promise.allSettled(tasks);
   const deduped = new Map<string, ChristianShort>();
   for (const res of responses) {
     if (res.status !== 'fulfilled') continue;
