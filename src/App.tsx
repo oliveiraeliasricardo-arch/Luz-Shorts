@@ -11,6 +11,8 @@ import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse 
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
+const SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
+const MAX_SEEN_IDS = 250;
 
 const MOBILE_FILTERS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'all', label: 'Todos' },
@@ -21,9 +23,9 @@ const MOBILE_FILTERS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'salvos', label: 'Salvos' },
 ];
 
-function readSavedIds(): string[] {
+function readStoredIdList(key: string): string[] {
   try {
-    const raw = localStorage.getItem(SAVED_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
@@ -40,7 +42,9 @@ export function App() {
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [activeCategory, setActiveCategory] = useState<ShortCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [savedIds, setSavedIds] = useState<string[]>(() => readSavedIds());
+  const [savedIds, setSavedIds] = useState<string[]>(() =>
+    readStoredIdList(SAVED_STORAGE_KEY)
+  );
   const [activeIndex, setActiveIndex] = useState(0);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(true);
@@ -51,6 +55,21 @@ export function App() {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const feedRef = useRef<HTMLDivElement | null>(null);
+  const seenIdsRef = useRef<string[]>(readStoredIdList(SEEN_STORAGE_KEY));
+
+  const markShortSeen = useCallback((shortId: string | undefined) => {
+    if (!shortId) return;
+    const next = [shortId, ...seenIdsRef.current.filter((id) => id !== shortId)].slice(
+      0,
+      MAX_SEEN_IDS
+    );
+    seenIdsRef.current = next;
+    try {
+      localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, []);
 
   const loadShorts = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {
@@ -71,27 +90,51 @@ export function App() {
       }
       const data = (await res.json()) as ShortsApiResponse;
 
-      let items = data.items;
+      // Prioritize unseen videos ahead of recently watched ones so feeds feel fresh without repeats
+      const seenSet = new Set(seenIdsRef.current);
+      const unseenItems = data.items.filter((item) => !seenSet.has(item.id));
+      const seenItems = data.items.filter((item) => seenSet.has(item.id));
 
-      // Support direct shared video links (?v=VIDEO_ID)
-      const urlParams = new URLSearchParams(window.location.search);
-      const sharedVideoId = urlParams.get('v')?.trim() || '';
-      if (/^[a-zA-Z0-9_-]{11}$/.test(sharedVideoId)) {
-        const existingIdx = items.findIndex((item) => item.id === sharedVideoId);
-        if (existingIdx > 0) {
-          const [picked] = items.splice(existingIdx, 1);
-          items = [picked, ...items];
-        } else if (existingIdx === -1) {
-          try {
-            const singleRes = await fetch(
-              `${API_BASE_URL}/api/shorts/video/${sharedVideoId}`
-            );
-            if (singleRes.ok) {
-              const singleItem = (await singleRes.json()) as ChristianShort;
-              items = [singleItem, ...items];
+      let items: ChristianShort[];
+      if (unseenItems.length === 0 && seenItems.length > 0) {
+        // User cycled through the entire catalog: retain only the most recent 10 as seen
+        const recentOnly = seenIdsRef.current.slice(0, 10);
+        seenIdsRef.current = recentOnly;
+        try {
+          localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(recentOnly));
+        } catch {
+          // Ignore storage quota errors
+        }
+        const recentSet = new Set(recentOnly);
+        items = [
+          ...data.items.filter((item) => !recentSet.has(item.id)),
+          ...data.items.filter((item) => recentSet.has(item.id)),
+        ];
+      } else {
+        items = [...unseenItems, ...seenItems];
+      }
+
+      // Support direct shared video links (?v=VIDEO_ID) on initial load
+      if (!forceRefresh) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const sharedVideoId = urlParams.get('v')?.trim() || '';
+        if (/^[a-zA-Z0-9_-]{11}$/.test(sharedVideoId)) {
+          const existingIdx = items.findIndex((item) => item.id === sharedVideoId);
+          if (existingIdx > 0) {
+            const [picked] = items.splice(existingIdx, 1);
+            items = [picked, ...items];
+          } else if (existingIdx === -1) {
+            try {
+              const singleRes = await fetch(
+                `${API_BASE_URL}/api/shorts/video/${sharedVideoId}`
+              );
+              if (singleRes.ok) {
+                const singleItem = (await singleRes.json()) as ChristianShort;
+                items = [singleItem, ...items];
+              }
+            } catch {
+              // Keep regular feed if shared lookup fails
             }
-          } catch {
-            // Keep regular feed if shared lookup fails
           }
         }
       }
@@ -100,6 +143,9 @@ export function App() {
       setSourceMode(data.sourceMode);
       setApiKeyConfigured(data.apiKeyConfigured);
       setActiveIndex(0);
+      if (feedRef.current) {
+        feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -230,6 +276,24 @@ export function App() {
     setAudioUnlocked(true);
   }, []);
 
+  // Track watched Shorts after 1 second on screen so refreshing brings fresh unseen clips
+  useEffect(() => {
+    const activeId = visibleShorts[activeIndex]?.id;
+    if (!activeId) return;
+    const timer = window.setTimeout(() => {
+      markShortSeen(activeId);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [activeIndex, visibleShorts, markShortSeen]);
+
+  const handleRefreshFeed = useCallback(() => {
+    const currentId = visibleShorts[activeIndex]?.id;
+    if (currentId) {
+      markShortSeen(currentId);
+    }
+    loadShorts(true);
+  }, [activeIndex, visibleShorts, markShortSeen, loadShorts]);
+
   // Prefetch next 2 thumbnails so swiping feels instantaneous without keeping extra video iframes open
   useEffect(() => {
     const upcoming = visibleShorts.slice(activeIndex + 1, activeIndex + 3);
@@ -333,7 +397,7 @@ export function App() {
           aria-label="Reprodutor vertical de vídeos cristãos"
           className="w-full lg:w-auto flex-1 flex items-center justify-center"
         >
-          <div className="w-full lg:max-w-[420px] h-[calc(100dvh-96px)] lg:h-[calc(100vh-7.5rem)] lg:max-h-[780px] bg-slate-950 lg:rounded-2xl overflow-hidden shadow-lg border-0 lg:border lg:border-slate-200 relative">
+          <div className="w-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] h-[calc(100dvh-96px)] lg:h-[calc(100vh-7.5rem)] lg:max-h-[780px] bg-slate-950 lg:rounded-2xl overflow-hidden shadow-lg border-0 lg:border lg:border-slate-200 relative">
             {loading ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-slate-300 px-6 text-center">
                 <RefreshCw className="w-6 h-6 animate-spin text-sky-400" aria-hidden="true" />
@@ -378,12 +442,14 @@ export function App() {
                 activeIndex={activeIndex}
                 audioUnlocked={audioUnlocked}
                 autoAdvance={autoAdvance}
+                isRefreshing={isRefreshing}
                 savedSet={savedSet}
                 feedRef={feedRef}
                 onActiveIndexChange={setActiveIndex}
                 onAudioUnlocked={handleUnlockAudio}
                 onToggleSave={handleToggleSave}
                 onShare={setShareTarget}
+                onRefresh={handleRefreshFeed}
                 onEnded={handleVideoEnded}
               />
             )}
@@ -400,7 +466,7 @@ export function App() {
           onNext={() => scrollToIndex(activeIndex + 1)}
           onSelectIndex={scrollToIndex}
           onShare={setShareTarget}
-          onRefresh={() => loadShorts(true)}
+          onRefresh={handleRefreshFeed}
         />
       </main>
 

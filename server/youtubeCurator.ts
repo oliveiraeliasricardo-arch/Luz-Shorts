@@ -105,6 +105,20 @@ const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     defaultCategory: 'louvores',
     allowInCategories: ['louvores'],
   },
+  {
+    id: 'UC_w2igv5oCWmO9gG0TE-Lag',
+    title: 'Pedro Valença',
+    doctrineScope: 'adventista',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCaguCXr6xlC5ytGAloOrR5A',
+    title: 'Desbravadores DSA',
+    doctrineScope: 'adventista',
+    defaultCategory: 'testemunhos',
+    allowInCategories: ['testemunhos', 'pregacoes', 'biblia'],
+  },
 ];
 
 const CHRISTIAN_GENERAL_CHANNELS: CuratedChannelSpec[] = [
@@ -149,6 +163,55 @@ const CHRISTIAN_GENERAL_CHANNELS: CuratedChannelSpec[] = [
     doctrineScope: 'cristao_geral',
     defaultCategory: 'louvores',
     allowInCategories: ['louvores'],
+  },
+  {
+    id: 'UCQp4yrRCGdGWi4TrF6xJyfg',
+    title: 'Morada Oficial',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCHBbuIdm7UZ2t6iVhMihBIw',
+    title: 'Fhop Music',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UC8Ni3V6ZtpGJiFTqxjHjPAw',
+    title: 'Ministério Zoe',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCz47owLttsWIx5b9PX3itHg',
+    title: 'Theo Rubia',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCYsFmUXbwaq-8XMJOdtFK2w',
+    title: 'Eli Soares',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCAHUhfptduo5zq102PC9jew',
+    title: 'Sarah Farias',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCgxdaV6GyDg-WxXU7yMzrYA',
+    title: 'Jefferson & Suellen',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
   },
 ];
 
@@ -588,27 +651,33 @@ async function fetchChannelRssShorts(spec: CuratedChannelSpec): Promise<Christia
   return results;
 }
 
-async function fetchFromYoutubeApi(apiKey: string): Promise<ChristianShort[]> {
+async function fetchFromYoutubeApi(
+  apiKey: string,
+  forceRefresh = false
+): Promise<ChristianShort[]> {
   const searchPlans: Array<{
     q: string;
     channelId?: string;
     hintCategory: ContentCategory;
+    order?: 'relevance' | 'date';
   }> = [
     // Adventist sermons & gospel preaching
-    { q: 'pregação adventista #shorts', hintCategory: 'pregacoes' },
+    { q: 'pregação adventista #shorts', hintCategory: 'pregacoes', order: forceRefresh ? 'date' : 'relevance' },
     { q: 'sermão esperança novo tempo #shorts', channelId: 'UC_OaSsAydgSIjUtjYn9qLog', hintCategory: 'pregacoes' },
     { q: 'mensagem adventista #shorts', channelId: 'UCJAO3KgZdEhCqwpkZyAYY6A', hintCategory: 'pregacoes' },
+    { q: 'reflexão bíblica pastor adventista #shorts', hintCategory: 'pregacoes', order: 'date' },
     // Adventist Bible & Prophecy studies
-    { q: 'estudo bíblico adventista #shorts', hintCategory: 'biblia' },
+    { q: 'estudo bíblico adventista #shorts', hintCategory: 'biblia', order: forceRefresh ? 'date' : 'relevance' },
     { q: 'na mira da verdade #shorts', channelId: 'UCIa6p9HWw1hEEfHzfJOcSbA', hintCategory: 'biblia' },
     { q: 'rodrigo silva arqueologia bíblia #shorts', channelId: 'UCn4M9vLHegNuqM8tnL872cA', hintCategory: 'biblia' },
+    { q: 'lições da bíblia escola sabatina #shorts', channelId: 'UCLb09BPgh7xrswJRgYQthuw', hintCategory: 'biblia' },
     // Christian worship (any denomination)
-    { q: 'louvor cristão adoração #shorts', hintCategory: 'louvores' },
-    { q: 'música gospel louvor #shorts', hintCategory: 'louvores' },
+    { q: 'louvor cristão adoração #shorts', hintCategory: 'louvores', order: forceRefresh ? 'date' : 'relevance' },
+    { q: 'música gospel louvor ao vivo #shorts', hintCategory: 'louvores', order: 'date' },
     { q: 'arautos do rei gravadora nt #shorts', hintCategory: 'louvores' },
     // Christian testimonies (any denomination)
-    { q: 'testemunho cristão fé milagre #shorts', hintCategory: 'testemunhos' },
-    { q: 'testemunho evangelho conversão #shorts', hintCategory: 'testemunhos' },
+    { q: 'testemunho cristão fé milagre #shorts', hintCategory: 'testemunhos', order: forceRefresh ? 'date' : 'relevance' },
+    { q: 'testemunho evangelho conversão #shorts', hintCategory: 'testemunhos', order: 'date' },
   ];
 
   const searchResponses = await Promise.allSettled(
@@ -622,7 +691,8 @@ async function fetchFromYoutubeApi(apiKey: string): Promise<ChristianShort[]> {
         safeSearch: 'strict',
         relevanceLanguage: 'pt',
         regionCode: 'BR',
-        maxResults: '10',
+        maxResults: '15',
+        order: plan.order || 'relevance',
         q: plan.q,
       });
       if (plan.channelId) {
@@ -792,30 +862,120 @@ async function fetchFromCuratedRss(): Promise<ChristianShort[]> {
   return [...deduped.values()];
 }
 
-function interleaveByCategoryAndRecency(items: ChristianShort[]): ChristianShort[] {
-  const sorted = [...items].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
-  const buckets: Record<ContentCategory, ChristianShort[]> = {
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function normalizeTitleKey(title: string): string {
+  return title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/#[a-z0-9_]+/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function deduplicateShorts(items: ChristianShort[]): ChristianShort[] {
+  const seenIds = new Set<string>();
+  const seenGlobalTitles = new Set<string>();
+  const seenChannelTitles = new Set<string>();
+  const unique: ChristianShort[] = [];
+
+  for (const item of items) {
+    if (seenIds.has(item.id)) continue;
+
+    const titleKey = normalizeTitleKey(item.title);
+    const channelTitleKey = `${item.channelId}:${titleKey}`;
+
+    if (titleKey.length >= 14 && seenGlobalTitles.has(titleKey)) continue;
+    if (titleKey.length >= 6 && seenChannelTitles.has(channelTitleKey)) continue;
+
+    seenIds.add(item.id);
+    if (titleKey.length >= 14) seenGlobalTitles.add(titleKey);
+    if (titleKey.length >= 6) seenChannelTitles.add(channelTitleKey);
+    unique.push(item);
+  }
+
+  return unique;
+}
+
+function buildDiverseFeed(items: ChristianShort[], randomize: boolean): ChristianShort[] {
+  const uniqueItems = deduplicateShorts(items);
+  const categories: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+  if (randomize) {
+    shuffleInPlace(categories);
+  }
+
+  // Group items per category, then per channel, and round-robin channels inside each category
+  const categoryStreams: Record<ContentCategory, ChristianShort[]> = {
     pregacoes: [],
     biblia: [],
     louvores: [],
     testemunhos: [],
   };
 
-  for (const item of sorted) {
-    buckets[item.category].push(item);
+  for (const cat of categories) {
+    const catItems = uniqueItems.filter((item) => item.category === cat);
+    const byChannel = new Map<string, ChristianShort[]>();
+
+    for (const item of catItems) {
+      const list = byChannel.get(item.channelId) ?? [];
+      list.push(item);
+      byChannel.set(item.channelId, list);
+    }
+
+    const channelQueues = [...byChannel.values()].map((list) => {
+      const ordered = [...list].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+      return randomize ? shuffleInPlace(ordered) : ordered;
+    });
+
+    if (randomize) {
+      shuffleInPlace(channelQueues);
+    } else {
+      channelQueues.sort((a, b) =>
+        (b[0]?.publishedAt || '').localeCompare(a[0]?.publishedAt || '')
+      );
+    }
+
+    let added = true;
+    while (added) {
+      added = false;
+      for (const queue of channelQueues) {
+        const next = queue.shift();
+        if (next) {
+          categoryStreams[cat].push(next);
+          added = true;
+        }
+      }
+    }
   }
 
-  const order: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+  // Interleave across categories while avoiding consecutive clips from the same channel
   const interleaved: ChristianShort[] = [];
-  let added = true;
+  let lastChannelId: string | null = null;
+  let remaining = true;
 
-  while (added) {
-    added = false;
-    for (const cat of order) {
-      const next = buckets[cat].shift();
-      if (next) {
-        interleaved.push(next);
-        added = true;
+  while (remaining) {
+    remaining = false;
+    for (const cat of categories) {
+      const stream = categoryStreams[cat];
+      if (stream.length === 0) continue;
+      remaining = true;
+
+      let pickIdx = stream.findIndex((item) => item.channelId !== lastChannelId);
+      if (pickIdx === -1) pickIdx = 0;
+
+      const [picked] = stream.splice(pickIdx, 1);
+      if (picked) {
+        interleaved.push(picked);
+        lastChannelId = picked.channelId;
       }
     }
   }
@@ -845,10 +1005,11 @@ export async function getCuratedChristianShorts(options: {
 
   let items: ChristianShort[] = [];
   let sourceMode: 'youtube_api' | 'curated_rss' = 'curated_rss';
+  const randomize = Boolean(options.forceRefresh);
 
   if (apiKeyConfigured) {
     try {
-      const apiItems = await fetchFromYoutubeApi(apiKey);
+      const apiItems = await fetchFromYoutubeApi(apiKey, randomize);
       // Merge with RSS curated Adventist & worship Shorts to guarantee rich category depth
       const rssItems = await fetchFromCuratedRss();
       const merged = new Map<string, ChristianShort>();
@@ -856,14 +1017,14 @@ export async function getCuratedChristianShorts(options: {
       for (const item of rssItems) {
         if (!merged.has(item.id)) merged.set(item.id, item);
       }
-      items = interleaveByCategoryAndRecency([...merged.values()]);
+      items = buildDiverseFeed([...merged.values()], randomize);
       sourceMode = 'youtube_api';
     } catch {
-      items = interleaveByCategoryAndRecency(await fetchFromCuratedRss());
+      items = buildDiverseFeed(await fetchFromCuratedRss(), randomize);
       sourceMode = 'curated_rss';
     }
   } else {
-    items = interleaveByCategoryAndRecency(await fetchFromCuratedRss());
+    items = buildDiverseFeed(await fetchFromCuratedRss(), randomize);
     sourceMode = 'curated_rss';
   }
 

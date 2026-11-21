@@ -4,6 +4,7 @@ import {
   ExternalLink,
   Pause,
   Play,
+  RefreshCw,
   Share2,
 } from 'lucide-react';
 import type { ChristianShort } from '../types/shorts';
@@ -14,12 +15,14 @@ interface ShortsFeedStageProps {
   activeIndex: number;
   audioUnlocked: boolean;
   autoAdvance: boolean;
+  isRefreshing: boolean;
   savedSet: Set<string>;
   feedRef: React.RefObject<HTMLDivElement | null>;
   onActiveIndexChange: (index: number) => void;
   onAudioUnlocked: () => void;
   onToggleSave: (shortId: string) => void;
   onShare: (short: ChristianShort) => void;
+  onRefresh: () => void;
   onEnded: () => void;
 }
 
@@ -35,25 +38,31 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   activeIndex,
   audioUnlocked,
   autoAdvance,
+  isRefreshing,
   savedSet,
   feedRef,
   onActiveIndexChange,
   onAudioUnlocked,
   onToggleSave,
   onShare,
+  onRefresh,
   onEnded,
 }) => {
   const playerHostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const currentVideoIdRef = useRef<string | null>(null);
   const autoplayCheckTimerRef = useRef<number | null>(null);
-  const settleTimerRef = useRef<number | null>(null);
+  const wheelLockUntilRef = useRef<number>(0);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchConsumedRef = useRef<boolean>(false);
+  const touchDraggedRef = useRef<boolean>(false);
+  const pullDistanceRef = useRef<number>(0);
 
   const [playerReady, setPlayerReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isVideoVisible, setIsVideoVisible] = useState(false);
-  const [isScrolling, setIsScrolling] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [pullDistance, setPullDistance] = useState(0);
   const [hasError, setHasError] = useState(false);
   const [feedbackState, setFeedbackState] = useState<'play' | 'pause' | null>(null);
 
@@ -64,7 +73,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   const activeIndexRef = useRef(activeIndex);
   const audioUnlockedRef = useRef(audioUnlocked);
   const autoAdvanceRef = useRef(autoAdvance);
+  const isRefreshingRef = useRef(isRefreshing);
   const onEndedRef = useRef(onEnded);
+  const onRefreshRef = useRef(onRefresh);
   const onAudioUnlockedRef = useRef(onAudioUnlocked);
   const onActiveIndexChangeRef = useRef(onActiveIndexChange);
 
@@ -72,7 +83,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   activeIndexRef.current = activeIndex;
   audioUnlockedRef.current = audioUnlocked;
   autoAdvanceRef.current = autoAdvance;
+  isRefreshingRef.current = isRefreshing;
   onEndedRef.current = onEnded;
+  onRefreshRef.current = onRefresh;
   onAudioUnlockedRef.current = onAudioUnlocked;
   onActiveIndexChangeRef.current = onActiveIndexChange;
 
@@ -93,6 +106,26 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       // Ignore if player is still initializing
     }
   }, []);
+
+  const jumpToSlide = useCallback(
+    (nextIndex: number) => {
+      const clamped = Math.max(0, Math.min(items.length - 1, nextIndex));
+      if (clamped === activeIndexRef.current) return;
+
+      silenceCurrentVideoImmediately();
+      onAudioUnlockedRef.current();
+
+      const container = feedRef.current;
+      if (container && container.clientHeight > 0) {
+        container.scrollTo({
+          top: clamped * container.clientHeight,
+          behavior: 'auto',
+        });
+      }
+      onActiveIndexChangeRef.current(clamped);
+    },
+    [feedRef, items.length, silenceCurrentVideoImmediately]
+  );
 
   const startPlaybackOnPlayer = useCallback(
     (
@@ -201,8 +234,6 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
             },
             onStateChange: (event) => {
               if (cancelled) return;
-              // Reveal player immediately on BUFFERING as well as PLAYING so the video decoder
-              // paints frames before audio begins (zero audio-before-video desync).
               if (event.data === YT.PlayerState.BUFFERING) {
                 setIsVideoVisible(true);
               } else if (event.data === YT.PlayerState.PLAYING) {
@@ -273,89 +304,131 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [Boolean(activeVideoId)]);
 
-  // Switch videos instantaneously via loadVideoById whenever activeVideoId changes and scroll settles
+  // Switch videos instantaneously via loadVideoById whenever activeVideoId changes
   useEffect(() => {
-    if (!playerReady || !playerRef.current || !activeVideoId || isScrolling) {
+    if (!playerReady || !playerRef.current || !activeVideoId) {
       return;
     }
     if (currentVideoIdRef.current !== activeVideoId) {
       startPlaybackOnPlayer(playerRef.current, activeVideoId, false);
     }
-  }, [activeVideoId, playerReady, isScrolling, startPlaybackOnPlayer]);
+  }, [activeVideoId, playerReady, startPlaybackOnPlayer]);
 
-  // Cut audio synchronously on scroll start and finalize immediately when aligned
+  // Keep container strictly aligned to activeIndex (and on resize) so no partial frame ever shows
+  useEffect(() => {
+    const syncAlignment = () => {
+      const container = feedRef.current;
+      if (!container || container.clientHeight <= 0) return;
+      container.scrollTo({
+        top: activeIndex * container.clientHeight,
+        behavior: 'auto',
+      });
+    };
+    syncAlignment();
+    window.addEventListener('resize', syncAlignment);
+    return () => window.removeEventListener('resize', syncAlignment);
+  }, [activeIndex, items.length, feedRef]);
+
+  // Instant discrete wheel and touch swipe transitions:
+  // As soon as scrolling starts, show 100% of the next video immediately with zero half-cut frames.
   useEffect(() => {
     const container = feedRef.current;
     if (!container) return;
 
-    const finalizeScroll = () => {
-      const h = container.clientHeight;
-      if (h > 0) {
-        const nextIdx = Math.max(
-          0,
-          Math.min(items.length - 1, Math.round(container.scrollTop / h))
-        );
-        if (nextIdx !== activeIndexRef.current) {
-          onActiveIndexChangeRef.current(nextIdx);
-        }
+    const handleWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) < 6) return;
+      e.preventDefault();
+
+      const now = Date.now();
+      if (now < wheelLockUntilRef.current) return;
+      wheelLockUntilRef.current = now + 260;
+
+      if (e.deltaY > 0) {
+        jumpToSlide(activeIndexRef.current + 1);
+      } else {
+        jumpToSlide(activeIndexRef.current - 1);
       }
-      setIsScrolling(false);
     };
 
-    const handleScroll = () => {
-      const h = container.clientHeight;
-      if (h <= 0) return;
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      touchStartYRef.current = e.touches[0].clientY;
+      touchConsumedRef.current = false;
+      touchDraggedRef.current = false;
+      pullDistanceRef.current = 0;
+      setPullDistance(0);
+    };
 
-      const nearestIdx = Math.max(
-        0,
-        Math.min(items.length - 1, Math.round(container.scrollTop / h))
-      );
-      const distanceFromNearest = Math.abs(container.scrollTop - nearestIdx * h);
+    const handleTouchMove = (e: TouchEvent) => {
+      if (touchStartYRef.current === null || touchConsumedRef.current) return;
+      const currentY = e.touches[0].clientY;
+      const deltaUp = touchStartYRef.current - currentY;
 
-      if (nearestIdx !== activeIndexRef.current) {
-        silenceCurrentVideoImmediately();
-        onActiveIndexChangeRef.current(nearestIdx);
+      if (Math.abs(deltaUp) > 8) {
+        touchDraggedRef.current = true;
       }
 
-      // If already snapped to a slide (e.g. instant jump or scroll just landed), finalize immediately
-      if (distanceFromNearest <= 2) {
-        if (settleTimerRef.current) {
-          window.clearTimeout(settleTimerRef.current);
-          settleTimerRef.current = null;
-        }
-        setIsScrolling(false);
+      // Sliding finger UP: advance immediately so 100% of next video image appears right away
+      if (deltaUp >= 24) {
+        e.preventDefault();
+        touchConsumedRef.current = true;
+        pullDistanceRef.current = 0;
+        setPullDistance(0);
+        jumpToSlide(activeIndexRef.current + 1);
         return;
       }
 
-      // Actively mid-swipe between two slides: cut audio and show thumbnail deck
-      setIsScrolling(true);
-      silenceCurrentVideoImmediately();
-
-      if (settleTimerRef.current) {
-        window.clearTimeout(settleTimerRef.current);
+      // Sliding finger DOWN: track pull distance; long pull refreshes, short pull goes back one slide
+      if (deltaUp < 0) {
+        const rawDown = -deltaUp;
+        if (rawDown > 8) {
+          e.preventDefault();
+        }
+        const damped = Math.min(180, Math.round(rawDown * 0.78));
+        pullDistanceRef.current = damped;
+        setPullDistance(damped);
+      } else if (pullDistanceRef.current > 0) {
+        pullDistanceRef.current = 0;
+        setPullDistance(0);
       }
-      settleTimerRef.current = window.setTimeout(finalizeScroll, 45);
     };
 
-    const handleScrollEnd = () => {
-      if (settleTimerRef.current) {
-        window.clearTimeout(settleTimerRef.current);
-        settleTimerRef.current = null;
+    const handleTouchEnd = () => {
+      const pulled = pullDistanceRef.current;
+      const threshold = activeIndexRef.current === 0 ? 92 : 132;
+
+      if (!touchConsumedRef.current && pulled > 0) {
+        if (!isRefreshingRef.current && pulled >= threshold) {
+          onAudioUnlockedRef.current();
+          onRefreshRef.current();
+        } else if (activeIndexRef.current > 0 && pulled >= 22) {
+          jumpToSlide(activeIndexRef.current - 1);
+        }
       }
-      finalizeScroll();
+
+      pullDistanceRef.current = 0;
+      setPullDistance(0);
+      touchStartYRef.current = null;
+      touchConsumedRef.current = false;
+      window.setTimeout(() => {
+        touchDraggedRef.current = false;
+      }, 60);
     };
 
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    container.addEventListener('scrollend', handleScrollEnd, { passive: true });
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+    container.addEventListener('touchcancel', handleTouchEnd, { passive: true });
 
     return () => {
-      container.removeEventListener('scroll', handleScroll);
-      container.removeEventListener('scrollend', handleScrollEnd);
-      if (settleTimerRef.current) {
-        window.clearTimeout(settleTimerRef.current);
-      }
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, [feedRef, items.length, silenceCurrentVideoImmediately]);
+  }, [feedRef, jumpToSlide]);
 
   // Unmute automatically on first user gesture anywhere
   useEffect(() => {
@@ -370,7 +443,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
 
   // Fast 100ms progress bar polling
   useEffect(() => {
-    if (!playerReady || !isPlaying || isScrolling) return;
+    if (!playerReady || !isPlaying) return;
     const interval = window.setInterval(() => {
       const player = playerRef.current;
       if (!player) return;
@@ -385,7 +458,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       }
     }, 100);
     return () => window.clearInterval(interval);
-  }, [playerReady, isPlaying, isScrolling]);
+  }, [playerReady, isPlaying]);
 
   const handleTogglePlayPause = () => {
     onAudioUnlocked();
@@ -407,36 +480,84 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     }
   };
 
+  const handleTapTogglePlayPause = () => {
+    if (touchDraggedRef.current) return;
+    handleTogglePlayPause();
+  };
+
+  const pullThreshold = activeIndex === 0 ? 92 : 132;
+  const showPullIndicator = isRefreshing || pullDistance > 16;
+  const readyToRefresh = pullDistance >= pullThreshold;
+  const pullProgress = Math.min(1, pullDistance / pullThreshold);
+  const pullTranslateY = isRefreshing ? 14 : Math.min(64, Math.round(pullDistance * 0.45)) - 6;
+
   return (
-    <div className="relative w-full h-full bg-slate-950 overflow-hidden select-none">
-      {/* Persistent Single YouTube Player Layer (zero transition delay so video frames paint in sync with audio) */}
+    <div className="relative w-full h-full bg-slate-950 overflow-hidden select-none overscroll-none">
+      {/* Pull-to-refresh floating indicator */}
+      <div
+        aria-live="polite"
+        className={`pointer-events-none absolute top-2 left-1/2 z-40 transition-opacity duration-150 ${
+          showPullIndicator ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{
+          transform: `translate3d(-50%, ${pullTranslateY}px, 0)`,
+        }}
+      >
+        <div
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-full backdrop-blur-md border text-xs font-semibold shadow-lg whitespace-nowrap ${
+            readyToRefresh || isRefreshing
+              ? 'bg-sky-700/95 border-sky-400/60 text-white'
+              : 'bg-slate-900/90 border-white/15 text-slate-100'
+          }`}
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 shrink-0 ${isRefreshing ? 'animate-spin' : ''}`}
+            style={
+              isRefreshing
+                ? undefined
+                : { transform: `rotate(${Math.round(pullProgress * 220)}deg)` }
+            }
+            aria-hidden="true"
+          />
+          <span>
+            {isRefreshing
+              ? 'Atualizando vídeos...'
+              : readyToRefresh
+              ? 'Solte para atualizar o feed'
+              : activeIndex === 0
+              ? 'Deslize mais para atualizar'
+              : 'Continue deslizando para atualizar'}
+          </span>
+        </div>
+      </div>
+
+      {/* Persistent Single YouTube Player Layer */}
       <div
         className={`absolute inset-0 z-10 pointer-events-none ${
-          isVideoVisible && !isScrolling && !hasError ? 'opacity-100' : 'opacity-0'
+          isVideoVisible && !hasError ? 'opacity-100' : 'opacity-0'
         }`}
       >
         <div ref={playerHostRef} className="w-full h-full" />
       </div>
 
-      {/* Scroll-Snap Thumbnail Slide Feed */}
+      {/* Discrete Full-Frame Slide Viewport (overflow-hidden prevents half-scrolled frames) */}
       <div
         ref={feedRef}
-        className="relative z-20 w-full h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar"
+        className="relative z-20 w-full h-full overflow-hidden touch-none overscroll-none"
       >
         {items.map((short, idx) => {
           const isCurrent = idx === activeIndex;
           const isSaved = savedSet.has(short.id);
           const viewsLabel = formatViews(short.viewCount);
-          const hidePosterForVideo =
-            isCurrent && isVideoVisible && !isScrolling && !hasError;
+          const hidePosterForVideo = isCurrent && isVideoVisible && !hasError;
 
           return (
             <article
               key={short.id}
               data-short-id={short.id}
-              className="relative w-full h-full snap-start snap-always flex items-center justify-center overflow-hidden"
+              className="relative w-full h-full flex items-center justify-center overflow-hidden"
             >
-              {/* Thumbnail Poster (instant cut when video starts buffering/playing—no slow fade) */}
+              {/* Full-Frame Thumbnail Poster */}
               <div
                 className={`absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 ${
                   hidePosterForVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -446,14 +567,14 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                   src={short.thumbnailUrl}
                   alt={short.title}
                   referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover opacity-90"
+                  className="w-full h-full object-cover"
                 />
               </div>
 
               {/* Tap-to-play/pause interactive surface */}
               <button
                 type="button"
-                onClick={handleTogglePlayPause}
+                onClick={handleTapTogglePlayPause}
                 aria-label={isPlaying ? 'Pausar vídeo' : 'Reproduzir vídeo'}
                 className="absolute inset-0 z-10 w-full h-full cursor-pointer focus:outline-none"
               />

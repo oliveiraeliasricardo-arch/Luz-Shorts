@@ -7,9 +7,11 @@
 }
 
 @layer base {
-  html {
+  html,
+  body {
     scroll-behavior: smooth;
     font-family: var(--font-sans);
+    overscroll-behavior-y: contain;
   }
 
   h1, h2, h3, h4 {
