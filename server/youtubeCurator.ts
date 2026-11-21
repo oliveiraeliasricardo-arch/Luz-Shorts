@@ -69,9 +69,12 @@ async function fetchFromYoutubeApi(
         regionCode: 'BR',
         maxResults: '15',
         order: plan.order || 'relevance',
-        q: plan.hintCategory === 'louvores' ? plan.q.replace(/\s*#shorts/i, '') : plan.q,
+        q:
+          plan.hintCategory === 'louvores' || plan.hintCategory === 'pregacoes'
+            ? plan.q.replace(/\s*#shorts/i, '')
+            : plan.q,
       });
-      if (plan.hintCategory !== 'louvores') {
+      if (plan.hintCategory !== 'louvores' && plan.hintCategory !== 'pregacoes') {
         params.set('videoDuration', 'short');
       }
       if (plan.channelId) {
@@ -203,6 +206,7 @@ async function fetchFromYoutubeApi(
 
     if (
       classified.category !== 'louvores' &&
+      classified.category !== 'pregacoes' &&
       meta?.durationSeconds &&
       meta.durationSeconds > 185
     ) {

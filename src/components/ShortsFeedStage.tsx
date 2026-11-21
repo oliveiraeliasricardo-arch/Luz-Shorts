@@ -602,7 +602,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                     Este vídeo restringiu a reprodução incorporada neste navegador.
                   </p>
                   <a
-                    href={short.shortsUrl}
+                    href={
+                      short.category === 'louvores' || short.category === 'pregacoes'
+                        ? short.youtubeUrl
+                        : short.shortsUrl
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-600 text-xs font-semibold text-white transition-colors"
@@ -700,7 +704,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                 </button>
 
                 <a
-                  href={short.shortsUrl}
+                  href={
+                    short.category === 'louvores' || short.category === 'pregacoes'
+                      ? short.youtubeUrl
+                      : short.shortsUrl
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}

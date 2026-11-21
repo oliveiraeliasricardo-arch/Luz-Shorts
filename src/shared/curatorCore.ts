@@ -366,6 +366,29 @@ const NOISE_AND_PROMO_PATTERNS = [
   /\bum registro especial\b/i,
   /\bexerc[ií]cio f[ií]sico:\s*movimento/i,
   /\b[aá]gua:\s*a ess[eê]ncia da vida\b/i,
+  /\binformativo mundial\b/i,
+  /\bconc[ií]lio anual\b/i,
+  /\bprograma[cç][aã]o especial\b/i,
+  /\btogether feel the mission\b/i,
+  /\btogether cast\b/i,
+  /\bresumo treinamentos\b/i,
+  /\bvideo volunt[aá]rio\b/i,
+  /\beu j[aá] fui:\b/i,
+  /\bcelebra[cç][aã]o\s*\|\s*\d+\s*anos\b/i,
+  /\beduca[cç][aã]o adventista\b/i,
+  /\ba for[cç]a da igreja\b/i,
+  /\bobra m[eé]dico-mission[aá]ria\b/i,
+  /\bhist[oó]ria do adventismo\b/i,
+  /\bhomenagem aos professores\b/i,
+  /\bdesafio supera[cç][aã]o\b/i,
+  /\bi will go 20\d{2}\b/i,
+  /\bpodcrush\b/i,
+  /\bimpacto esperan[cç]a no sul\b/i,
+  /\bnovas gera[cç][oõ]es\b/i,
+  /\bminuto miss[aã]o mulher\b/i,
+  /\bc[oó]pia de\b/i,
+  /\bsupermission[aá]rios\b/i,
+  /\bplayback (sem|com) chamada\b/i,
 ];
 
 const STRICT_TESTIMONY_TITLE_PATTERNS = [
@@ -511,6 +534,21 @@ const SERMON_SPIRITUAL_PATTERNS = [
   /\buniverso\b/i,
   /\bpagou o pre[cç]o\b/i,
   /\bmission[aá]rio\b/i,
+  /\bculto\b/i,
+  /\bmedita[cç][aã]o\b/i,
+  /\bp[oô]r do sol\b/i,
+  /\bevangelismo\b/i,
+  /\barmagedom\b/i,
+  /\bdoug batchelor\b/i,
+  /\bhander heim\b/i,
+  /\bvoz da profecia\b/i,
+  /\bpr\.\s*[a-záéíóúâêôãõç]+/i,
+  /\bnao se preocupe\b|\bn[aã]o se preocupe\b/i,
+  /\bsegue jesus\b/i,
+  /\bmestre da tempestade\b/i,
+  /\bmachuca voc[eê]\b/i,
+  /\bconfiando\b/i,
+  /\banjos\b/i,
 ];
 
 export function decodeXmlEntities(str: string): string {
@@ -720,7 +758,7 @@ export function parseChannelRssXml(
   xml: string,
   spec: CuratedChannelSpec,
   isDedicatedShortsPlaylist: boolean,
-  allowFullLengthForWorship = false
+  allowFullLengthCategories = false
 ): ChristianShort[] {
   const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map((m) => m[1]);
   const results: ChristianShort[] = [];
@@ -742,11 +780,12 @@ export function parseChannelRssXml(
     const classified = classifyShort(spec.id, authorName, title, description);
     if (!classified) continue;
 
-    // Keep Shorts for Sermons/Bible/Testimonies, while allowing full-length music videos for Louvores
+    // Allow full-length videos for Louvores, Pregações, and explicit Testemunhos
     const isShortLink = linkHref.includes('/shorts/');
     if (!isDedicatedShortsPlaylist && !isShortLink) {
       const canIncludeFullVideo =
-        (allowFullLengthForWorship && classified.category === 'louvores') ||
+        (allowFullLengthCategories &&
+          (classified.category === 'louvores' || classified.category === 'pregacoes')) ||
         classified.category === 'testemunhos';
       if (!canIncludeFullVideo) {
         continue;
@@ -813,37 +852,37 @@ export async function fetchCuratedRssWithAdapter(
         })()
       );
     } else {
-      // Sermons, Bible, Testimonies: Shorts feed + check Adventist channels for explicit testimonies
+      // Sermons, Bible, Testimonies: Shorts feed + main channel feed for full-length Adventist sermons & testimonies
       tasks.push(
         (async () => {
           const collected: ChristianShort[] = [];
           const uushUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uushPlaylistId}`;
           const channelUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
+          const includeFullSermons = spec.allowInCategories.includes('pregacoes');
+
+          const [uushRes, chRes] = await Promise.allSettled([
+            fetchXml(uushUrl),
+            includeFullSermons || spec.allowInCategories.includes('testemunhos')
+              ? fetchXml(channelUrl)
+              : Promise.resolve(null),
+          ]);
 
           let gotUush = false;
-          try {
-            const uushXml = await fetchXml(uushUrl);
-            if (uushXml && uushXml.includes('<entry>')) {
-              collected.push(...parseChannelRssXml(uushXml, spec, true, false));
-              gotUush = true;
-            }
-          } catch {
-            // Fall through
+          if (uushRes.status === 'fulfilled' && uushRes.value && uushRes.value.includes('<entry>')) {
+            collected.push(...parseChannelRssXml(uushRes.value, spec, true, false));
+            gotUush = true;
           }
 
-          if (!gotUush || spec.allowInCategories.includes('testemunhos')) {
-            try {
-              const chXml = await fetchXml(channelUrl);
-              if (chXml && chXml.includes('<entry>')) {
-                const parsed = parseChannelRssXml(chXml, spec, false, false);
-                for (const item of parsed) {
-                  if (!gotUush || item.category === 'testemunhos') {
-                    collected.push(item);
-                  }
-                }
+          if (chRes.status === 'fulfilled' && chRes.value && chRes.value.includes('<entry>')) {
+            const parsed = parseChannelRssXml(chRes.value, spec, false, includeFullSermons);
+            for (const item of parsed) {
+              if (
+                !gotUush ||
+                item.category === 'pregacoes' ||
+                item.category === 'testemunhos'
+              ) {
+                collected.push(item);
               }
-            } catch {
-              // Ignore
             }
           }
 
