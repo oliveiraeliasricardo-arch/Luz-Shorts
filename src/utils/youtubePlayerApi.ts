@@ -1,4 +1,6 @@
 export interface YTPlayer {
+  loadVideoById: (options: { videoId: string; startSeconds?: number } | string) => void;
+  cueVideoById: (options: { videoId: string; startSeconds?: number } | string) => void;
   playVideo: () => void;
   pauseVideo: () => void;
   stopVideo: () => void;

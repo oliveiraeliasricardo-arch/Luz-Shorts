@@ -3,9 +3,9 @@ import { AlertCircle, Bookmark, RefreshCw, Search, X } from 'lucide-react';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { RightQueuePanel } from './components/RightQueuePanel';
 import { ShareModal } from './components/ShareModal';
+import { ShortsFeedStage } from './components/ShortsFeedStage';
 import { ShortsSidebar } from './components/ShortsSidebar';
 import { TopBar } from './components/TopBar';
-import { YouTubeShortPlayer } from './components/YouTubeShortPlayer';
 import { loadYouTubeIframeApi } from './utils/youtubePlayerApi';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
@@ -190,36 +190,12 @@ export function App() {
       const slideHeight = container.clientHeight;
       container.scrollTo({
         top: clamped * slideHeight,
-        behavior: 'smooth',
+        behavior: 'auto',
       });
       setActiveIndex(clamped);
     },
     [visibleShorts.length]
   );
-
-  // Sync activeIndex accurately on vertical scroll-snap
-  useEffect(() => {
-    const container = feedRef.current;
-    if (!container) return;
-
-    let rafId = 0;
-    const handleScroll = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const h = container.clientHeight;
-        if (h <= 0) return;
-        const idx = Math.round(container.scrollTop / h);
-        const clamped = Math.max(0, Math.min(visibleShorts.length - 1, idx));
-        setActiveIndex((prev) => (prev !== clamped ? clamped : prev));
-      });
-    };
-
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [visibleShorts.length]);
 
   // Keyboard navigation (ArrowDown / ArrowUp / J / K)
   useEffect(() => {
@@ -397,26 +373,19 @@ export function App() {
                 </button>
               </div>
             ) : (
-              <div
-                ref={feedRef}
-                className="w-full h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar"
-              >
-                {visibleShorts.map((short, idx) => (
-                  <div key={short.id} className="w-full h-full snap-start snap-always">
-                    <YouTubeShortPlayer
-                      short={short}
-                      isActive={idx === activeIndex}
-                      audioUnlocked={audioUnlocked}
-                      autoAdvance={autoAdvance}
-                      isSaved={savedSet.has(short.id)}
-                      onAudioUnlocked={handleUnlockAudio}
-                      onToggleSave={handleToggleSave}
-                      onShare={setShareTarget}
-                      onEnded={handleVideoEnded}
-                    />
-                  </div>
-                ))}
-              </div>
+              <ShortsFeedStage
+                items={visibleShorts}
+                activeIndex={activeIndex}
+                audioUnlocked={audioUnlocked}
+                autoAdvance={autoAdvance}
+                savedSet={savedSet}
+                feedRef={feedRef}
+                onActiveIndexChange={setActiveIndex}
+                onAudioUnlocked={handleUnlockAudio}
+                onToggleSave={handleToggleSave}
+                onShare={setShareTarget}
+                onEnded={handleVideoEnded}
+              />
             )}
           </div>
         </section>
