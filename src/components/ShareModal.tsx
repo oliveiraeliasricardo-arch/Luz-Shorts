@@ -78,7 +78,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ short, isOpen, onClose }
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl p-5 sm:p-6 space-y-5"
+        className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl p-5 sm:p-6 safe-pb space-y-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto -mt-1 mb-2" />

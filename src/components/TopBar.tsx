@@ -24,8 +24,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   const isSavedActive = activeCategory === 'salvos';
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200">
-      <div className="max-w-[1360px] mx-auto px-4 sm:px-6 h-[52px] lg:h-16 flex items-center justify-between gap-8">
+    <header className="shrink-0 sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 safe-pt safe-px">
+      <div className="max-w-[1360px] mx-auto px-3 sm:px-6 h-[52px] lg:h-16 flex items-center justify-between gap-3 lg:gap-8">
         {/* Zone 1: Single-line Brand Wordmark */}
         <a
           href="/"

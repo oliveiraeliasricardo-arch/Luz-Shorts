@@ -332,7 +332,7 @@ export function App() {
   }, [activeIndex, visibleShorts.length, scrollToIndex]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+    <div className="h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-slate-50 text-slate-900 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full">
       <TopBar
         activeCategory={activeCategory}
         savedCount={savedIds.length}
@@ -340,7 +340,7 @@ export function App() {
       />
 
       {/* Mobile compact single-line category bar (stays well below 15% sticky height cap) */}
-      <div className="lg:hidden sticky top-[52px] z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 h-11 flex items-center gap-2">
+      <div className="lg:hidden shrink-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 h-11 flex items-center gap-2 safe-px">
         {mobileSearchOpen ? (
           <div className="flex items-center gap-2 w-full">
             <Search className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
@@ -397,8 +397,8 @@ export function App() {
         )}
       </div>
 
-      {/* Main 3-Column Studio Workspace on Desktop / Full-Height Feed on Mobile */}
-      <main className="flex-1 max-w-[1360px] w-full mx-auto lg:px-6 lg:py-6 flex items-start justify-center lg:gap-8">
+      {/* Main 3-Column Studio Workspace on Desktop / Exact Viewport Feed on Mobile */}
+      <main className="flex-1 min-h-0 overflow-hidden lg:overflow-visible max-w-[1360px] w-full mx-auto lg:px-6 lg:py-6 flex items-stretch lg:items-start justify-center lg:gap-8">
         <ShortsSidebar
           activeCategory={activeCategory}
           searchQuery={searchQuery}
@@ -414,9 +414,9 @@ export function App() {
         {/* Center Vertical Shorts Stage */}
         <section
           aria-label="Reprodutor vertical de vídeos cristãos"
-          className="w-full lg:w-auto flex-1 flex items-center justify-center"
+          className="w-full h-full min-h-0 lg:h-auto lg:w-auto flex-1 flex items-center justify-center"
         >
-          <div className="w-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] h-[calc(100dvh-96px)] lg:h-[calc(100vh-7.5rem)] lg:max-h-[780px] bg-slate-950 lg:rounded-2xl overflow-hidden shadow-lg border-0 lg:border lg:border-slate-200 relative">
+          <div className="w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-7.5rem)] lg:max-h-[780px] bg-slate-950 lg:rounded-2xl overflow-hidden shadow-lg border-0 lg:border lg:border-slate-200 relative">
             {loading ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-slate-300 px-6 text-center">
                 <RefreshCw className="w-6 h-6 animate-spin text-sky-400" aria-hidden="true" />
