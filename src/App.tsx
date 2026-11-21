@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Bookmark, RefreshCw, Search, X } from 'lucide-react';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { RightQueuePanel } from './components/RightQueuePanel';
 import { ShareModal } from './components/ShareModal';
 import { ShortsSidebar } from './components/ShortsSidebar';
@@ -7,6 +9,7 @@ import { TopBar } from './components/TopBar';
 import { YouTubeShortPlayer } from './components/YouTubeShortPlayer';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 
 const MOBILE_FILTERS: Array<{ id: ShortCategory; label: string }> = [
@@ -60,7 +63,9 @@ export function App() {
     try {
       const params = new URLSearchParams();
       if (forceRefresh) params.set('refresh', '1');
-      const res = await fetch(`/api/shorts${params.toString() ? `?${params.toString()}` : ''}`);
+      const res = await fetch(
+        `${API_BASE_URL}/api/shorts${params.toString() ? `?${params.toString()}` : ''}`
+      );
       if (!res.ok) {
         throw new Error(`Erro HTTP ${res.status} ao carregar vídeos`);
       }
@@ -78,7 +83,9 @@ export function App() {
           items = [picked, ...items];
         } else if (existingIdx === -1) {
           try {
-            const singleRes = await fetch(`/api/shorts/video/${sharedVideoId}`);
+            const singleRes = await fetch(
+              `${API_BASE_URL}/api/shorts/video/${sharedVideoId}`
+            );
             if (singleRes.ok) {
               const singleItem = (await singleRes.json()) as ChristianShort;
               items = [singleItem, ...items];
@@ -288,7 +295,7 @@ export function App() {
             >
               <Search className="w-4 h-4" aria-hidden="true" />
             </button>
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 flex-1 min-w-0">
               {MOBILE_FILTERS.map((cat) => {
                 const isActive = activeCategory === cat.id;
                 return (
@@ -307,6 +314,7 @@ export function App() {
                 );
               })}
             </div>
+            <PWAInstallButton variant="compact" />
           </>
         )}
       </div>
@@ -414,6 +422,8 @@ export function App() {
         isOpen={Boolean(shareTarget)}
         onClose={() => setShareTarget(null)}
       />
+
+      <OfflineIndicator />
     </div>
   );
 }

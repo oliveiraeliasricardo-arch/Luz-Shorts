@@ -52,6 +52,20 @@ export default defineConfig(() => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           runtimeCaching: [
             {
+              urlPattern: /^https:\/\/i\.ytimg\.com\/.*/i,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'youtube-thumbnails-cache',
+                expiration: {
+                  maxEntries: 120,
+                  maxAgeSeconds: 60 * 60 * 24 * 7,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
               options: {
@@ -82,7 +96,8 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: false,
+          enabled: true,
+          type: 'module',
         },
       }),
     ],

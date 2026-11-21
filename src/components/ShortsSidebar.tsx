@@ -1,5 +1,6 @@
 import React from 'react';
 import { BookOpen, Bookmark, HeartHandshake, Mic, Music, Search, Sparkles, X } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 import type { ContentCategory, ShortCategory } from '../types/shorts';
 
 interface ShortsSidebarProps {
@@ -169,6 +170,9 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
             : apiKeyConfigured
               ? 'Fonte ativa: Curadoria oficial YouTube'
               : 'Modo curadoria oficial · Adicione YOUTUBE_API_KEY no servidor para ampliar buscas'}
+        </div>
+        <div className="pt-1">
+          <PWAInstallButton variant="sidebar" />
         </div>
       </div>
     </aside>

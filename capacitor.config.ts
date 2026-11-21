@@ -1,4 +1,4 @@
-// Configuração do Capacitor para transformar o Quiz Bíblico em aplicativo nativo Android / iOS
+// Configuração do Capacitor para empacotar o Luz Shorts como aplicativo nativo Android / iOS
 export interface CapacitorConfig {
   appId: string;
   appName: string;
@@ -13,8 +13,8 @@ export interface CapacitorConfig {
 }
 
 const config: CapacitorConfig = {
-  appId: 'com.quizbiblico.app',
-  appName: 'Quiz Bíblico',
+  appId: 'com.luzshorts.app',
+  appName: 'Luz Shorts',
   webDir: 'dist',
   bundledWebRuntime: false,
   server: {
@@ -22,8 +22,8 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2000,
-      backgroundColor: '#0c0a09',
+      launchShowDuration: 1800,
+      backgroundColor: '#0369a1',
       showSpinner: false,
       androidSpinnerStyle: 'large',
       iosSpinnerStyle: 'small',
