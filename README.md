@@ -46,31 +46,33 @@ Plataforma de vídeos curtos verticais (formato YouTube Shorts) com visual limpo
    npm start
    ```
 
-## Transformar em App Nativo Android / iOS (Capacitor)
+## Transformar em App Nativo Android (APK)
 
-O arquivo `capacitor.config.ts` já está configurado (`appId: com.luzshorts.app`, `appName: Luz Shorts`, `webDir: dist`). Não é necessária nenhuma chave do Vite para o build.
+O projeto já inclui `@capacitor/core`, `@capacitor/cli`, `@capacitor/android` e `capacitor.config.ts` (`appId: com.luzshorts.app`, `appName: Luz Shorts`, `webDir: dist`). Não é necessária nenhuma chave do Vite para o build, e o app Android carrega o catálogo curado diretamente via `CapacitorHttp` mesmo sem servidor próprio.
 
-1. Gere o build do aplicativo:
-   ```bash
-   npm run build
-   ```
-2. Instale o Capacitor CLI e adicione a plataforma desejada:
-   ```bash
-   npm install @capacitor/core @capacitor/cli @capacitor/android
-   npx cap add android
-   npx cap sync android
-   npx cap open android
-   ```
-   No Android Studio, gere o APK ou App Bundle (`.aab`). Se quiser apontar o app Android diretamente para o seu servidor publicado (onde roda o `server.ts`), basta preencher `server.url` em `capacitor.config.ts`.
+### Baixar o APK pronto pelo GitHub
+
+Ao enviar o código para a branch `main`, o workflow `.github/workflows/ci-build.yml` compila automaticamente o arquivo **`Luz-Shorts.apk`**:
+
+- **Releases (recomendado para celular)**: acesse a aba **Releases** no repositório do GitHub e baixe **`Luz-Shorts.apk`** diretamente (sem `.zip`).
+- **Actions**: acesse a aba **Actions**, abra a execução mais recente e baixe o artefato **`Luz-Shorts-APK`**.
+
+### Compilar localmente
+
+```bash
+npm run build
+npx cap add android
+node scripts/prepare_android_assets.mjs
+npx cap sync android
+npx cap open android
+```
 
 ## Publicando no GitHub
-
-O repositório inclui workflow automático em `.github/workflows/ci-build.yml` que valida TypeScript (`npm run lint`) e gera o build PWA (`dist/`) a cada push na branch `main`.
 
 ```bash
 git init
 git add .
-git commit -m "feat: Luz Shorts app PWA + Capacitor"
+git commit -m "feat: Luz Shorts app Android APK + PWA"
 git branch -M main
 git remote add origin https://github.com/SEU_USUARIO/luz-shorts.git
 git push -u origin main

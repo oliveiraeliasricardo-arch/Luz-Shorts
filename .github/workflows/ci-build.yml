@@ -1,13 +1,17 @@
-name: Build & Verify Luz Shorts
+name: Build Android APK & Verify Luz Shorts
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  verify:
+  build-android-apk:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -18,10 +22,19 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then
-            npm ci --legacy-peer-deps
+            npm ci --legacy-peer-deps || npm install --legacy-peer-deps
           else
             npm install --legacy-peer-deps
           fi
@@ -29,12 +42,41 @@ jobs:
       - name: TypeScript check
         run: npm run lint
 
-      - name: Build production bundle & PWA assets
+      - name: Build production web bundle
         run: npm run build
 
-      - name: Upload dist artifact
+      - name: Prepare Capacitor Android project
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+          node scripts/prepare_android_assets.mjs
+          npx cap sync android
+
+      - name: Build Luz-Shorts.apk
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cd ..
+          cp android/app/build/outputs/apk/debug/app-debug.apk Luz-Shorts.apk
+
+      - name: Upload Luz-Shorts-APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: luz-shorts-dist
-          path: dist
-          retention-days: 14
+          name: Luz-Shorts-APK
+          path: Luz-Shorts.apk
+          retention-days: 30
+
+      - name: Publish direct APK download to GitHub Releases
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Luz Shorts Android (APK)
+          body: |
+            Aplicativo Android **Luz Shorts** compilado automaticamente.
+            Baixe o arquivo `Luz-Shorts.apk` abaixo e abra no seu celular Android para instalar.
+          files: Luz-Shorts.apk
+          overwrite_files: true

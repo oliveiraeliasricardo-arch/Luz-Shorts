@@ -7,6 +7,10 @@ import { ShortsFeedStage } from './components/ShortsFeedStage';
 import { ShortsSidebar } from './components/ShortsSidebar';
 import { TopBar } from './components/TopBar';
 import { loadYouTubeIframeApi } from './utils/youtubePlayerApi';
+import {
+  fetchShortsOnNativeDevice,
+  isNativeCapacitorApp,
+} from './utils/nativeShortsFallback';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -80,15 +84,30 @@ export function App() {
     setError(null);
 
     try {
-      const params = new URLSearchParams();
-      if (forceRefresh) params.set('refresh', '1');
-      const res = await fetch(
-        `${API_BASE_URL}/api/shorts${params.toString() ? `?${params.toString()}` : ''}`
-      );
-      if (!res.ok) {
-        throw new Error(`Erro HTTP ${res.status} ao carregar vídeos`);
+      let data: ShortsApiResponse | null = null;
+      const nativeApp = isNativeCapacitorApp();
+
+      if (!nativeApp || API_BASE_URL.length > 0) {
+        try {
+          const params = new URLSearchParams();
+          if (forceRefresh) params.set('refresh', '1');
+          const res = await fetch(
+            `${API_BASE_URL}/api/shorts${params.toString() ? `?${params.toString()}` : ''}`
+          );
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
+            data = (await res.json()) as ShortsApiResponse;
+          } else if (!nativeApp) {
+            throw new Error(`Erro HTTP ${res.status} ao carregar vídeos`);
+          }
+        } catch (fetchErr) {
+          if (!nativeApp) throw fetchErr;
+        }
       }
-      const data = (await res.json()) as ShortsApiResponse;
+
+      if (!data) {
+        data = await fetchShortsOnNativeDevice(forceRefresh);
+      }
 
       // Prioritize unseen videos ahead of recently watched ones so feeds feel fresh without repeats
       const seenSet = new Set(seenIdsRef.current);
