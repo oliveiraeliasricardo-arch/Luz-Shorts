@@ -1,0 +1,6 @@
+{
+  "name": "Luz Shorts",
+  "description": "Plataforma de vídeos curtos cristãos com pregações e estudos bíblicos na doutrina adventista, além de louvores e testemunhos cristãos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
