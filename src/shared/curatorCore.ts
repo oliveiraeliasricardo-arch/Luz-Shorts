@@ -320,6 +320,8 @@ const CHRISTIAN_RELEVANCE_PATTERNS = [
 const NON_PORTUGUESE_PATTERNS = [
   /[¿¡]/,
   /\b(despierta am[eé]rica|univision|semana del pa[ñn]uelo|reina para siempre|mil gracias|conquistadores)\b/i,
+  /\b(la llama|cristo y nada m[aá]s|en tu presencia|te alabamos)\b/i,
+  /\bgozo\s*[–-]\s*aline barros\b/i,
 ];
 
 const NOISE_AND_PROMO_PATTERNS = [
@@ -339,9 +341,20 @@ const NOISE_AND_PROMO_PATTERNS = [
   /\bingressos?\b/i,
   /\bpromo\b/i,
   /\bfornalha tour\b/i,
+  /\btour morada\b/i,
   /\bpreparando novidades\b/i,
   /\bn[aã]o perca o lan[cç]amento\b/i,
   /\bchega em \d+ dias\b/i,
+  /\bcontagem regressiva\b/i,
+  /\bfaltam \d+ dias\b/i,
+  /\bno nosso canal\b/i,
+  /\bassista (j[aá]|agora|ao|o) (meu )?(novo )?clipe\b/i,
+  /\bessa semana t[aá] muito\b/i,
+  /\bfiquem de olho\b/i,
+  /\brecadinho\b/i,
+  /\bvoc[eê]s pediram\b/i,
+  /\bem breve\b/i,
+  /\bchegamos\b/i,
   /\bbastidores\b/i,
   /\bentrevista\b/i,
   /\btchau portugal\b/i,
@@ -389,6 +402,17 @@ const NOISE_AND_PROMO_PATTERNS = [
   /\bc[oó]pia de\b/i,
   /\bsupermission[aá]rios\b/i,
   /\bplayback (sem|com) chamada\b/i,
+  /\bdia de fotos\b/i,
+  /\baninhos\b/i,
+  /\bmaternidade\b/i,
+  /\bse essa m[uú]sica n[aã]o tocar\b/i,
+  /\bvoc[eê] reconhece essa m[uú]sica\b|\bvoce reconhece essa musica\b/i,
+  /\bquem me conheceu com essa\b/i,
+  /\bessa m[uú]sica nos faz chorar\b/i,
+  /\bse um dia me acostumar\b/i,
+  /^\s*#shorts\s*$/i,
+  /\b(as melhores|mais tocadas|esta[cç][aã]o\/station|\d+\s*horas?\s*de\s*(adora[cç][aã]o|louvor))\b/i,
+  /\b(aprovados|aceitaram o desafio|3[ªa]\s*fase|top\s*10|partiu\s+portugal|amanh[aã]\s*-\s*\d{2}h|lan[cç]a sua primeira m[uú]sica)\b/i,
 ];
 
 const STRICT_TESTIMONY_TITLE_PATTERNS = [
@@ -426,19 +450,19 @@ const WORSHIP_SONG_POSITIVE_PATTERNS = [
   /\bv[ií]deo oficial\b/i,
   /\bvideo oficial\b/i,
   /\bac[uú]stic[oa]?\b/i,
-  /\bao vivo\b/i,
+  /\((ao vivo|live)\)|\[(ao vivo|live)\]/i,
+  /\bao vivo\b.*\b(clipe|m[uú]sica|louvor|dvd|cd|session|ac[uú]stic|single)\b/i,
+  /\b(clipe|m[uú]sica|louvor|dvd|cd|session|ac[uú]stic|single)\b.*\bao vivo\b/i,
   /\blyric(s)?\b/i,
   /\bletra\b/i,
   /\bplayback\b/i,
   /\bmedley\b/i,
+  /\blive session\b/i,
   /\bsess[aã]o\b/i,
-  /\bsession\b/i,
   /\bcanta\b/i,
-  /\bvoz da profecia\b/i,
   /\bnovo tom\b/i,
   /\barautos do rei\b/i,
   /\bfhop music\b/i,
-  /\bmorad[a]?\b/i,
   /\bmergulhar\b/i,
   /\bou[cç]a agora\b/i,
   /\bfeat\.?\b|\bft\.?\b/i,
@@ -454,7 +478,6 @@ const WORSHIP_SONG_POSITIVE_PATTERNS = [
   /\bencontro das mar[eé]s\b/i,
   /\b[uú]ltima can[cç][aã]o\b/i,
   /\bvoc[eê] [eé] luz\b/i,
-  /\breina\b/i,
   /\beu vi algu[eé]m mais belo\b/i,
   /\brenova minha mente\b/i,
   /\bos que olham para ti\b/i,
@@ -475,6 +498,21 @@ const NON_SONG_TALK_PATTERNS = [
   /\bserm[aã]o\b/i,
   /\bpodcast\b/i,
   /\bbate-?papo\b/i,
+  /\bdevocional\b/i,
+  /\b6am\b/i,
+  /\bculto\b/i,
+  /\br[aá]dio\b/i,
+  /\bpr\.\s*[a-záéíóúâêôãõç]+/i,
+  /\bpastor\b/i,
+  /\bluis gon[cç]alves|lu[ií]s gon[cç]alves\b/i,
+  /\bdia de fotos\b/i,
+  /\baninhos\b/i,
+  /\bmaternidade\b/i,
+  /\bep\.?\s*\d+\b/i,
+  /\bepis[oó]dio\b/i,
+  /\bfam[ií]lia\b/i,
+  /\b(mensagem|reflex[aã]o|estudo|rea[cç][aã]o)\b/i,
+  /\bvoz da profecia\b/i,
 ];
 
 const STRICT_BIBLE_TITLE_PATTERNS = [
@@ -601,8 +639,12 @@ function looksLikeWorshipSong(title: string, description: string, isWorshipChann
     return true;
   }
   if (isWorshipChannel) {
-    // Allow descriptions that clearly describe a music release/song
-    return /\b(ou[cç]a nas plataformas|letra|compositor|produ[cç][aã]o musical|gravadora|clipe|m[uú]sica|louvor|adora[cç][aã]o|hino)\b/i.test(
+    // Require song/music title structure ("Artist - Song" / "Song | Tag" / music keywords)
+    // or explicit songwriting/composition credits in the description (avoiding generic social footer text)
+    if (/[^|–-]+\s[-–|]\s[^|–-]+/.test(title) && !/\b(vlog|tour|agenda|convite|aviso)\b/i.test(title)) {
+      return true;
+    }
+    return /\b(letra:|composi[cç][aã]o:|compositor|arranjo musical|ficha t[eé]cnica)\b/i.test(
       description
     );
   }
@@ -780,8 +822,12 @@ export function parseChannelRssXml(
     const classified = classifyShort(spec.id, authorName, title, description);
     if (!classified) continue;
 
-    // Allow full-length videos for Louvores, Pregações, and explicit Testemunhos
+    // Allow full-length videos for Louvores, Pregações, and explicit Testemunhos;
+    // reject /shorts/ links on Louvores RSS so 15s promo reels never slip in.
     const isShortLink = linkHref.includes('/shorts/');
+    if (classified.category === 'louvores' && isShortLink) {
+      continue;
+    }
     if (!isDedicatedShortsPlaylist && !isShortLink) {
       const canIncludeFullVideo =
         (allowFullLengthCategories &&
@@ -824,31 +870,14 @@ export async function fetchCuratedRssWithAdapter(
     const uushPlaylistId = `UUSH${spec.id.slice(2)}`;
 
     if (spec.defaultCategory === 'louvores') {
-      // Worship channels: fetch BOTH full-length music videos (channel_id) AND worship Shorts (UUSH)
+      // Worship channels: fetch full-length music uploads (channel_id) only,
+      // skipping UUSH promo Shorts reels (15s countdowns/tour clips).
       tasks.push(
         (async () => {
-          const collected: ChristianShort[] = [];
-          const feeds: Array<{ url: string; isShorts: boolean }> = [
-            {
-              url: `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`,
-              isShorts: false,
-            },
-            {
-              url: `https://www.youtube.com/feeds/videos.xml?playlist_id=${uushPlaylistId}`,
-              isShorts: true,
-            },
-          ];
-          const results = await Promise.allSettled(
-            feeds.map(async (f) => {
-              const xml = await fetchXml(f.url);
-              if (!xml || !xml.includes('<entry>')) return [];
-              return parseChannelRssXml(xml, spec, f.isShorts, true);
-            })
-          );
-          for (const r of results) {
-            if (r.status === 'fulfilled') collected.push(...r.value);
-          }
-          return collected;
+          const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
+          const xml = await fetchXml(url);
+          if (!xml || !xml.includes('<entry>')) return [];
+          return parseChannelRssXml(xml, spec, false, true);
         })()
       );
     } else {
@@ -926,10 +955,65 @@ function normalizeTitleKey(title: string): string {
     .trim();
 }
 
+const SONG_ARTIST_OR_TAG_RE =
+  /\b(arautos do rei|art\s*trio|novo tom|novo tempo|live sessions?|dvd|hinos\s*\d*|clipe oficial|video oficial|acustico|ao vivo|gravadora nt|aline barros|isadora pompeo|gabriela rocha|fernandinho|sarah farias|pedro valenca|eli soares|theo rubia|fhop music|morada|mergulhar|dunamis|daniel ludtke|midian lima|sued silva|valesca mayssa|maria marcal|julliany souza|diante do trono|eyshila|ana paula valadao|carol tauber|casa worship|preto no branco|kemuel|paulo cesar baruk|laura souguellis|voz com letra|com letra|video letra|ministerio|coral|feat|ft)\b/i;
+
+function normalizeSongKey(title: string): string {
+  let cleaned = title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/#[a-z0-9_]+/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/@[a-z0-9_]+\s*[-–|:]?\s*/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, ' ')
+    .replace(/^(ouca agora|lancamento|clipe oficial|video oficial)\s*[-–:|]\s*/i, '');
+
+  const pipeParts = cleaned
+    .split('|')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (pipeParts.length > 1) {
+    const nonTagParts = pipeParts.filter((p) => !SONG_ARTIST_OR_TAG_RE.test(p));
+    cleaned = nonTagParts[0] || pipeParts[0];
+  }
+
+  const dashParts = cleaned
+    .split(/\s+[-–]\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (dashParts.length >= 2) {
+    const firstIsMeta = SONG_ARTIST_OR_TAG_RE.test(dashParts[0]);
+    const secondIsMeta = SONG_ARTIST_OR_TAG_RE.test(dashParts[1]);
+    if (firstIsMeta && !secondIsMeta) {
+      cleaned = dashParts.slice(1).join(' ');
+    } else if (!firstIsMeta && secondIsMeta) {
+      cleaned = dashParts[0];
+    } else {
+      cleaned = dashParts[dashParts.length - 1];
+    }
+  }
+
+  cleaned = cleaned
+    .replace(/\b(feat|ft)\.?\s+.*$/i, '')
+    .replace(
+      /\b(clipe oficial|video oficial|ao vivo|acustico|lyric video|playback|com letra|live session|dvd)\b/gi,
+      ' '
+    )
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return cleaned;
+}
+
 export function deduplicateShorts(items: ChristianShort[]): ChristianShort[] {
   const seenIds = new Set<string>();
   const seenGlobalTitles = new Set<string>();
   const seenChannelTitles = new Set<string>();
+  const seenLouvorSongs = new Set<string>();
   const unique: ChristianShort[] = [];
 
   for (const item of items) {
@@ -941,6 +1025,12 @@ export function deduplicateShorts(items: ChristianShort[]): ChristianShort[] {
     if (titleKey.length >= 14 && seenGlobalTitles.has(titleKey)) continue;
     if (titleKey.length >= 6 && seenChannelTitles.has(channelTitleKey)) continue;
 
+    if (item.category === 'louvores') {
+      const songKey = normalizeSongKey(item.title);
+      if (songKey.length >= 6 && seenLouvorSongs.has(songKey)) continue;
+      if (songKey.length >= 6) seenLouvorSongs.add(songKey);
+    }
+
     seenIds.add(item.id);
     if (titleKey.length >= 14) seenGlobalTitles.add(titleKey);
     if (titleKey.length >= 6) seenChannelTitles.add(channelTitleKey);
@@ -949,6 +1039,13 @@ export function deduplicateShorts(items: ChristianShort[]): ChristianShort[] {
 
   return unique;
 }
+
+const MAX_ITEMS_PER_CHANNEL: Record<ContentCategory, number> = {
+  louvores: 5,
+  pregacoes: 8,
+  biblia: 8,
+  testemunhos: 8,
+};
 
 export function buildDiverseFeed(
   items: ChristianShort[],
@@ -977,9 +1074,11 @@ export function buildDiverseFeed(
       byChannel.set(item.channelId, list);
     }
 
+    const perChannelCap = MAX_ITEMS_PER_CHANNEL[cat];
     const channelQueues = [...byChannel.values()].map((list) => {
       const ordered = [...list].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
-      return randomize ? shuffleInPlace(ordered) : ordered;
+      const varied = randomize ? shuffleInPlace(ordered) : ordered;
+      return varied.slice(0, perChannelCap);
     });
 
     if (randomize) {
@@ -990,13 +1089,22 @@ export function buildDiverseFeed(
       );
     }
 
+    let lastStreamChannelId: string | null = null;
     let added = true;
     while (added) {
       added = false;
       for (const queue of channelQueues) {
+        if (queue.length === 0) continue;
+        // Avoid consecutive videos from the same channel inside category tabs (especially louvores)
+        const onlyThisChannelLeft =
+          channelQueues.filter((q) => q.length > 0).length === 1;
+        if (onlyThisChannelLeft && queue[0].channelId === lastStreamChannelId) {
+          continue;
+        }
         const next = queue.shift();
         if (next) {
           categoryStreams[cat].push(next);
+          lastStreamChannelId = next.channelId;
           added = true;
         }
       }

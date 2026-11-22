@@ -40,6 +40,23 @@ function readStoredIdList(key: string): string[] {
   }
 }
 
+function spreadChannelOrder(list: ChristianShort[]): ChristianShort[] {
+  const remaining = [...list];
+  const arranged: ChristianShort[] = [];
+  let lastChannelId: string | null = null;
+
+  while (remaining.length > 0) {
+    let idx = remaining.findIndex((item) => item.channelId !== lastChannelId);
+    if (idx === -1) idx = 0;
+    const [picked] = remaining.splice(idx, 1);
+    if (picked) {
+      arranged.push(picked);
+      lastChannelId = picked.channelId;
+    }
+  }
+  return arranged;
+}
+
 export function App() {
   const [allShorts, setAllShorts] = useState<ChristianShort[]>([]);
   const [sourceMode, setSourceMode] = useState<'youtube_api' | 'curated_rss'>('curated_rss');
@@ -126,11 +143,11 @@ export function App() {
         }
         const recentSet = new Set(recentOnly);
         items = [
-          ...data.items.filter((item) => !recentSet.has(item.id)),
-          ...data.items.filter((item) => recentSet.has(item.id)),
+          ...spreadChannelOrder(data.items.filter((item) => !recentSet.has(item.id))),
+          ...spreadChannelOrder(data.items.filter((item) => recentSet.has(item.id))),
         ];
       } else {
-        items = [...unseenItems, ...seenItems];
+        items = [...spreadChannelOrder(unseenItems), ...spreadChannelOrder(seenItems)];
       }
 
       // Support direct shared video links (?v=VIDEO_ID) on initial load

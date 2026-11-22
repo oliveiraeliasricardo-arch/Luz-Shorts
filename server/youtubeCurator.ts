@@ -32,6 +32,39 @@ async function fetchFromCuratedRss(): Promise<ChristianShort[]> {
   });
 }
 
+const LOUVORES_QUERY_POOL: Array<{
+  q: string;
+  order?: 'relevance' | 'date';
+}> = [
+  { q: 'louvor e adoração clipe oficial', order: 'relevance' },
+  { q: 'música gospel acústico ao vivo', order: 'date' },
+  { q: 'arautos do rei gravadora nt clipe oficial', order: 'relevance' },
+  { q: 'novo tom daniel ludtke clipe oficial', order: 'relevance' },
+  { q: 'adoração cristã vídeo oficial', order: 'date' },
+  { q: 'casa worship preto no branco louvor', order: 'relevance' },
+  { q: 'paulo cesar baruk laura souguellis louvor', order: 'relevance' },
+  { q: 'kemuel coral gospel ao vivo', order: 'relevance' },
+  { q: 'diante do trono louvor ao vivo', order: 'relevance' },
+  { q: 'valesca mayssa midian lima clipe oficial', order: 'date' },
+  { q: 'pedro valença música gospel clipe', order: 'relevance' },
+  { q: 'sued silva maria marçal louvor clipe oficial', order: 'date' },
+];
+
+function pickLouvoresQueries(forceRefresh: boolean) {
+  const pool = [...LOUVORES_QUERY_POOL];
+  if (forceRefresh) {
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+  }
+  return pool.slice(0, 6).map((entry) => ({
+    q: entry.q,
+    hintCategory: 'louvores' as ContentCategory,
+    order: forceRefresh ? ('date' as const) : entry.order,
+  }));
+}
+
 async function fetchFromYoutubeApi(
   apiKey: string,
   forceRefresh = false
@@ -50,9 +83,7 @@ async function fetchFromYoutubeApi(
     { q: 'na mira da verdade #shorts', channelId: 'UCIa6p9HWw1hEEfHzfJOcSbA', hintCategory: 'biblia' },
     { q: 'rodrigo silva arqueologia bíblia #shorts', channelId: 'UCn4M9vLHegNuqM8tnL872cA', hintCategory: 'biblia' },
     { q: 'lições da bíblia escola sabatina #shorts', channelId: 'UCLb09BPgh7xrswJRgYQthuw', hintCategory: 'biblia' },
-    { q: 'louvor cristão adoração #shorts', hintCategory: 'louvores', order: forceRefresh ? 'date' : 'relevance' },
-    { q: 'música gospel louvor ao vivo #shorts', hintCategory: 'louvores', order: 'date' },
-    { q: 'arautos do rei gravadora nt #shorts', hintCategory: 'louvores' },
+    ...pickLouvoresQueries(forceRefresh),
     { q: 'testemunho cristão fé milagre #shorts', hintCategory: 'testemunhos', order: forceRefresh ? 'date' : 'relevance' },
     { q: 'testemunho evangelho conversão #shorts', hintCategory: 'testemunhos', order: 'date' },
   ];
@@ -203,6 +234,14 @@ async function fetchFromYoutubeApi(
       c.hintCategory
     );
     if (!classified) continue;
+
+    if (
+      classified.category === 'louvores' &&
+      meta?.durationSeconds != null &&
+      (meta.durationSeconds < 75 || meta.durationSeconds > 1200)
+    ) {
+      continue;
+    }
 
     if (
       classified.category !== 'louvores' &&
