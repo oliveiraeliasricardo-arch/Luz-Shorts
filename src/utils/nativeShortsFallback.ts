@@ -15,7 +15,8 @@ export function isNativeCapacitorApp(): boolean {
 }
 
 export async function fetchShortsOnNativeDevice(
-  forceRefresh = false
+  forceRefresh = false,
+  pageIndex = 0
 ): Promise<ShortsApiResponse> {
   const rawItems = await fetchCuratedRssWithAdapter(async (url) => {
     const response = await CapacitorHttp.get({
@@ -35,15 +36,18 @@ export async function fetchShortsOnNativeDevice(
     return typeof response.data === 'string'
       ? response.data
       : JSON.stringify(response.data ?? '');
-  });
+  }, pageIndex);
 
-  const diverseItems = buildDiverseFeed(rawItems, forceRefresh);
+  const diverseItems = buildDiverseFeed(rawItems, forceRefresh || pageIndex > 0);
+  const hasMore = pageIndex < 2;
   return formatFilteredResponse(
     diverseItems,
     'curated_rss',
     false,
     new Date().toISOString(),
     'all',
-    ''
+    '',
+    hasMore,
+    hasMore ? String(pageIndex + 1) : null
   );
 }

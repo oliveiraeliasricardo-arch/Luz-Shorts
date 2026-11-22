@@ -547,9 +547,21 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       >
         {items.map((short, idx) => {
           const isCurrent = idx === activeIndex;
+          const isNearActive = Math.abs(idx - activeIndex) <= 4;
           const isSaved = savedSet.has(short.id);
           const viewsLabel = formatViews(short.viewCount);
           const hidePosterForVideo = isCurrent && isVideoVisible && !hasError;
+
+          if (!isNearActive) {
+            return (
+              <article
+                key={short.id}
+                data-short-id={short.id}
+                aria-hidden="true"
+                className="relative w-full h-full bg-slate-950 overflow-hidden"
+              />
+            );
+          }
 
           return (
             <article

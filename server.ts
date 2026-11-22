@@ -2,7 +2,11 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getCuratedChristianShorts, lookupSingleShort } from './server/youtubeCurator.ts';
+import {
+  getCuratedChristianShorts,
+  getMoreChristianShorts,
+  lookupSingleShort,
+} from './server/youtubeCurator.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +41,33 @@ async function startServer() {
     } catch (err) {
       res.status(502).json({
         error: 'Não foi possível carregar os vídeos cristãos no momento.',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get('/api/shorts/more', async (req, res) => {
+    const category = typeof req.query.category === 'string' ? req.query.category : 'all';
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const rawExclude = typeof req.query.exclude === 'string' ? req.query.exclude : '';
+    const excludeIds = rawExclude
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
+      .slice(0, 60);
+
+    try {
+      const payload = await getMoreChristianShorts({
+        category,
+        q,
+        cursor,
+        excludeIds,
+      });
+      res.json(payload);
+    } catch (err) {
+      res.status(502).json({
+        error: 'Não foi possível carregar mais vídeos no momento.',
         detail: err instanceof Error ? err.message : String(err),
       });
     }

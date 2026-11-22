@@ -31,4 +31,6 @@ export interface ShortsApiResponse {
   category: string;
   totalBeforeCategoryFilter: number;
   categoryCounts: Record<ContentCategory, number>;
+  hasMore?: boolean;
+  nextCursor?: string | null;
 }

@@ -605,7 +605,6 @@ const NON_SONG_TALK_PATTERNS = [
   /\bepis[oó]dio\b/i,
   /\bfam[ií]lia\b/i,
   /\b(mensagem|reflex[aã]o|estudo|rea[cç][aã]o)\b/i,
-  /\bvoz da profecia\b/i,
   /\ba palavra que voc[eê] precisa\b/i,
   /\best[aá] escrito adora[cç][aã]o\b/i,
 ];
@@ -961,12 +960,44 @@ export function parseChannelRssXml(
 }
 
 export async function fetchCuratedRssWithAdapter(
-  fetchXml: (url: string) => Promise<string | null>
+  fetchXml: (url: string) => Promise<string | null>,
+  pageIndex = 0
 ): Promise<ChristianShort[]> {
   const tasks: Array<Promise<ChristianShort[]>> = [];
 
   for (const spec of ALL_CURATED_CHANNELS) {
-    const uushPlaylistId = `UUSH${spec.id.slice(2)}`;
+    const suffix = spec.id.slice(2);
+    const uushPlaylistId = `UUSH${suffix}`;
+    const uulfPlaylistId = `UULF${suffix}`;
+    const uupvPlaylistId = `UUPV${suffix}`;
+    const uuPlaylistId = `UU${suffix}`;
+
+    if (pageIndex > 0) {
+      // Secondary archive pages for RSS / standalone APK pagination
+      const archivePlaylistId =
+        pageIndex === 1
+          ? spec.defaultCategory === 'louvores' || spec.defaultCategory === 'pregacoes'
+            ? uulfPlaylistId
+            : uupvPlaylistId
+          : spec.defaultCategory === 'louvores'
+          ? uupvPlaylistId
+          : uuPlaylistId;
+      const allowFull =
+        spec.defaultCategory === 'louvores' ||
+        spec.allowInCategories.includes('pregacoes') ||
+        spec.allowInCategories.includes('testemunhos');
+
+      tasks.push(
+        (async () => {
+          const xml = await fetchXml(
+            `https://www.youtube.com/feeds/videos.xml?playlist_id=${archivePlaylistId}`
+          );
+          if (!xml || !xml.includes('<entry>')) return [];
+          return parseChannelRssXml(xml, spec, false, allowFull);
+        })()
+      );
+      continue;
+    }
 
     if (spec.defaultCategory === 'louvores') {
       // Worship channels: fetch full-length music uploads (channel_id) only,
@@ -1139,13 +1170,6 @@ export function deduplicateShorts(items: ChristianShort[]): ChristianShort[] {
   return unique;
 }
 
-const MAX_ITEMS_PER_CHANNEL: Record<ContentCategory, number> = {
-  louvores: 5,
-  pregacoes: 8,
-  biblia: 8,
-  testemunhos: 8,
-};
-
 export function buildDiverseFeed(
   items: ChristianShort[],
   randomize: boolean
@@ -1173,11 +1197,9 @@ export function buildDiverseFeed(
       byChannel.set(item.channelId, list);
     }
 
-    const perChannelCap = MAX_ITEMS_PER_CHANNEL[cat];
     const channelQueues = [...byChannel.values()].map((list) => {
       const ordered = [...list].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
-      const varied = randomize ? shuffleInPlace(ordered) : ordered;
-      return varied.slice(0, perChannelCap);
+      return randomize ? shuffleInPlace(ordered) : ordered;
     });
 
     if (randomize) {
@@ -1188,16 +1210,16 @@ export function buildDiverseFeed(
       );
     }
 
+    // Round-robin through every channel queue until all unique items are placed,
+    // without discarding videos at an arbitrary cap.
     let lastStreamChannelId: string | null = null;
     let added = true;
     while (added) {
       added = false;
       for (const queue of channelQueues) {
         if (queue.length === 0) continue;
-        // Avoid consecutive videos from the same channel inside category tabs (especially louvores)
-        const onlyThisChannelLeft =
-          channelQueues.filter((q) => q.length > 0).length === 1;
-        if (onlyThisChannelLeft && queue[0].channelId === lastStreamChannelId) {
+        const activeQueues = channelQueues.filter((q) => q.length > 0);
+        if (activeQueues.length > 1 && queue[0].channelId === lastStreamChannelId) {
           continue;
         }
         const next = queue.shift();
@@ -1235,29 +1257,36 @@ export function buildDiverseFeed(
   return interleaved;
 }
 
+function normalizeSearchFold(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 export function formatFilteredResponse(
   allItems: ChristianShort[],
   sourceMode: 'youtube_api' | 'curated_rss',
   apiKeyConfigured: boolean,
   fetchedAt: string,
   rawCategory?: string,
-  rawQuery?: string
+  rawQuery?: string,
+  hasMore = false,
+  nextCursor: string | null = null
 ): ShortsApiResponse {
   const validCategories = new Set(['all', 'pregacoes', 'biblia', 'louvores', 'testemunhos']);
   const category = rawCategory && validCategories.has(rawCategory) ? rawCategory : 'all';
-  const sanitizedQuery = (rawQuery || '')
-    .replace(/[\u0000-\u001F\u007F]/g, '')
-    .trim()
-    .slice(0, 80)
-    .toLowerCase();
+  const sanitizedQuery = normalizeSearchFold(
+    (rawQuery || '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 80)
+  );
 
   const queryFiltered = sanitizedQuery
     ? allItems.filter(
         (item) =>
-          item.title.toLowerCase().includes(sanitizedQuery) ||
-          item.channelTitle.toLowerCase().includes(sanitizedQuery) ||
-          item.description.toLowerCase().includes(sanitizedQuery) ||
-          item.categoryLabel.toLowerCase().includes(sanitizedQuery)
+          normalizeSearchFold(item.title).includes(sanitizedQuery) ||
+          normalizeSearchFold(item.channelTitle).includes(sanitizedQuery) ||
+          normalizeSearchFold(item.description).includes(sanitizedQuery) ||
+          normalizeSearchFold(item.categoryLabel).includes(sanitizedQuery)
       )
     : allItems;
 
@@ -1284,5 +1313,7 @@ export function formatFilteredResponse(
     category,
     totalBeforeCategoryFilter: queryFiltered.length,
     categoryCounts,
+    hasMore,
+    nextCursor,
   };
 }

@@ -138,7 +138,11 @@ export const RightQueuePanel: React.FC<RightQueuePanelProps> = ({
               <span>Compartilhar</span>
             </button>
             <a
-              href={activeShort.shortsUrl}
+              href={
+                activeShort.category === 'louvores' || activeShort.category === 'pregacoes'
+                  ? activeShort.youtubeUrl
+                  : activeShort.shortsUrl
+              }
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Assistir no YouTube"

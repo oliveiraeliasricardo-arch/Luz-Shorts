@@ -16,7 +16,7 @@ import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 const SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
-const MAX_SEEN_IDS = 250;
+const MAX_SEEN_IDS = 5000;
 
 const MOBILE_FILTERS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'all', label: 'Todos' },
@@ -71,12 +71,20 @@ export function App() {
   const [autoAdvance, setAutoAdvance] = useState(true);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [remoteSearchShorts, setRemoteSearchShorts] = useState<ChristianShort[] | null>(null);
+  const [searchCursor, setSearchCursor] = useState<string | null>(null);
+  const [searchHasMore, setSearchHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ChristianShort | null>(null);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const feedRef = useRef<HTMLDivElement | null>(null);
   const seenIdsRef = useRef<string[]>(readStoredIdList(SEEN_STORAGE_KEY));
+  const isLoadingMoreRef = useRef(false);
+  const activeSearchTermRef = useRef('');
 
   const markShortSeen = useCallback((shortId: string | undefined) => {
     if (!shortId) return;
@@ -178,6 +186,8 @@ export function App() {
       setAllShorts(items);
       setSourceMode(data.sourceMode);
       setApiKeyConfigured(data.apiKeyConfigured);
+      setNextCursor(data.nextCursor ?? null);
+      setHasMore(data.hasMore ?? Boolean(data.nextCursor));
       setActiveIndex(0);
       if (feedRef.current) {
         feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
@@ -199,6 +209,56 @@ export function App() {
     loadYouTubeIframeApi().catch(() => {});
     loadShorts(false);
   }, [loadShorts]);
+
+  // Debounced live YouTube search whenever user types a query (>= 2 chars)
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) {
+      activeSearchTermRef.current = '';
+      setRemoteSearchShorts(null);
+      setSearchCursor(null);
+      setSearchHasMore(false);
+      return;
+    }
+
+    const nativeApp = isNativeCapacitorApp();
+    if (nativeApp && API_BASE_URL.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          q: trimmed,
+          category: activeCategory === 'salvos' ? 'all' : activeCategory,
+        });
+        const res = await fetch(`${API_BASE_URL}/api/shorts?${params.toString()}`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as ShortsApiResponse;
+        if (cancelled) return;
+
+        const isNewTerm = activeSearchTermRef.current !== trimmed;
+        activeSearchTermRef.current = trimmed;
+        setRemoteSearchShorts(data.items);
+        setSearchCursor(data.nextCursor ?? null);
+        setSearchHasMore(Boolean(data.hasMore && data.nextCursor));
+        if (isNewTerm) {
+          setActiveIndex(0);
+          if (feedRef.current) {
+            feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
+          }
+        }
+      } catch {
+        // Keep instant client-side filtered results on transient network failures
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery, activeCategory]);
 
   useEffect(() => {
     if (audioUnlocked) return;
@@ -224,16 +284,23 @@ export function App() {
   const savedSet = useMemo(() => new Set(savedIds), [savedIds]);
 
   const queryFiltered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = searchQuery
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
     if (!q) return allShorts;
+    if (remoteSearchShorts !== null) return remoteSearchShorts;
+    const fold = (s: string) =>
+      s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     return allShorts.filter(
       (item) =>
-        item.title.toLowerCase().includes(q) ||
-        item.channelTitle.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
-        item.categoryLabel.toLowerCase().includes(q)
+        fold(item.title).includes(q) ||
+        fold(item.channelTitle).includes(q) ||
+        fold(item.description).includes(q) ||
+        fold(item.categoryLabel).includes(q)
     );
-  }, [allShorts, searchQuery]);
+  }, [allShorts, searchQuery, remoteSearchShorts]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<ContentCategory, number> = {
@@ -255,6 +322,102 @@ export function App() {
     }
     return queryFiltered.filter((item) => item.category === activeCategory);
   }, [queryFiltered, activeCategory, savedSet]);
+
+  const loadMoreShorts = useCallback(async () => {
+    if (isLoadingMoreRef.current || loading || isRefreshing || activeCategory === 'salvos') {
+      return;
+    }
+
+    const trimmedQuery = searchQuery.trim();
+    const isLiveSearch = trimmedQuery.length >= 2 && remoteSearchShorts !== null;
+    if (isLiveSearch && (!searchHasMore || !searchCursor)) {
+      return;
+    }
+    if (!isLiveSearch && !hasMore) {
+      return;
+    }
+
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true);
+
+    try {
+      let data: ShortsApiResponse | null = null;
+      const nativeApp = isNativeCapacitorApp();
+
+      if (!nativeApp || API_BASE_URL.length > 0) {
+        const params = new URLSearchParams({
+          category: activeCategory,
+        });
+        const cursorToUse = isLiveSearch ? searchCursor : nextCursor;
+        if (cursorToUse) params.set('cursor', cursorToUse);
+        if (isLiveSearch) params.set('q', trimmedQuery);
+        const recentIds = (isLiveSearch ? remoteSearchShorts ?? [] : allShorts)
+          .slice(-40)
+          .map((i) => i.id);
+        if (recentIds.length > 0) params.set('exclude', recentIds.join(','));
+
+        const res = await fetch(`${API_BASE_URL}/api/shorts/more?${params.toString()}`);
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          data = (await res.json()) as ShortsApiResponse;
+        }
+      } else if (!isLiveSearch) {
+        const pageNum = Number(nextCursor || '1');
+        if (Number.isFinite(pageNum) && pageNum > 0) {
+          data = await fetchShortsOnNativeDevice(false, pageNum);
+        }
+      }
+
+      if (!data) return;
+
+      if (isLiveSearch) {
+        setRemoteSearchShorts((prev) => {
+          const base = prev ?? [];
+          const existing = new Set(base.map((i) => i.id));
+          const fresh = data!.items.filter((i) => !existing.has(i.id));
+          return fresh.length > 0 ? [...base, ...fresh] : base;
+        });
+        setSearchCursor(data.nextCursor ?? null);
+        setSearchHasMore(Boolean(data.hasMore && data.nextCursor));
+      } else {
+        setAllShorts((prev) => {
+          const existing = new Set(prev.map((i) => i.id));
+          const seenSet = new Set(seenIdsRef.current);
+          const fresh = data!.items.filter((i) => !existing.has(i.id));
+          if (fresh.length === 0) return prev;
+          const unseen = spreadChannelOrder(fresh.filter((i) => !seenSet.has(i.id)));
+          const seen = spreadChannelOrder(fresh.filter((i) => seenSet.has(i.id)));
+          return [...prev, ...unseen, ...seen];
+        });
+        setNextCursor(data.nextCursor ?? null);
+        setHasMore(Boolean(data.hasMore));
+      }
+    } catch {
+      // Fail silently; user can keep watching current items or pull to refresh
+    } finally {
+      isLoadingMoreRef.current = false;
+      setIsLoadingMore(false);
+    }
+  }, [
+    loading,
+    isRefreshing,
+    activeCategory,
+    searchQuery,
+    remoteSearchShorts,
+    searchHasMore,
+    searchCursor,
+    hasMore,
+    nextCursor,
+    allShorts,
+  ]);
+
+  // Automatically load more videos from YouTube as the user approaches the end of the feed
+  useEffect(() => {
+    if (loading || isRefreshing || activeCategory === 'salvos') return;
+    if (visibleShorts.length === 0 || activeIndex >= visibleShorts.length - 6) {
+      loadMoreShorts();
+    }
+  }, [activeIndex, visibleShorts.length, activeCategory, loading, isRefreshing, loadMoreShorts]);
 
   const handleSelectCategory = useCallback((cat: ShortCategory) => {
     setActiveCategory(cat);
@@ -343,10 +506,12 @@ export function App() {
   const handleVideoEnded = useCallback(() => {
     if (activeIndex < visibleShorts.length - 1) {
       scrollToIndex(activeIndex + 1);
+    } else if (hasMore && activeCategory !== 'salvos') {
+      loadMoreShorts();
     } else {
       scrollToIndex(0);
     }
-  }, [activeIndex, visibleShorts.length, scrollToIndex]);
+  }, [activeIndex, visibleShorts.length, scrollToIndex, hasMore, activeCategory, loadMoreShorts]);
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-slate-50 text-slate-900 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full">
