@@ -577,7 +577,7 @@ export function App() {
   ]);
 
   return (
-    <div className="h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-slate-50 text-slate-900 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full">
+    <div className="h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-black text-zinc-100 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full">
       <TopBar
         activeCategory={activeCategory}
         savedCount={savedIds.length}
@@ -585,17 +585,17 @@ export function App() {
       />
 
       {/* Mobile compact single-line category bar (stays well below 15% sticky height cap) */}
-      <div className="lg:hidden shrink-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 h-11 flex items-center gap-2 safe-px">
+      <div className="lg:hidden shrink-0 z-20 bg-black/95 backdrop-blur-md border-b border-zinc-900 px-3 h-11 flex items-center gap-2 safe-px">
         {mobileSearchOpen ? (
           <div className="flex items-center gap-2 w-full">
-            <Search className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
+            <Search className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" />
             <input
               type="search"
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar pregação, bíblia, louvor..."
-              className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-slate-900"
+              className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-zinc-100 placeholder:text-zinc-500"
             />
             <button
               type="button"
@@ -604,7 +604,7 @@ export function App() {
                 setMobileSearchOpen(false);
               }}
               aria-label="Fechar busca"
-              className="w-8 h-8 flex items-center justify-center text-slate-500"
+              className="w-8 h-8 flex items-center justify-center text-zinc-400 hover:text-white"
             >
               <X className="w-4 h-4" aria-hidden="true" />
             </button>
@@ -615,7 +615,7 @@ export function App() {
               type="button"
               onClick={() => setMobileSearchOpen(true)}
               aria-label="Buscar vídeos"
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-600 hover:bg-slate-100 shrink-0"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:bg-zinc-900 shrink-0"
             >
               <Search className="w-4 h-4" aria-hidden="true" />
             </button>
@@ -629,8 +629,8 @@ export function App() {
                     onClick={() => handleSelectCategory(cat.id)}
                     className={`px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap shrink-0 transition-colors ${
                       isActive
-                        ? 'bg-sky-700 text-white'
-                        : 'bg-slate-100 text-slate-700'
+                        ? 'bg-white text-black'
+                        : 'bg-zinc-950 border border-zinc-800/80 text-zinc-300'
                     }`}
                   >
                     {cat.label}
@@ -661,10 +661,10 @@ export function App() {
           aria-label="Reprodutor vertical de vídeos cristãos"
           className="w-full h-full min-h-0 lg:h-auto lg:w-auto flex-1 flex items-center justify-center"
         >
-          <div className="w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-7.5rem)] lg:max-h-[780px] bg-slate-950 lg:rounded-2xl overflow-hidden shadow-lg border-0 lg:border lg:border-slate-200 relative">
+          <div className="w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-7.5rem)] lg:max-h-[780px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative">
             {loading ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-slate-300 px-6 text-center">
-                <RefreshCw className="w-6 h-6 animate-spin text-sky-400" aria-hidden="true" />
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
+                <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
                 <p className="text-sm font-medium">
                   Carregando vídeos cristãos selecionados...
                 </p>
@@ -672,19 +672,19 @@ export function App() {
             ) : error && visibleShorts.length === 0 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-white px-8 text-center">
                 <AlertCircle className="w-8 h-8 text-amber-400" aria-hidden="true" />
-                <p className="text-sm text-slate-200">{error}</p>
+                <p className="text-sm text-zinc-300">{error}</p>
                 <button
                   type="button"
                   onClick={() => loadShorts(true)}
-                  className="px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-600 text-xs font-semibold text-white transition-colors cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
                 >
                   Tentar novamente
                 </button>
               </div>
             ) : visibleShorts.length === 0 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white px-8 text-center">
-                <Bookmark className="w-8 h-8 text-slate-400" aria-hidden="true" />
-                <p className="text-sm font-medium text-slate-200">
+                <Bookmark className="w-8 h-8 text-zinc-500" aria-hidden="true" />
+                <p className="text-sm font-medium text-zinc-300">
                   {activeCategory === 'salvos'
                     ? 'Você ainda não salvou nenhum vídeo.'
                     : 'Nenhum vídeo encontrado para este filtro.'}
@@ -695,7 +695,7 @@ export function App() {
                     setSearchQuery('');
                     handleSelectCategory('all');
                   }}
-                  className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 text-xs font-semibold text-white transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
                 >
                   Ver todos os vídeos
                 </button>

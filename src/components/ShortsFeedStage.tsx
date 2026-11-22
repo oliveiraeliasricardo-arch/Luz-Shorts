@@ -492,7 +492,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   const pullTranslateY = isRefreshing ? 14 : Math.min(64, Math.round(pullDistance * 0.45)) - 6;
 
   return (
-    <div className="relative w-full h-full bg-slate-950 overflow-hidden select-none overscroll-none">
+    <div className="relative w-full h-full bg-black overflow-hidden select-none overscroll-none">
       {/* Pull-to-refresh floating indicator */}
       <div
         aria-live="polite"
@@ -506,8 +506,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
         <div
           className={`flex items-center gap-2 px-3.5 py-2 rounded-full backdrop-blur-md border text-xs font-semibold shadow-lg whitespace-nowrap ${
             readyToRefresh || isRefreshing
-              ? 'bg-sky-700/95 border-sky-400/60 text-white'
-              : 'bg-slate-900/90 border-white/15 text-slate-100'
+              ? 'bg-white border-white text-black'
+              : 'bg-zinc-950/95 border-zinc-800 text-zinc-100'
           }`}
         >
           <RefreshCw
@@ -558,7 +558,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                 key={short.id}
                 data-short-id={short.id}
                 aria-hidden="true"
-                className="relative w-full h-full bg-slate-950 overflow-hidden"
+                className="relative w-full h-full bg-black overflow-hidden"
               />
             );
           }
@@ -567,11 +567,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
             <article
               key={short.id}
               data-short-id={short.id}
-              className="relative w-full h-full flex items-center justify-center overflow-hidden"
+              className="relative w-full h-full flex items-center justify-center overflow-hidden bg-black"
             >
               {/* Full-Frame Thumbnail Poster */}
               <div
-                className={`absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 ${
+                className={`absolute inset-0 bg-gradient-to-br from-black via-zinc-950 to-zinc-900 ${
                   hidePosterForVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
                 }`}
               >
@@ -609,8 +609,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
 
               {/* Embed restriction fallback */}
               {isCurrent && hasError && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center px-6 text-center bg-slate-950/80 text-white space-y-3">
-                  <p className="text-sm font-medium text-slate-200">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center px-6 text-center bg-black/90 text-white space-y-3">
+                  <p className="text-sm font-medium text-zinc-200">
                     Este vídeo restringiu a reprodução incorporada neste navegador.
                   </p>
                   <a
@@ -621,7 +621,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                     }
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-600 text-xs font-semibold text-white transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors"
                   >
                     <ExternalLink className="w-4 h-4" aria-hidden="true" />
                     <span>Assistir no YouTube</span>
@@ -630,11 +630,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
               )}
 
               {/* Bottom measured contrast scrim + video details */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black/90 via-black/45 to-transparent z-20" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black via-black/60 to-transparent z-20" />
 
               <div className="absolute inset-x-0 bottom-0 z-30 p-4 pr-16 sm:p-5 sm:pr-20 flex flex-col justify-end pointer-events-none">
                 <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-200 font-medium">
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-200 font-medium">
                     <span className="font-semibold text-white truncate max-w-[200px]">
                       {short.channelTitle}
                     </span>
@@ -656,7 +656,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                     {short.title}
                   </h2>
 
-                  <div className="flex items-center gap-1.5 text-xs text-sky-200/95 font-medium">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-medium">
                     <span>{short.categoryLabel}</span>
                     <span aria-hidden="true">·</span>
                     <span>{short.doctrineLabel}</span>
@@ -670,30 +670,14 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleTogglePlayPause();
-                  }}
-                  aria-label={isPlaying ? 'Pausar vídeo' : 'Reproduzir vídeo'}
-                  className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150 cursor-pointer"
-                >
-                  {isCurrent && isPlaying ? (
-                    <Pause className="w-5 h-5" aria-hidden="true" />
-                  ) : (
-                    <Play className="w-5 h-5 ml-0.5" aria-hidden="true" />
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
                     onAudioUnlocked();
                     onToggleSave(short.id);
                   }}
                   aria-label={isSaved ? 'Remover dos salvos' : 'Salvar vídeo'}
                   className={`w-11 h-11 rounded-full active:scale-95 backdrop-blur-md flex items-center justify-center border transition-all duration-150 cursor-pointer ${
                     isSaved
-                      ? 'bg-sky-600 text-white border-sky-400'
-                      : 'bg-black/50 hover:bg-black/70 text-white border-white/15'
+                      ? 'bg-white text-black border-white'
+                      : 'bg-black/70 hover:bg-zinc-900 text-white border-white/15'
                   }`}
                 >
                   <Bookmark
@@ -710,7 +694,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                     onShare(short);
                   }}
                   aria-label="Compartilhar este vídeo"
-                  className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150 cursor-pointer"
+                  className="w-11 h-11 rounded-full bg-black/70 hover:bg-zinc-900 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150 cursor-pointer"
                 >
                   <Share2 className="w-5 h-5" aria-hidden="true" />
                 </button>
@@ -725,7 +709,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   aria-label="Abrir vídeo no YouTube"
-                  className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150"
+                  className="w-11 h-11 rounded-full bg-black/70 hover:bg-zinc-900 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150"
                 >
                   <ExternalLink className="w-4 h-4" aria-hidden="true" />
                 </a>
@@ -735,10 +719,10 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
               {isCurrent && (
                 <div
                   aria-hidden="true"
-                  className="absolute bottom-0 left-0 right-0 h-1 bg-white/20 z-30 overflow-hidden"
+                  className="absolute bottom-0 left-0 right-0 h-1 bg-white/15 z-30 overflow-hidden"
                 >
                   <div
-                    className="h-full w-full bg-sky-400 origin-left transition-transform duration-100 ease-linear"
+                    className="h-full w-full bg-white origin-left transition-transform duration-100 ease-linear"
                     style={{ transform: `scaleX(${progress})` }}
                   />
                 </div>

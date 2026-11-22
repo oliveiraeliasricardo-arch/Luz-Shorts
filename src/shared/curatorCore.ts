@@ -552,12 +552,15 @@ const STRICT_TESTIMONY_DESC_PATTERNS = [
 
 const WORSHIP_SONG_POSITIVE_PATTERNS = [
   /\blouvor(es)?\b/i,
-  /\badora[cç][aã]o\b/i,
-  /\bhino\b/i,
+  /\bm[uú]sica de adora[cç][aã]o\b/i,
+  /\bc[aâ]ntico de adora[cç][aã]o\b/i,
+  /\bhino oficial\b/i,
+  /\bhino\s+\d+\b/i,
   /\bnova m[uú]sica\b/i,
-  /\bm[uú]sica\b/i,
+  /\bm[uú]sica oficial\b/i,
+  /\bm[uú]sica\s+(crist[aã]|gospel|adventista|in[eé]dita|nova)\b/i,
   /\bc[aâ]ntico\b/i,
-  /\bcoral\b/i,
+  /\bcom coral\b/i,
   /\bclipe( oficial)?\b/i,
   /\bv[ií]deo oficial\b/i,
   /\bvideo oficial\b/i,
@@ -578,7 +581,6 @@ const WORSHIP_SONG_POSITIVE_PATTERNS = [
   /\bmergulhar\b/i,
   /\bou[cç]a agora\b/i,
   /\bfeat\.?\b|\bft\.?\b/i,
-  /\bcom coral\b/i,
   /\brevela[cç][aã]o de jesus\b/i,
   /\bfeliz s[aá]bado\b/i,
   /\bcarruagem\b/i,
@@ -620,10 +622,23 @@ const NON_SONG_TALK_PATTERNS = [
   /\bdia de fotos\b/i,
   /\baninhos\b/i,
   /\bmaternidade\b/i,
+  /\bhomenagem\b/i,
+  /\b15 anos\b|\banivers[aá]rio\b/i,
+  /\bfatos sobre\b|\bcuriosidades\b/i,
+  /\bhist[oó]ria d[ao] (hino|m[uú]sica|can[cç][aã]o)\b/i,
+  /\bprioridades estrat[eé]gicas\b|\bidentidade adventista\b|\bleva a .* por onde passa\b/i,
+  /\breportagem\b|\bnot[ií]cia\b|\bdesabafo\b|\bconversa\b/i,
+  /\bbastidores\b|\bmaking of\b|\bpor tr[aá]s d[ao]\b/i,
+  /\bqual m[uú]sica\b|\bqual o melhor\b|\branking\b|\btop\s*\d+\b/i,
+  /\breact\b|\breagindo\b|\ban[aá]lise\b|\banalisando\b|\breview\b|\bresenha\b/i,
+  /\bentrevista\b|\bdocument[aá]rio\b|\bvlog\b|\bdi[aá]rio de\b|\bperguntas\b/i,
+  /\bcomo tocar\b|\baula de\b|\btutorial\b|\bcifra\b|\bv[ií]deo ?aula\b/i,
+  /\bteologia\b|\bexplicando\b|\btrecho\b|\bresumo\b/i,
+  /#shorts?\b/i,
   /\bep\.?\s*\d+\b/i,
   /\bepis[oó]dio\b/i,
   /\bfam[ií]lia\b/i,
-  /\b(mensagem|reflex[aã]o|estudo|rea[cç][aã]o)\b/i,
+  /\b(mensagem|reflex[aã]o|estudo|rea[cç][aã]o|palestra|ministra[cç][aã]o)\b/i,
   /\ba palavra que voc[eê] precisa\b/i,
   /\best[aá] escrito adora[cç][aã]o\b/i,
 ];
@@ -717,6 +732,14 @@ function looksLikeWorshipSong(title: string, description: string, isWorshipChann
   if (NON_SONG_TALK_PATTERNS.some((re) => re.test(title))) {
     return false;
   }
+  const descHead = description.slice(0, 260);
+  if (
+    /#shorts?\b|\b(podcast|devocional|entrevista|reportagem|homenagem|bastidores|making of|document[aá]rio|react|reagindo|vlog|tutorial|como tocar)\b/i.test(
+      descHead
+    )
+  ) {
+    return false;
+  }
   if (WORSHIP_SONG_POSITIVE_PATTERNS.some((re) => re.test(title))) {
     return true;
   }
@@ -726,7 +749,12 @@ function looksLikeWorshipSong(title: string, description: string, isWorshipChann
   if (isWorshipChannel) {
     // Require song/music title structure ("Artist - Song" / "Song | Tag" / music keywords)
     // or explicit songwriting/composition credits in the description (avoiding generic social footer text)
-    if (/[^|–-]+\s[-–|]\s[^|–-]+/.test(title) && !/\b(vlog|tour|agenda|convite|aviso)\b/i.test(title)) {
+    if (
+      /[^|–-]+\s[-–|]\s[^|–-]+/.test(title) &&
+      !/\b(vlog|tour|agenda|convite|aviso|homenagem|anivers[aá]rio|15 anos|fatos|curiosidades)\b/i.test(
+        title
+      )
+    ) {
       return true;
     }
     return /\b(letra:|composi[cç][aã]o:|compositor|arranjo musical|ficha t[eé]cnica)\b/i.test(

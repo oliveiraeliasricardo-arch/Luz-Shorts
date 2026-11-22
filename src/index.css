@@ -12,6 +12,9 @@
     scroll-behavior: smooth;
     font-family: var(--font-sans);
     overscroll-behavior-y: contain;
+    background-color: #000000;
+    color: #f4f4f5;
+    color-scheme: dark;
   }
 
   h1, h2, h3, h4 {

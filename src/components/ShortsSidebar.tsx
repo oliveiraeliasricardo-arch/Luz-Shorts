@@ -80,7 +80,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
       {/* Search input */}
       <div className="relative">
         <Search
-          className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+          className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
           aria-hidden="true"
         />
         <input
@@ -89,14 +89,14 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Buscar tema, bíblia ou canal"
           aria-label="Buscar vídeos cristãos"
-          className="w-full h-11 pl-10 pr-9 text-sm text-slate-900 placeholder:text-slate-400 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-700 focus:border-sky-700 transition-shadow"
+          className="w-full h-11 pl-10 pr-9 text-sm text-zinc-100 placeholder:text-zinc-500 bg-zinc-950 border border-zinc-800/90 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-zinc-600 transition-shadow"
         />
         {searchQuery && (
           <button
             type="button"
             onClick={() => onSearchChange('')}
             aria-label="Limpar busca"
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 cursor-pointer"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-white cursor-pointer"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -104,7 +104,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
       </div>
 
       {/* Category Filter Buttons */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-2 space-y-1">
+      <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-2 space-y-1">
         {CATEGORIES.map(({ id, label, subtitle, Icon }) => {
           const isActive = activeCategory === id;
           const count = getCount(id);
@@ -115,14 +115,14 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
               onClick={() => onSelectCategory(id)}
               className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-left transition-colors cursor-pointer min-h-[48px] ${
                 isActive
-                  ? 'bg-sky-700 text-white'
-                  : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                  ? 'bg-zinc-900 text-white border border-zinc-700/80'
+                  : 'text-zinc-300 border border-transparent hover:bg-zinc-900/60 hover:text-white'
               }`}
             >
               <div className="flex items-center gap-3 min-w-0">
                 <Icon
                   className={`w-4 h-4 shrink-0 ${
-                    isActive ? 'text-sky-100' : 'text-slate-500'
+                    isActive ? 'text-white' : 'text-zinc-500'
                   }`}
                 />
                 <div className="min-w-0">
@@ -131,7 +131,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
                   </div>
                   <div
                     className={`text-[11px] leading-tight mt-0.5 truncate ${
-                      isActive ? 'text-sky-100' : 'text-slate-500'
+                      isActive ? 'text-zinc-300' : 'text-zinc-500'
                     }`}
                   >
                     {subtitle}
@@ -140,7 +140,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
               </div>
               <span
                 className={`text-xs font-mono tabular-nums shrink-0 ${
-                  isActive ? 'text-sky-100' : 'text-slate-400'
+                  isActive ? 'text-zinc-200' : 'text-zinc-500'
                 }`}
               >
                 {count}
@@ -151,19 +151,19 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
       </div>
 
       {/* Editorial & Doctrinal Curatorship Summary */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
-        <h2 className="text-sm font-display font-bold text-slate-900">
+      <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-4 space-y-2.5">
+        <h2 className="text-sm font-display font-bold text-zinc-100">
           Critério de Curadoria
         </h2>
-        <p className="text-xs text-slate-600 leading-relaxed">
+        <p className="text-xs text-zinc-400 leading-relaxed">
           Pregações e estudos de Bíblia e Evangelho são filtrados exclusivamente
           dentro da doutrina Adventista do Sétimo Dia.
         </p>
-        <p className="text-xs text-slate-600 leading-relaxed">
+        <p className="text-xs text-zinc-400 leading-relaxed">
           Louvores e testemunhos abrangem expressões cristãs de diversas
           denominações.
         </p>
-        <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500">
+        <div className="pt-2 border-t border-zinc-900 text-[11px] text-zinc-500">
           {sourceMode === 'youtube_api'
             ? 'Fonte ativa: YouTube Data API v3'
             : apiKeyConfigured
