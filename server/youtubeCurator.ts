@@ -19,23 +19,76 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 const CURSOR_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_CURSORS = 60;
 
-const PREGACOES_DISCOVERY_QUERIES = [
-  'pregação adventista culto',
-  'sermão adventista completo',
-  'culto divino adventista pregação',
-  'semana de oração adventista pregação',
-  'pr alejandro bullon pregação',
-  'pr arilton oliveira pregação',
-  'pr ivan saraiva pregação',
-  'pr odailson fonseca pregação',
-  'pr rafael rossi pregação',
-  'pr gilson brito pregação',
-  'pr kleber gonçalves pregação',
-  'pr luís gonçalves evangelismo pregação',
-  'pr stanley arco pregação adventista',
-  'unasp igreja culto pregação adventista',
-  'mensagem adventista sábado culto',
-];
+const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
+  pregacoes: [
+    'pregação adventista culto',
+    'sermão adventista completo',
+    'culto divino adventista pregação',
+    'semana de oração adventista pregação',
+    'pr alejandro bullon pregação',
+    'pr arilton oliveira pregação',
+    'pr ivan saraiva pregação',
+    'pr odailson fonseca pregação',
+    'pr rafael rossi pregação',
+    'pr gilson brito pregação',
+    'pr kleber gonçalves pregação',
+    'pr luís gonçalves evangelismo pregação',
+    'pr stanley arco pregação adventista',
+    'unasp igreja culto pregação adventista',
+    'mensagem adventista sábado culto',
+    'pr rafael santos pregação adventista',
+    'pr michelson borges pregação adventista',
+    'novo tempo pregação sábado adventista',
+  ],
+  biblia: [
+    'estudo bíblico adventista #shorts',
+    'rodrigo silva arqueologia bíblica #shorts',
+    'na mira da verdade bíblia #shorts',
+    'arilton oliveira bíblia #shorts',
+    'novo tempo apocalipse profecia #shorts',
+    'escola sabatina lição bíblia #shorts',
+    'terceiro anjo profecias bíblicas #shorts',
+    'michelson borges bíblia #shorts',
+    'sábado na bíblia adventista #shorts',
+    'ivan saraiva bíblia versículo #shorts',
+    'daniel apocalipse adventista #shorts',
+    'evangelho adventista reflexão bíblica #shorts',
+    'comtexto diário bíblia adventista #shorts',
+    'adventistas brasil versículo bíblia #shorts',
+  ],
+  louvores: [
+    'louvor gospel clipe oficial',
+    'música gospel adoração ao vivo',
+    'arautos do rei música oficial',
+    'novo tom gravadora nt clipe oficial',
+    'daniel ludtke louvor',
+    'pedro valença música oficial',
+    'fernandinho louvor ao vivo',
+    'aline barros música oficial',
+    'gabriela rocha clipe oficial',
+    'fhop music acústico',
+    'casa worship ao vivo',
+    'isadora pompeo música oficial',
+    'morada música gospel ao vivo',
+    'laura souguellis louvor ao vivo',
+    'ministério mergulhar adoração ao vivo',
+    'hinário adventista cantado louvor',
+  ],
+  testemunhos: [
+    'testemunho cristão conversão #shorts',
+    'meu testemunho jesus mudou minha vida #shorts',
+    'testemunho de milagre cristão #shorts',
+    'testemunho adventista conversão #shorts',
+    'como conheci jesus testemunho #shorts',
+    'depoimento cristão fé #shorts',
+    'história de conversão evangélica #shorts',
+    'testemunho novo tempo conversão #shorts',
+    'deus salvou minha vida testemunho #shorts',
+    'testemunho ex ateu cristão #shorts',
+    'testemunho de fé superação cristão #shorts',
+    'mudou minha vida jesus testemunho #shorts',
+  ],
+};
 
 interface CandidateVideo {
   id: string;
@@ -49,6 +102,11 @@ interface CandidateVideo {
   durationSeconds?: number | null;
 }
 
+interface CategoryDiscoveryCursor {
+  queryIdx: number;
+  pageToken: string | null;
+}
+
 interface PaginationSessionState {
   createdAtMs: number;
   playlistStates: Record<string, { nextPageToken?: string | null; done?: boolean }>;
@@ -56,8 +114,8 @@ interface PaginationSessionState {
   seenIds: Set<string>;
   searchToken?: string | null;
   rssPage: number;
-  discoveryQueryIdx: number;
-  discoveryPageToken: string | null;
+  discoveryByCategory: Partial<Record<ContentCategory, CategoryDiscoveryCursor>>;
+  allCycleIdx: number;
 }
 
 let cachedCatalog: {
@@ -93,8 +151,8 @@ function createPaginationCursor(initialIds: string[], searchToken: string | null
     seenIds: new Set(initialIds),
     searchToken,
     rssPage: 1,
-    discoveryQueryIdx: 0,
-    discoveryPageToken: null,
+    discoveryByCategory: {},
+    allCycleIdx: 0,
   });
   return cursor;
 }
@@ -242,8 +300,15 @@ async function hydrateAndVerifyCandidates(
     }
 
     if (
-      classified.category !== 'louvores' &&
-      classified.category !== 'pregacoes' &&
+      classified.category === 'testemunhos' &&
+      meta?.durationSeconds != null &&
+      (meta.durationSeconds < 15 || meta.durationSeconds > 600)
+    ) {
+      continue;
+    }
+
+    if (
+      classified.category === 'biblia' &&
       meta?.durationSeconds &&
       meta.durationSeconds > 185
     ) {
@@ -535,8 +600,14 @@ async function fetchYoutubeWebSearch(
         continue;
       }
       if (
-        classified.category !== 'louvores' &&
-        classified.category !== 'pregacoes' &&
+        classified.category === 'testemunhos' &&
+        c.durationSeconds != null &&
+        (c.durationSeconds < 15 || c.durationSeconds > 600)
+      ) {
+        continue;
+      }
+      if (
+        classified.category === 'biblia' &&
         c.durationSeconds != null &&
         c.durationSeconds > 185
       ) {
@@ -617,9 +688,16 @@ async function fetchLiveYoutubeSearch(
   // Handle web search continuation tokens when search.list is unavailable or fallback mode
   if (pageToken && pageToken.startsWith('web:')) {
     const step = Number(pageToken.slice(4)) || 1;
-    const subQuery = step === 3 ? `${effectiveQuery} completo` : effectiveQuery;
-    const items = await fetchYoutubeWebSearch(apiKey, subQuery, validCat, step === 2);
-    const nextWebToken = step < 3 ? `web:${step + 1}` : null;
+    const subQuery =
+      step === 3
+        ? `${effectiveQuery} completo`
+        : step === 4
+        ? `${effectiveQuery} novo`
+        : step === 5
+        ? `${effectiveQuery} ao vivo`
+        : effectiveQuery;
+    const items = await fetchYoutubeWebSearch(apiKey, subQuery, validCat, step % 2 === 0);
+    const nextWebToken = step < 5 ? `web:${step + 1}` : null;
     return { items, nextPageToken: nextWebToken };
   }
 
@@ -695,13 +773,20 @@ async function fetchLiveYoutubeSearch(
   };
 }
 
-async function fetchPregacoesDiscoveryPage(
+async function fetchCategoryDiscoveryPage(
   apiKey: string,
+  targetCategory: ContentCategory,
   state: PaginationSessionState
 ): Promise<ChristianShort[]> {
-  const queryIdx = state.discoveryQueryIdx;
-  const query =
-    PREGACOES_DISCOVERY_QUERIES[queryIdx % PREGACOES_DISCOVERY_QUERIES.length];
+  const queries = DISCOVERY_QUERIES_BY_CATEGORY[targetCategory];
+  const cursorEntry = state.discoveryByCategory[targetCategory] ?? {
+    queryIdx: 0,
+    pageToken: null,
+  };
+  state.discoveryByCategory[targetCategory] = cursorEntry;
+
+  const queryIdx = cursorEntry.queryIdx;
+  const query = queries[queryIdx % queries.length];
   const sortByDate = queryIdx % 2 === 0;
 
   if (apiKey) {
@@ -717,8 +802,11 @@ async function fetchPregacoesDiscoveryPage(
       order: sortByDate ? 'date' : 'relevance',
       q: query,
     });
-    if (state.discoveryPageToken) {
-      params.set('pageToken', state.discoveryPageToken);
+    if (targetCategory === 'biblia' || targetCategory === 'testemunhos') {
+      params.set('videoDuration', 'short');
+    }
+    if (cursorEntry.pageToken) {
+      params.set('pageToken', cursorEntry.pageToken);
     }
 
     const res = await fetch(
@@ -743,10 +831,10 @@ async function fetchPregacoesDiscoveryPage(
       };
 
       if (data.nextPageToken) {
-        state.discoveryPageToken = data.nextPageToken;
+        cursorEntry.pageToken = data.nextPageToken;
       } else {
-        state.discoveryQueryIdx += 1;
-        state.discoveryPageToken = null;
+        cursorEntry.queryIdx += 1;
+        cursorEntry.pageToken = null;
       }
 
       const candidates = new Map<string, CandidateVideo>();
@@ -765,26 +853,26 @@ async function fetchPregacoesDiscoveryPage(
           channelTitle: decodeXmlEntities(s.channelTitle || ''),
           publishedAt: s.publishedAt || new Date().toISOString(),
           thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
-          hintCategory: 'pregacoes',
+          hintCategory: targetCategory,
         });
       }
 
       const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
-      return verified.filter((item) => item.category === 'pregacoes');
+      return verified.filter((item) => item.category === targetCategory);
     }
   }
 
   // Advance query index and fall back to zero-quota YouTube web search
-  state.discoveryQueryIdx += 1;
-  state.discoveryPageToken = null;
+  cursorEntry.queryIdx += 1;
+  cursorEntry.pageToken = null;
   const webFound = await fetchYoutubeWebSearch(
     apiKey,
     query,
-    'pregacoes',
+    targetCategory,
     sortByDate,
     state.seenIds
   );
-  return webFound.filter((item) => item.category === 'pregacoes');
+  return webFound.filter((item) => item.category === targetCategory);
 }
 
 export async function getCuratedChristianShorts(options: {
@@ -1049,7 +1137,14 @@ export async function getMoreChristianShorts(options: {
     };
   }
 
-  // Unlimited YouTube pagination via playlistItems.list + YouTube-wide sermon search for pregacoes
+  const ALL_DISCOVERY_ROTATION: ContentCategory[] = [
+    'pregacoes',
+    'louvores',
+    'biblia',
+    'testemunhos',
+  ];
+
+  // Unlimited YouTube pagination via playlistItems.list + YouTube-wide discovery for EVERY category
   if (apiKeyConfigured) {
     const eligibleChannels = validCat
       ? ALL_CURATED_CHANNELS.filter(
@@ -1062,12 +1157,13 @@ export async function getMoreChristianShorts(options: {
       const hint = validCat || ch.defaultCategory;
       if (hint === 'pregacoes') return `UULF${suffix}`;
       if (hint === 'biblia' && ch.defaultCategory === 'biblia') return `UUSH${suffix}`;
+      if (hint === 'testemunhos') return `UUSH${suffix}`;
       return `UU${suffix}`;
     };
 
     const collected: ChristianShort[] = [];
-    const maxAttempts = validCat === 'pregacoes' ? 3 : 2;
-    const targetMin = validCat === 'pregacoes' ? 12 : 18;
+    const maxAttempts = validCat ? 2 : 2;
+    const targetMin = validCat === 'pregacoes' || validCat === 'testemunhos' ? 12 : 18;
 
     for (let attempt = 0; attempt < maxAttempts && collected.length < targetMin; attempt++) {
       const batchTargets: Array<{
@@ -1142,26 +1238,26 @@ export async function getMoreChristianShorts(options: {
       }
     }
 
-    // For Pregações: also run unlimited YouTube-wide sermon discovery (search.list)
-    // to bring in new uploads and Adventist sermons across all of YouTube.
-    if (validCat === 'pregacoes') {
-      const shouldSearchYoutube =
-        collected.length < 10 || !anyPlaylistRemaining || state.round % 2 === 1;
-      if (shouldSearchYoutube) {
-        const searchTries = collected.length === 0 ? 2 : 1;
-        for (let sTry = 0; sTry < searchTries && collected.length < 16; sTry++) {
-          const discovered = await fetchPregacoesDiscoveryPage(apiKey, state);
-          for (const item of discovered) {
-            if (!state.seenIds.has(item.id)) {
-              state.seenIds.add(item.id);
-              collected.push(item);
-            }
+    // Run unlimited YouTube-wide discovery for EVERY category (always keeping strict category rules)
+    const shouldSearchYoutube =
+      collected.length < 12 || !anyPlaylistRemaining || state.round % 2 === 1;
+    if (shouldSearchYoutube) {
+      const searchTries = collected.length === 0 ? 3 : collected.length < 6 ? 2 : 1;
+      for (let sTry = 0; sTry < searchTries && collected.length < 18; sTry++) {
+        const discoveryCat =
+          validCat ??
+          ALL_DISCOVERY_ROTATION[state.allCycleIdx++ % ALL_DISCOVERY_ROTATION.length];
+        const discovered = await fetchCategoryDiscoveryPage(apiKey, discoveryCat, state);
+        for (const item of discovered) {
+          if (validCat && item.category !== validCat) continue;
+          if (!state.seenIds.has(item.id)) {
+            state.seenIds.add(item.id);
+            collected.push(item);
           }
         }
       }
     }
 
-    const hasMore = validCat === 'pregacoes' ? true : anyPlaylistRemaining;
     const diverse = buildDiverseFeed(collected, true);
     return formatFilteredResponse(
       diverse,
@@ -1170,12 +1266,12 @@ export async function getMoreChristianShorts(options: {
       fetchedAt,
       options.category,
       '',
-      hasMore,
-      hasMore ? cursor : null
+      true,
+      cursor
     );
   }
 
-  // RSS archive fallback pagination (+ YouTube web discovery for pregacoes)
+  // RSS archive fallback pagination + unlimited YouTube web discovery for EVERY category
   const rssPage = state.rssPage;
   state.rssPage += 1;
   const fresh: ChristianShort[] = [];
@@ -1188,16 +1284,22 @@ export async function getMoreChristianShorts(options: {
       fresh.push(item);
     }
   }
-  if (validCat === 'pregacoes' && (fresh.length < 10 || rssPage > 2)) {
-    const discovered = await fetchPregacoesDiscoveryPage('', state);
-    for (const item of discovered) {
-      if (state.seenIds.has(item.id)) continue;
-      state.seenIds.add(item.id);
-      fresh.push(item);
+  if (fresh.length < 10 || rssPage > 2) {
+    const tries = fresh.length === 0 ? 2 : 1;
+    for (let t = 0; t < tries && fresh.length < 16; t++) {
+      const discoveryCat =
+        validCat ??
+        ALL_DISCOVERY_ROTATION[state.allCycleIdx++ % ALL_DISCOVERY_ROTATION.length];
+      const discovered = await fetchCategoryDiscoveryPage('', discoveryCat, state);
+      for (const item of discovered) {
+        if (validCat && item.category !== validCat) continue;
+        if (state.seenIds.has(item.id)) continue;
+        state.seenIds.add(item.id);
+        fresh.push(item);
+      }
     }
   }
   const diverse = buildDiverseFeed(fresh, true);
-  const hasMoreRss = validCat === 'pregacoes' ? true : rssPage < 2;
 
   return formatFilteredResponse(
     diverse,
@@ -1206,8 +1308,8 @@ export async function getMoreChristianShorts(options: {
     fetchedAt,
     options.category,
     '',
-    hasMoreRss,
-    hasMoreRss ? cursor : null
+    true,
+    cursor
   );
 }
 

@@ -795,13 +795,24 @@ export function classifyShort(
   }
 
   const isWorshipChannel = channelSpec?.defaultCategory === 'louvores';
-  const isBibleChannel = channelSpec?.defaultCategory === 'biblia';
+  const isBibleChannel =
+    channelSpec?.defaultCategory === 'biblia' &&
+    channelId !== 'UC03Y0ieYROxw1FxCoDaSF9g' &&
+    channelId !== 'UC8PS8EsZsWXOQ1YmlJwCaYw';
 
-  const isExplicitTestimony =
-    STRICT_TESTIMONY_TITLE_PATTERNS.some((re) => re.test(title)) ||
-    STRICT_TESTIMONY_DESC_PATTERNS.some((re) => re.test(description));
   const isSong = looksLikeWorshipSong(title, description, isWorshipChannel);
+  const isExplicitTestimony =
+    !isSong &&
+    !/\b(podcast|trailer|teaser|inscri[cç][oõ]es|convite|agenda|prega[cç][aã]o completa|ao vivo agora|verso da semana|vers[ií]culo do dia)\b/i.test(
+      title
+    ) &&
+    (STRICT_TESTIMONY_TITLE_PATTERNS.some((re) => re.test(title)) ||
+      STRICT_TESTIMONY_DESC_PATTERNS.some((re) => re.test(description.slice(0, 260))));
   const isBibleTitle = STRICT_BIBLE_TITLE_PATTERNS.some((re) => re.test(title));
+  const isBibleDesc =
+    /\b(estudo b[ií]blico|escola sabatina|na mira da verdade|arqueologia b[ií]blica|vers[ií]culo|apocalipse|profecia|evangelho|palavra de deus|b[ií]blia sagrada|li[cç][aã]o da b[ií]blia|santu[aá]rio|mandamentos|s[aá]bado)\b/i.test(
+      description.slice(0, 320)
+    );
   const isStrictSermon =
     !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
     !NON_SERMON_PATTERNS.some((re) => re.test(description.slice(0, 220))) &&
@@ -813,7 +824,7 @@ export function classifyShort(
     // Worship channels only enter 'louvores' (when actual music) or 'testemunhos' (only if explicit spoken testimony)
     if (isSong) {
       detectedCategory = 'louvores';
-    } else if (isExplicitTestimony && !isSong) {
+    } else if (isExplicitTestimony) {
       detectedCategory = 'testemunhos';
     } else {
       return null;
@@ -822,14 +833,15 @@ export function classifyShort(
     detectedCategory = 'testemunhos';
   } else if (isSong) {
     detectedCategory = 'louvores';
-  } else if (
-    isBibleTitle ||
-    (isBibleChannel && channelId !== 'UC03Y0ieYROxw1FxCoDaSF9g')
-  ) {
+  } else if (isBibleTitle || isBibleChannel) {
     detectedCategory = 'biblia';
   } else if (isStrictSermon) {
     detectedCategory = 'pregacoes';
-  } else if (hintCategory === 'biblia') {
+  } else if (
+    hintCategory === 'biblia' &&
+    !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
+    isBibleDesc
+  ) {
     detectedCategory = 'biblia';
   } else {
     return null;

@@ -198,13 +198,13 @@ export function App() {
         all: data.nextCursor ?? null,
       };
       emptyRetryCountRef.current = 0;
-      const canPaginate = data.hasMore ?? Boolean(data.nextCursor);
+      const canPaginate = data.hasMore ?? true;
       setHasMoreByCategory({
         all: canPaginate,
-        pregacoes: data.apiKeyConfigured ? true : canPaginate,
-        biblia: canPaginate,
-        louvores: canPaginate,
-        testemunhos: canPaginate,
+        pregacoes: true,
+        biblia: true,
+        louvores: true,
+        testemunhos: true,
       });
       setActiveIndex(0);
       if (feedRef.current) {
@@ -429,7 +429,7 @@ export function App() {
           ...prev,
           [activeCategory]: nextHasMore,
         }));
-        if (freshCount === 0 && nextHasMore && emptyRetryCountRef.current < 2) {
+        if (freshCount === 0 && nextHasMore && emptyRetryCountRef.current < 3) {
           emptyRetryCountRef.current += 1;
           setPaginationRetryTick((t) => t + 1);
         } else {
@@ -454,12 +454,12 @@ export function App() {
     allShorts,
   ]);
 
-  // Automatically load more videos from YouTube as the user approaches the end of the feed
+  // Automatically load more videos from YouTube as the user approaches the end of any category feed
   useEffect(() => {
     if (loading || isRefreshing || activeCategory === 'salvos') return;
-    const lowStockPregacoes =
-      activeCategory === 'pregacoes' && !searchQuery.trim() && visibleShorts.length < 15;
-    if (visibleShorts.length === 0 || lowStockPregacoes || activeIndex >= visibleShorts.length - 6) {
+    const lowStockInCategory =
+      !searchQuery.trim() && visibleShorts.length < 15;
+    if (visibleShorts.length === 0 || lowStockInCategory || activeIndex >= visibleShorts.length - 6) {
       loadMoreShorts();
     }
   }, [
