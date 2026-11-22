@@ -558,7 +558,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                 key={short.id}
                 data-short-id={short.id}
                 aria-hidden="true"
-                className="relative w-full h-full bg-black overflow-hidden"
+                className="relative w-full h-full overflow-hidden"
               />
             );
           }
@@ -567,7 +567,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
             <article
               key={short.id}
               data-short-id={short.id}
-              className="relative w-full h-full flex items-center justify-center overflow-hidden bg-black"
+              className="relative w-full h-full flex items-center justify-center overflow-hidden"
             >
               {/* Full-Frame Thumbnail Poster */}
               <div
@@ -630,7 +630,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
               )}
 
               {/* Bottom measured contrast scrim + video details */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black via-black/60 to-transparent z-20" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/80 via-black/35 to-transparent z-20" />
 
               <div className="absolute inset-x-0 bottom-0 z-30 p-4 pr-16 sm:p-5 sm:pr-20 flex flex-col justify-end pointer-events-none">
                 <div className="space-y-1.5">
