@@ -120,6 +120,13 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     allowInCategories: ['biblia', 'pregacoes'],
   },
   {
+    id: 'UCs5jiNO6fntcZcCn7sUO6VA',
+    title: 'Pastor Bullón em Português - Canal Oficial',
+    doctrineScope: 'adventista',
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes', 'biblia'],
+  },
+  {
     id: 'UCxDYiN3jS_3EuPSjhj1utbg',
     title: 'Gravadora Novo Tempo',
     doctrineScope: 'adventista',
@@ -374,6 +381,16 @@ const ADVENTIST_IDENTITY_PATTERNS = [
   /\bs[aá]bado\b.*\b(selo|senhor|quarto mandamento|bíblia|deus)\b/i,
   /\barautos do rei\b/i,
   /\bgravadora nt\b/i,
+  /\berton k[oö]hler\b/i,
+  /\bstanley arco\b/i,
+  /\bkleber gon[cç]alves\b/i,
+  /\bfelippe amorim\b/i,
+  /\bgustavo marques\b/i,
+  /\bmark finley\b/i,
+  /\bdoug batchelor\b/i,
+  /\bunasp\b/i,
+  /\bfadba\b|\biaene\b/i,
+  /\bcanal esperan[cç]a\b/i,
 ];
 
 const CHRISTIAN_RELEVANCE_PATTERNS = [
@@ -405,6 +422,8 @@ const NON_PORTUGUESE_PATTERNS = [
   /[¿¡]/,
   /\b(despierta am[eé]rica|univision|semana del pa[ñn]uelo|reina para siempre|mil gracias|conquistadores)\b/i,
   /\b(la llama|cristo y nada m[aá]s|en tu presencia|te alabamos)\b/i,
+  /\b(educaci[oó]n|predicaci[oó]n|oraci[oó]n|salvaci[oó]n|bendici[oó]n|coraz[oó]n|deja de|en espa[ñn]ol|iglesia adventista del)\b/i,
+  /\b(d[ií]a\s*\d+\s*\|.*(semana|adventista)|\(esp\))\b/i,
   /\bgozo\s*[–-]\s*aline barros\b/i,
 ];
 
@@ -638,7 +657,7 @@ const NON_SERMON_PATTERNS = [
   /\b(podcast|inverso|bastidores|t\d+ep#?\d+|ep\.?\s*\d+|mesa redonda|bate-?papo|entrevista|c[oó]digo aberto)\b/i,
   /\b(momento da sa[uú]de|luz solar|alimenta[cç][aã]o|nutri[cç][aã]o|nutra seu corpo|vida saud[aá]vel|equil[ií]brio|exerc[ií]cio f[ií]sico|descanso:\s*seu corpo|[aá]gua:\s*a ess[eê]ncia|8 rem[eé]dios)\b/i,
   /\b(in concert|hin[aá]rio|clipe|canta|coral|express[aã]o de vida|horas benditas|a cruz n[aã]o [eé] o fim)\b/i,
-  /\b(treinamento|coordenador de interessados|aula\s*\d+|ciclo do evangelismo|trimestral|aposentadoria|quebrando o sil[eê]ncio|dia dos namorados|dia mundial dos desbravadores|feliz dia|lan[cç]amento do #|quem [eé] voc[eê] no|eu j[aá] fui|hist[oó]rias de volunt[aá]rios|pe[cç]a agora|revista esperan[cç]a|anos dos anjos|tv novo tempo\s*-\s*ao vivo|super lupa|em ingl[eê]s|filme|curta-metragem|bom dia mulher|o drama da paix[aã]o|allen, mission[aá]rio|pais conectados|evangelismo feminino|criadores e mission[aá]rios|encontro de evangelistas|onevoice27|bora fazer uma semana de ora[cç][aã]o)\b/i,
+  /\b(treinamento|coordenador de interessados|aula\s*\d+|ciclo do evangelismo|trimestral|aposentadoria|quebrando o sil[eê]ncio|dia dos namorados|dia mundial dos desbravadores|feliz dia|lan[cç]amento do #|quem [eé] voc[eê] no|eu j[aá] fui|hist[oó]rias de volunt[aá]rios|pe[cç]a agora|revista esperan[cç]a|anos dos anjos|tv novo tempo\s*-\s*ao vivo|super lupa|em ingl[eê]s|filme|curta-metragem|bom dia mulher|o drama da paix[aã]o|allen, mission[aá]rio|pais conectados|evangelismo feminino|criadores e mission[aá]rios|encontro de evangelistas|onevoice27|bora fazer uma semana de ora[cç][aã]o|homenagem|guia de pg)\b/i,
 ];
 
 const STRICT_SERMON_TITLE_PATTERNS = [
@@ -811,6 +830,7 @@ export function classifyShort(
 
 export function parseIso8601DurationSeconds(iso: string | undefined): number | null {
   if (!iso) return null;
+  if (iso === 'P0D') return 0;
   const m = iso.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
   if (!m) return null;
   const hours = Number(m[1] || 0);
@@ -867,6 +887,55 @@ function extractXmlTag(block: string, tag: string): string {
   return match ? decodeXmlEntities(match[1].trim()) : '';
 }
 
+function getTodaySaoPauloYmd(): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function isUpcomingOrPremiereEntry(
+  title: string,
+  description: string,
+  publishedAt: string
+): boolean {
+  const pubMs = Date.parse(publishedAt);
+  if (Number.isFinite(pubMs) && pubMs > Date.now() + 60_000) {
+    return true;
+  }
+
+  const text = `${title} ${description.slice(0, 240)}`;
+  if (
+    /\b(aguardando estreia|estreia em breve|estreia hoje|estreia dia \d|assista [àa] estreia|come[cç]a em breve)\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  const todayYmd = getTodaySaoPauloYmd();
+  const dateMatches = title.matchAll(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/g);
+  for (const m of dateMatches) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    const year = Number(m[3]);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      const ymd = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (ymd > todayYmd) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function parseChannelRssXml(
   xml: string,
   spec: CuratedChannelSpec,
@@ -888,6 +957,8 @@ export function parseChannelRssXml(
 
     const description = extractXmlTag(entry, 'media:description');
     const publishedAt = extractXmlTag(entry, 'published') || new Date().toISOString();
+    if (isUpcomingOrPremiereEntry(title, description, publishedAt)) continue;
+
     const authorName = extractXmlTag(entry, 'name') || spec.title;
 
     const classified = classifyShort(spec.id, authorName, title, description);

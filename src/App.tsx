@@ -72,8 +72,14 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMoreByCategory, setHasMoreByCategory] = useState<Record<string, boolean>>({
+    all: true,
+    pregacoes: true,
+    biblia: true,
+    louvores: true,
+    testemunhos: true,
+  });
+  const [paginationRetryTick, setPaginationRetryTick] = useState(0);
   const [remoteSearchShorts, setRemoteSearchShorts] = useState<ChristianShort[] | null>(null);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
   const [searchHasMore, setSearchHasMore] = useState(false);
@@ -83,6 +89,8 @@ export function App() {
 
   const feedRef = useRef<HTMLDivElement | null>(null);
   const seenIdsRef = useRef<string[]>(readStoredIdList(SEEN_STORAGE_KEY));
+  const categoryCursorsRef = useRef<Record<string, string | null>>({});
+  const emptyRetryCountRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
   const activeSearchTermRef = useRef('');
 
@@ -186,8 +194,18 @@ export function App() {
       setAllShorts(items);
       setSourceMode(data.sourceMode);
       setApiKeyConfigured(data.apiKeyConfigured);
-      setNextCursor(data.nextCursor ?? null);
-      setHasMore(data.hasMore ?? Boolean(data.nextCursor));
+      categoryCursorsRef.current = {
+        all: data.nextCursor ?? null,
+      };
+      emptyRetryCountRef.current = 0;
+      const canPaginate = data.hasMore ?? Boolean(data.nextCursor);
+      setHasMoreByCategory({
+        all: canPaginate,
+        pregacoes: data.apiKeyConfigured ? true : canPaginate,
+        biblia: canPaginate,
+        louvores: canPaginate,
+        testemunhos: canPaginate,
+      });
       setActiveIndex(0);
       if (feedRef.current) {
         feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
@@ -330,10 +348,11 @@ export function App() {
 
     const trimmedQuery = searchQuery.trim();
     const isLiveSearch = trimmedQuery.length >= 2 && remoteSearchShorts !== null;
+    const categoryHasMore = hasMoreByCategory[activeCategory] ?? true;
     if (isLiveSearch && (!searchHasMore || !searchCursor)) {
       return;
     }
-    if (!isLiveSearch && !hasMore) {
+    if (!isLiveSearch && !categoryHasMore) {
       return;
     }
 
@@ -343,17 +362,21 @@ export function App() {
     try {
       let data: ShortsApiResponse | null = null;
       const nativeApp = isNativeCapacitorApp();
+      const categoryCursor = categoryCursorsRef.current[activeCategory] ?? null;
 
       if (!nativeApp || API_BASE_URL.length > 0) {
         const params = new URLSearchParams({
           category: activeCategory,
         });
-        const cursorToUse = isLiveSearch ? searchCursor : nextCursor;
+        const cursorToUse = isLiveSearch ? searchCursor : categoryCursor;
         if (cursorToUse) params.set('cursor', cursorToUse);
         if (isLiveSearch) params.set('q', trimmedQuery);
-        const recentIds = (isLiveSearch ? remoteSearchShorts ?? [] : allShorts)
-          .slice(-40)
-          .map((i) => i.id);
+        const activePool = isLiveSearch
+          ? remoteSearchShorts ?? []
+          : activeCategory === 'all'
+          ? allShorts
+          : allShorts.filter((i) => i.category === activeCategory);
+        const recentIds = activePool.slice(-180).map((i) => i.id);
         if (recentIds.length > 0) params.set('exclude', recentIds.join(','));
 
         const res = await fetch(`${API_BASE_URL}/api/shorts/more?${params.toString()}`);
@@ -362,7 +385,7 @@ export function App() {
           data = (await res.json()) as ShortsApiResponse;
         }
       } else if (!isLiveSearch) {
-        const pageNum = Number(nextCursor || '1');
+        const pageNum = Number(categoryCursor || '1');
         if (Number.isFinite(pageNum) && pageNum > 0) {
           data = await fetchShortsOnNativeDevice(false, pageNum);
         }
@@ -371,15 +394,26 @@ export function App() {
       if (!data) return;
 
       if (isLiveSearch) {
+        const existing = new Set((remoteSearchShorts ?? []).map((i) => i.id));
+        const freshCount = data.items.filter((i) => !existing.has(i.id)).length;
         setRemoteSearchShorts((prev) => {
           const base = prev ?? [];
-          const existing = new Set(base.map((i) => i.id));
-          const fresh = data!.items.filter((i) => !existing.has(i.id));
+          const baseIds = new Set(base.map((i) => i.id));
+          const fresh = data!.items.filter((i) => !baseIds.has(i.id));
           return fresh.length > 0 ? [...base, ...fresh] : base;
         });
         setSearchCursor(data.nextCursor ?? null);
-        setSearchHasMore(Boolean(data.hasMore && data.nextCursor));
+        const nextSearchHasMore = Boolean(data.hasMore && data.nextCursor);
+        setSearchHasMore(nextSearchHasMore);
+        if (freshCount === 0 && nextSearchHasMore && emptyRetryCountRef.current < 2) {
+          emptyRetryCountRef.current += 1;
+          setPaginationRetryTick((t) => t + 1);
+        } else {
+          emptyRetryCountRef.current = 0;
+        }
       } else {
+        const existingAll = new Set(allShorts.map((i) => i.id));
+        const freshCount = data.items.filter((i) => !existingAll.has(i.id)).length;
         setAllShorts((prev) => {
           const existing = new Set(prev.map((i) => i.id));
           const seenSet = new Set(seenIdsRef.current);
@@ -389,8 +423,18 @@ export function App() {
           const seen = spreadChannelOrder(fresh.filter((i) => seenSet.has(i.id)));
           return [...prev, ...unseen, ...seen];
         });
-        setNextCursor(data.nextCursor ?? null);
-        setHasMore(Boolean(data.hasMore));
+        categoryCursorsRef.current[activeCategory] = data.nextCursor ?? null;
+        const nextHasMore = Boolean(data.hasMore);
+        setHasMoreByCategory((prev) => ({
+          ...prev,
+          [activeCategory]: nextHasMore,
+        }));
+        if (freshCount === 0 && nextHasMore && emptyRetryCountRef.current < 2) {
+          emptyRetryCountRef.current += 1;
+          setPaginationRetryTick((t) => t + 1);
+        } else {
+          emptyRetryCountRef.current = 0;
+        }
       }
     } catch {
       // Fail silently; user can keep watching current items or pull to refresh
@@ -406,20 +450,31 @@ export function App() {
     remoteSearchShorts,
     searchHasMore,
     searchCursor,
-    hasMore,
-    nextCursor,
+    hasMoreByCategory,
     allShorts,
   ]);
 
   // Automatically load more videos from YouTube as the user approaches the end of the feed
   useEffect(() => {
     if (loading || isRefreshing || activeCategory === 'salvos') return;
-    if (visibleShorts.length === 0 || activeIndex >= visibleShorts.length - 6) {
+    const lowStockPregacoes =
+      activeCategory === 'pregacoes' && !searchQuery.trim() && visibleShorts.length < 15;
+    if (visibleShorts.length === 0 || lowStockPregacoes || activeIndex >= visibleShorts.length - 6) {
       loadMoreShorts();
     }
-  }, [activeIndex, visibleShorts.length, activeCategory, loading, isRefreshing, loadMoreShorts]);
+  }, [
+    activeIndex,
+    visibleShorts.length,
+    activeCategory,
+    searchQuery,
+    loading,
+    isRefreshing,
+    paginationRetryTick,
+    loadMoreShorts,
+  ]);
 
   const handleSelectCategory = useCallback((cat: ShortCategory) => {
+    emptyRetryCountRef.current = 0;
     setActiveCategory(cat);
     setActiveIndex(0);
     if (feedRef.current) {
@@ -504,14 +559,22 @@ export function App() {
   }, [activeIndex, visibleShorts]);
 
   const handleVideoEnded = useCallback(() => {
+    const canLoadMore = hasMoreByCategory[activeCategory] ?? true;
     if (activeIndex < visibleShorts.length - 1) {
       scrollToIndex(activeIndex + 1);
-    } else if (hasMore && activeCategory !== 'salvos') {
+    } else if (canLoadMore && activeCategory !== 'salvos') {
       loadMoreShorts();
     } else {
       scrollToIndex(0);
     }
-  }, [activeIndex, visibleShorts.length, scrollToIndex, hasMore, activeCategory, loadMoreShorts]);
+  }, [
+    activeIndex,
+    visibleShorts.length,
+    scrollToIndex,
+    hasMoreByCategory,
+    activeCategory,
+    loadMoreShorts,
+  ]);
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-slate-50 text-slate-900 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full">

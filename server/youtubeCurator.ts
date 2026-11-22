@@ -19,6 +19,24 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 const CURSOR_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_CURSORS = 60;
 
+const PREGACOES_DISCOVERY_QUERIES = [
+  'pregação adventista culto',
+  'sermão adventista completo',
+  'culto divino adventista pregação',
+  'semana de oração adventista pregação',
+  'pr alejandro bullon pregação',
+  'pr arilton oliveira pregação',
+  'pr ivan saraiva pregação',
+  'pr odailson fonseca pregação',
+  'pr rafael rossi pregação',
+  'pr gilson brito pregação',
+  'pr kleber gonçalves pregação',
+  'pr luís gonçalves evangelismo pregação',
+  'pr stanley arco pregação adventista',
+  'unasp igreja culto pregação adventista',
+  'mensagem adventista sábado culto',
+];
+
 interface CandidateVideo {
   id: string;
   title: string;
@@ -28,6 +46,7 @@ interface CandidateVideo {
   publishedAt: string;
   thumbnailUrl?: string;
   hintCategory?: ContentCategory;
+  durationSeconds?: number | null;
 }
 
 interface PaginationSessionState {
@@ -37,6 +56,8 @@ interface PaginationSessionState {
   seenIds: Set<string>;
   searchToken?: string | null;
   rssPage: number;
+  discoveryQueryIdx: number;
+  discoveryPageToken: string | null;
 }
 
 let cachedCatalog: {
@@ -72,6 +93,8 @@ function createPaginationCursor(initialIds: string[], searchToken: string | null
     seenIds: new Set(initialIds),
     searchToken,
     rssPage: 1,
+    discoveryQueryIdx: 0,
+    discoveryPageToken: null,
   });
   return cursor;
 }
@@ -87,6 +110,48 @@ async function fetchFromCuratedRss(pageIndex = 0): Promise<ChristianShort[]> {
   }, pageIndex);
 }
 
+function isYouTubeVideoPlayable(v: {
+  snippet?: { liveBroadcastContent?: string };
+  contentDetails?: { duration?: string };
+  status?: { embeddable?: boolean; privacyStatus?: string; publishAt?: string };
+  liveStreamingDetails?: {
+    scheduledStartTime?: string;
+    actualStartTime?: string;
+    actualEndTime?: string;
+  };
+}): { playable: boolean; durationSeconds: number | null } {
+  const durationSeconds = parseIso8601DurationSeconds(v.contentDetails?.duration);
+  const embeddable =
+    v.status?.embeddable !== false && v.status?.privacyStatus !== 'private';
+  if (!embeddable) {
+    return { playable: false, durationSeconds };
+  }
+
+  const broadcast = v.snippet?.liveBroadcastContent;
+  if (broadcast === 'upcoming' || broadcast === 'live') {
+    return { playable: false, durationSeconds };
+  }
+
+  const live = v.liveStreamingDetails;
+  if (live?.scheduledStartTime && !live?.actualStartTime) {
+    return { playable: false, durationSeconds };
+  }
+  if (live?.actualStartTime && !live?.actualEndTime) {
+    return { playable: false, durationSeconds };
+  }
+
+  const publishAtMs = v.status?.publishAt ? Date.parse(v.status.publishAt) : NaN;
+  if (Number.isFinite(publishAtMs) && publishAtMs > Date.now()) {
+    return { playable: false, durationSeconds };
+  }
+
+  if (durationSeconds === null || durationSeconds <= 0) {
+    return { playable: false, durationSeconds };
+  }
+
+  return { playable: true, durationSeconds };
+}
+
 async function hydrateAndVerifyCandidates(
   apiKey: string,
   candidates: Map<string, CandidateVideo>
@@ -94,10 +159,11 @@ async function hydrateAndVerifyCandidates(
   if (candidates.size === 0) return [];
 
   const candidateIds = [...candidates.keys()];
+  const checkedIds = new Set<string>();
   const videoMeta = new Map<
     string,
     {
-      embeddable: boolean;
+      playable: boolean;
       durationSeconds: number | null;
       viewCount: number | null;
       fullDescription: string;
@@ -108,7 +174,7 @@ async function hydrateAndVerifyCandidates(
     const chunk = candidateIds.slice(i, i + 50);
     const params = new URLSearchParams({
       key: apiKey,
-      part: 'snippet,contentDetails,statistics,status',
+      part: 'snippet,contentDetails,statistics,status,liveStreamingDetails',
       id: chunk.join(','),
     });
     const res = await fetch(
@@ -116,19 +182,27 @@ async function hydrateAndVerifyCandidates(
       { signal: AbortSignal.timeout(9000) }
     );
     if (!res.ok) continue;
+    for (const id of chunk) checkedIds.add(id);
+
     const data = (await res.json()) as {
       items?: Array<{
         id: string;
-        snippet?: { description?: string };
+        snippet?: { description?: string; liveBroadcastContent?: string };
         contentDetails?: { duration?: string };
         statistics?: { viewCount?: string };
-        status?: { embeddable?: boolean; privacyStatus?: string };
+        status?: { embeddable?: boolean; privacyStatus?: string; publishAt?: string };
+        liveStreamingDetails?: {
+          scheduledStartTime?: string;
+          actualStartTime?: string;
+          actualEndTime?: string;
+        };
       }>;
     };
     for (const v of data.items ?? []) {
+      const check = isYouTubeVideoPlayable(v);
       videoMeta.set(v.id, {
-        embeddable: v.status?.embeddable !== false && v.status?.privacyStatus !== 'private',
-        durationSeconds: parseIso8601DurationSeconds(v.contentDetails?.duration),
+        playable: check.playable,
+        durationSeconds: check.durationSeconds,
         viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
         fullDescription: decodeXmlEntities(v.snippet?.description || ''),
       });
@@ -138,7 +212,8 @@ async function hydrateAndVerifyCandidates(
   const verifiedShorts: ChristianShort[] = [];
   for (const c of candidates.values()) {
     const meta = videoMeta.get(c.id);
-    if (meta && !meta.embeddable) continue;
+    if (checkedIds.has(c.id) && (!meta || !meta.playable)) continue;
+    if (meta && !meta.playable) continue;
 
     const fullDesc = meta?.fullDescription || c.description;
     const classified = classifyShort(
@@ -186,7 +261,7 @@ async function hydrateAndVerifyCandidates(
         thumbnailUrl: c.thumbnailUrl,
         category: classified.category,
         doctrineScope: classified.doctrineScope,
-        durationSeconds: meta?.durationSeconds ?? null,
+        durationSeconds: meta?.durationSeconds ?? c.durationSeconds ?? null,
         viewCount: meta?.viewCount ?? null,
       })
     );
@@ -198,7 +273,7 @@ async function hydrateAndVerifyCandidates(
 async function fetchFromYoutubeApi(
   apiKey: string,
   forceRefresh = false
-): Promise<ChristianShort[]> {
+): Promise<{ items: ChristianShort[]; evaluatedIds: Set<string> }> {
   // Fetch initial catalog using playlistItems.list (1 quota unit per call instead of 100 for search.list)
   // across all curated verified channels, rotating offset/playlists on refresh for variety.
   const channels = [...ALL_CURATED_CHANNELS];
@@ -214,8 +289,10 @@ async function fetchFromYoutubeApi(
     const playlistId =
       spec.defaultCategory === 'biblia'
         ? `UUSH${suffix}`
-        : forceRefresh && Math.random() < 0.35
+        : forceRefresh && Math.random() < 0.3
         ? `UUPV${suffix}`
+        : spec.defaultCategory === 'pregacoes'
+        ? `UULF${suffix}`
         : `UU${suffix}`;
     return fetchChannelPlaylistPage(apiKey, playlistId, spec.defaultCategory, null);
   });
@@ -238,7 +315,9 @@ async function fetchFromYoutubeApi(
     throw new Error('YouTube API playlistItems returned no results');
   }
 
-  return hydrateAndVerifyCandidates(apiKey, candidates);
+  const evaluatedIds = new Set(candidates.keys());
+  const items = await hydrateAndVerifyCandidates(apiKey, candidates);
+  return { items, evaluatedIds };
 }
 
 async function fetchChannelPlaylistPage(
@@ -305,6 +384,185 @@ async function fetchChannelPlaylistPage(
   };
 }
 
+function parseDisplayDurationToSeconds(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const parts = raw
+    .trim()
+    .split(':')
+    .map((p) => Number(p.replace(/[^\d]/g, '')));
+  if (parts.some((n) => !Number.isFinite(n))) return null;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
+
+async function fetchYoutubeWebSearch(
+  apiKey: string,
+  query: string,
+  hintCategory?: ContentCategory,
+  sortByDate = false,
+  excludeIds?: Set<string>
+): Promise<ChristianShort[]> {
+  try {
+    const spParam = sortByDate ? '&sp=CAISAhAB' : '';
+    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}${spParam}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept-Language': 'pt-BR,pt;q=0.9',
+      },
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const match = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
+    if (!match) return [];
+
+    const data = JSON.parse(match[1]) as {
+      contents?: {
+        twoColumnSearchResultsRenderer?: {
+          primaryContents?: {
+            sectionListRenderer?: {
+              contents?: Array<{
+                itemSectionRenderer?: {
+                  contents?: Array<{
+                    videoRenderer?: {
+                      videoId?: string;
+                      title?: { runs?: Array<{ text?: string }> };
+                      ownerText?: {
+                        runs?: Array<{
+                          text?: string;
+                          navigationEndpoint?: { browseEndpoint?: { browseId?: string } };
+                        }>;
+                      };
+                      lengthText?: { simpleText?: string };
+                      thumbnail?: { thumbnails?: Array<{ url?: string }> };
+                      detailedMetadataSnippets?: Array<{
+                        snippetText?: { runs?: Array<{ text?: string }> };
+                      }>;
+                      upcomingEventData?: unknown;
+                      badges?: Array<{ metadataBadgeRenderer?: { label?: string; style?: string } }>;
+                    };
+                  }>;
+                };
+              }>;
+            };
+          };
+        };
+      };
+    };
+
+    const sections =
+      data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer
+        ?.contents ?? [];
+    const candidates = new Map<string, CandidateVideo>();
+
+    for (const sec of sections) {
+      for (const item of sec.itemSectionRenderer?.contents ?? []) {
+        const vr = item.videoRenderer;
+        if (!vr?.videoId) continue;
+        if (excludeIds?.has(vr.videoId)) continue;
+        if (vr.upcomingEventData) continue;
+
+        const badges = (vr.badges ?? []).map((b) =>
+          (b.metadataBadgeRenderer?.label || '').toLowerCase()
+        );
+        if (badges.some((b) => b.includes('ao vivo') || b === 'live' || b.includes('estreia'))) {
+          continue;
+        }
+
+        const durationSeconds = parseDisplayDurationToSeconds(vr.lengthText?.simpleText);
+        if (durationSeconds === null || durationSeconds <= 0) continue;
+
+        const title = decodeXmlEntities(
+          (vr.title?.runs ?? []).map((r) => r.text || '').join('')
+        );
+        if (!title) continue;
+
+        const ownerRun = vr.ownerText?.runs?.[0];
+        const channelTitle = decodeXmlEntities(ownerRun?.text || '');
+        const channelId = ownerRun?.navigationEndpoint?.browseEndpoint?.browseId || '';
+        const description = decodeXmlEntities(
+          (vr.detailedMetadataSnippets?.[0]?.snippetText?.runs ?? [])
+            .map((r) => r.text || '')
+            .join('')
+        );
+        const thumbs = vr.thumbnail?.thumbnails ?? [];
+        const thumbnailUrl = thumbs[thumbs.length - 1]?.url;
+
+        candidates.set(vr.videoId, {
+          id: vr.videoId,
+          title,
+          description,
+          channelId,
+          channelTitle,
+          publishedAt: new Date().toISOString(),
+          thumbnailUrl,
+          hintCategory,
+          durationSeconds,
+        });
+      }
+    }
+
+    if (candidates.size === 0) return [];
+    if (apiKey) {
+      return hydrateAndVerifyCandidates(apiKey, candidates);
+    }
+
+    const fallback: ChristianShort[] = [];
+    for (const c of candidates.values()) {
+      const classified = classifyShort(
+        c.channelId,
+        c.channelTitle,
+        c.title,
+        c.description,
+        c.hintCategory
+      );
+      if (!classified) continue;
+      if (
+        classified.category === 'louvores' &&
+        c.durationSeconds != null &&
+        (c.durationSeconds < 75 || c.durationSeconds > 1200)
+      ) {
+        continue;
+      }
+      if (
+        classified.category === 'pregacoes' &&
+        c.durationSeconds != null &&
+        c.durationSeconds < 45
+      ) {
+        continue;
+      }
+      if (
+        classified.category !== 'louvores' &&
+        classified.category !== 'pregacoes' &&
+        c.durationSeconds != null &&
+        c.durationSeconds > 185
+      ) {
+        continue;
+      }
+      fallback.push(
+        buildShortRecord({
+          id: c.id,
+          title: c.title,
+          description: c.description,
+          channelId: c.channelId,
+          channelTitle: c.channelTitle,
+          publishedAt: c.publishedAt,
+          thumbnailUrl: c.thumbnailUrl,
+          category: classified.category,
+          doctrineScope: classified.doctrineScope,
+          durationSeconds: c.durationSeconds ?? null,
+        })
+      );
+    }
+    return fallback;
+  } catch {
+    return [];
+  }
+}
+
 async function fetchLiveYoutubeSearch(
   apiKey: string,
   rawQuery: string,
@@ -323,8 +581,22 @@ async function fetchLiveYoutubeSearch(
       : undefined;
 
   let effectiveQuery = cleanQuery;
-  if (
-    (validCat === 'pregacoes' || validCat === 'biblia') &&
+  if (validCat === 'pregacoes') {
+    const hasSermonWord = /\b(prega[cç][aã]o|pregando|serm[aã]o|culto|mensagem)\b/i.test(
+      cleanQuery
+    );
+    const hasAdvWord = /\b(adventista|iasd|novo tempo|arilton|bullon|ivan saraiva|odailson|rafael rossi|stanley arco|gilson brito)\b/i.test(
+      cleanQuery
+    );
+    if (!hasSermonWord && !hasAdvWord) {
+      effectiveQuery = `${cleanQuery} pregação adventista`;
+    } else if (!hasAdvWord) {
+      effectiveQuery = `${cleanQuery} adventista`;
+    } else if (!hasSermonWord) {
+      effectiveQuery = `${cleanQuery} pregação`;
+    }
+  } else if (
+    validCat === 'biblia' &&
     !/\b(adventista|iasd|novo tempo|rodrigo silva|na mira|terceiro anjo|arilton)\b/i.test(
       cleanQuery
     )
@@ -342,67 +614,177 @@ async function fetchLiveYoutubeSearch(
     effectiveQuery = `${cleanQuery} testemunho cristão`;
   }
 
-  const params = new URLSearchParams({
-    key: apiKey,
-    part: 'snippet',
-    type: 'video',
-    videoEmbeddable: 'true',
-    safeSearch: 'strict',
-    relevanceLanguage: 'pt',
-    regionCode: 'BR',
-    maxResults: '30',
-    q: effectiveQuery,
-  });
-  if (pageToken) {
-    params.set('pageToken', pageToken);
+  // Handle web search continuation tokens when search.list is unavailable or fallback mode
+  if (pageToken && pageToken.startsWith('web:')) {
+    const step = Number(pageToken.slice(4)) || 1;
+    const subQuery = step === 3 ? `${effectiveQuery} completo` : effectiveQuery;
+    const items = await fetchYoutubeWebSearch(apiKey, subQuery, validCat, step === 2);
+    const nextWebToken = step < 3 ? `web:${step + 1}` : null;
+    return { items, nextPageToken: nextWebToken };
   }
 
-  const res = await fetch(
-    `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
-    { signal: AbortSignal.timeout(9000) }
-  );
-  if (!res.ok) {
-    return { items: [], nextPageToken: null };
-  }
-
-  const data = (await res.json()) as {
-    nextPageToken?: string;
-    items?: Array<{
-      id?: { videoId?: string };
-      snippet?: {
-        title?: string;
-        description?: string;
-        channelId?: string;
-        channelTitle?: string;
-        publishedAt?: string;
-        liveBroadcastContent?: string;
-        thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
-      };
-    }>;
-  };
-
-  const candidates = new Map<string, CandidateVideo>();
-  for (const item of data.items ?? []) {
-    const id = item.id?.videoId;
-    const s = item.snippet;
-    if (!id || !s || s.liveBroadcastContent === 'live') continue;
-    candidates.set(id, {
-      id,
-      title: decodeXmlEntities(s.title || ''),
-      description: decodeXmlEntities(s.description || ''),
-      channelId: s.channelId || '',
-      channelTitle: decodeXmlEntities(s.channelTitle || ''),
-      publishedAt: s.publishedAt || new Date().toISOString(),
-      thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
-      hintCategory: validCat,
+  if (apiKey) {
+    const params = new URLSearchParams({
+      key: apiKey,
+      part: 'snippet',
+      type: 'video',
+      videoEmbeddable: 'true',
+      safeSearch: 'strict',
+      relevanceLanguage: 'pt',
+      regionCode: 'BR',
+      maxResults: '30',
+      q: effectiveQuery,
     });
+    if (pageToken) {
+      params.set('pageToken', pageToken);
+    }
+
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
+      { signal: AbortSignal.timeout(9000) }
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        nextPageToken?: string;
+        items?: Array<{
+          id?: { videoId?: string };
+          snippet?: {
+            title?: string;
+            description?: string;
+            channelId?: string;
+            channelTitle?: string;
+            publishedAt?: string;
+            liveBroadcastContent?: string;
+            thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
+          };
+        }>;
+      };
+
+      const candidates = new Map<string, CandidateVideo>();
+      for (const item of data.items ?? []) {
+        const id = item.id?.videoId;
+        const s = item.snippet;
+        if (!id || !s || s.liveBroadcastContent === 'live' || s.liveBroadcastContent === 'upcoming') {
+          continue;
+        }
+        candidates.set(id, {
+          id,
+          title: decodeXmlEntities(s.title || ''),
+          description: decodeXmlEntities(s.description || ''),
+          channelId: s.channelId || '',
+          channelTitle: decodeXmlEntities(s.channelTitle || ''),
+          publishedAt: s.publishedAt || new Date().toISOString(),
+          thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
+          hintCategory: validCat,
+        });
+      }
+
+      const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
+      return {
+        items: verified,
+        nextPageToken: data.nextPageToken || null,
+      };
+    }
   }
 
-  const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
+  // Automatic zero-quota YouTube web search fallback when search.list fails or key is absent
+  const webItems = await fetchYoutubeWebSearch(apiKey, effectiveQuery, validCat, false);
   return {
-    items: verified,
-    nextPageToken: data.nextPageToken || null,
+    items: webItems,
+    nextPageToken: webItems.length > 0 ? 'web:2' : null,
   };
+}
+
+async function fetchPregacoesDiscoveryPage(
+  apiKey: string,
+  state: PaginationSessionState
+): Promise<ChristianShort[]> {
+  const queryIdx = state.discoveryQueryIdx;
+  const query =
+    PREGACOES_DISCOVERY_QUERIES[queryIdx % PREGACOES_DISCOVERY_QUERIES.length];
+  const sortByDate = queryIdx % 2 === 0;
+
+  if (apiKey) {
+    const params = new URLSearchParams({
+      key: apiKey,
+      part: 'snippet',
+      type: 'video',
+      videoEmbeddable: 'true',
+      safeSearch: 'strict',
+      relevanceLanguage: 'pt',
+      regionCode: 'BR',
+      maxResults: '30',
+      order: sortByDate ? 'date' : 'relevance',
+      q: query,
+    });
+    if (state.discoveryPageToken) {
+      params.set('pageToken', state.discoveryPageToken);
+    }
+
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
+      { signal: AbortSignal.timeout(9000) }
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        nextPageToken?: string;
+        items?: Array<{
+          id?: { videoId?: string };
+          snippet?: {
+            title?: string;
+            description?: string;
+            channelId?: string;
+            channelTitle?: string;
+            publishedAt?: string;
+            liveBroadcastContent?: string;
+            thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
+          };
+        }>;
+      };
+
+      if (data.nextPageToken) {
+        state.discoveryPageToken = data.nextPageToken;
+      } else {
+        state.discoveryQueryIdx += 1;
+        state.discoveryPageToken = null;
+      }
+
+      const candidates = new Map<string, CandidateVideo>();
+      for (const item of data.items ?? []) {
+        const id = item.id?.videoId;
+        const s = item.snippet;
+        if (!id || !s || s.liveBroadcastContent === 'live' || s.liveBroadcastContent === 'upcoming') {
+          continue;
+        }
+        if (state.seenIds.has(id)) continue;
+        candidates.set(id, {
+          id,
+          title: decodeXmlEntities(s.title || ''),
+          description: decodeXmlEntities(s.description || ''),
+          channelId: s.channelId || '',
+          channelTitle: decodeXmlEntities(s.channelTitle || ''),
+          publishedAt: s.publishedAt || new Date().toISOString(),
+          thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
+          hintCategory: 'pregacoes',
+        });
+      }
+
+      const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
+      return verified.filter((item) => item.category === 'pregacoes');
+    }
+  }
+
+  // Advance query index and fall back to zero-quota YouTube web search
+  state.discoveryQueryIdx += 1;
+  state.discoveryPageToken = null;
+  const webFound = await fetchYoutubeWebSearch(
+    apiKey,
+    query,
+    'pregacoes',
+    sortByDate,
+    state.seenIds
+  );
+  return webFound.filter((item) => item.category === 'pregacoes');
 }
 
 export async function getCuratedChristianShorts(options: {
@@ -427,11 +809,36 @@ export async function getCuratedChristianShorts(options: {
     const randomize = Boolean(options.forceRefresh);
     if (apiKeyConfigured) {
       try {
-        const apiItems = await fetchFromYoutubeApi(apiKey, randomize);
-        const rssItems = await fetchFromCuratedRss(0);
+        const [{ items: apiItems, evaluatedIds }, rssItems] = await Promise.all([
+          fetchFromYoutubeApi(apiKey, randomize),
+          fetchFromCuratedRss(0),
+        ]);
+
+        // Hydrate any extra RSS-discovered IDs through videos.list so upcoming premieres,
+        // live streams, or out-of-range durations can never bypass API verification.
+        const rssExtraCandidates = new Map<string, CandidateVideo>();
+        for (const item of rssItems) {
+          if (!evaluatedIds.has(item.id) && !rssExtraCandidates.has(item.id)) {
+            rssExtraCandidates.set(item.id, {
+              id: item.id,
+              title: item.title,
+              description: item.description,
+              channelId: item.channelId,
+              channelTitle: item.channelTitle,
+              publishedAt: item.publishedAt,
+              thumbnailUrl: item.thumbnailUrl,
+              hintCategory: item.category,
+            });
+          }
+        }
+        const verifiedRssExtras =
+          rssExtraCandidates.size > 0
+            ? await hydrateAndVerifyCandidates(apiKey, rssExtraCandidates)
+            : [];
+
         const merged = new Map<string, ChristianShort>();
         for (const item of apiItems) merged.set(item.id, item);
-        for (const item of rssItems) {
+        for (const item of verifiedRssExtras) {
           if (!merged.has(item.id)) merged.set(item.id, item);
         }
         baseItems = buildDiverseFeed([...merged.values()], randomize);
@@ -454,16 +861,39 @@ export async function getCuratedChristianShorts(options: {
     };
   }
 
-  // If user searches with a query and YouTube API is active, query YouTube live too
+  // If user searches with a query, query YouTube live (API search.list with automatic zero-quota web search fallback)
   let searchToken: string | null = null;
   let combinedItems = baseItems;
-  if (trimmedQuery.length >= 2 && apiKeyConfigured) {
+  if (trimmedQuery.length >= 2) {
     try {
       const liveSearch = await fetchLiveYoutubeSearch(apiKey, trimmedQuery, options.category);
       searchToken = liveSearch.nextPageToken;
-      if (liveSearch.items.length > 0) {
+      const liveCollected = [...liveSearch.items];
+      const validCat =
+        options.category === 'pregacoes' ||
+        options.category === 'biblia' ||
+        options.category === 'louvores' ||
+        options.category === 'testemunhos'
+          ? options.category
+          : null;
+      const catHits = validCat
+        ? liveCollected.filter((i) => i.category === validCat).length
+        : liveCollected.length;
+
+      if (catHits < 4 && searchToken) {
+        const secondPage = await fetchLiveYoutubeSearch(
+          apiKey,
+          trimmedQuery,
+          options.category,
+          searchToken
+        );
+        searchToken = secondPage.nextPageToken;
+        liveCollected.push(...secondPage.items);
+      }
+
+      if (liveCollected.length > 0) {
         const merged = new Map<string, ChristianShort>();
-        for (const item of liveSearch.items) merged.set(item.id, item);
+        for (const item of liveCollected) merged.set(item.id, item);
         for (const item of baseItems) {
           if (!merged.has(item.id)) merged.set(item.id, item);
         }
@@ -480,7 +910,7 @@ export async function getCuratedChristianShorts(options: {
   );
 
   // When searching live on YouTube, merge live YouTube hits + accent-folded local matches
-  if (trimmedQuery.length >= 2 && apiKeyConfigured) {
+  if (trimmedQuery.length >= 2) {
     const fold = (s: string) =>
       s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const validCategories = new Set(['all', 'pregacoes', 'biblia', 'louvores', 'testemunhos']);
@@ -568,12 +998,12 @@ export async function getMoreChristianShorts(options: {
   }
 
   // Paginated live YouTube search when query is active
-  if (trimmedQuery.length >= 2 && apiKeyConfigured) {
+  if (trimmedQuery.length >= 2) {
     if (!state.searchToken) {
       return formatFilteredResponse(
         [],
-        'youtube_api',
-        true,
+        apiKeyConfigured ? 'youtube_api' : 'curated_rss',
+        apiKeyConfigured,
         fetchedAt,
         options.category,
         '',
@@ -608,8 +1038,8 @@ export async function getMoreChristianShorts(options: {
 
     return {
       items: diverse,
-      sourceMode: 'youtube_api',
-      apiKeyConfigured: true,
+      sourceMode: apiKeyConfigured ? 'youtube_api' : 'curated_rss',
+      apiKeyConfigured,
       fetchedAt,
       category: options.category || 'all',
       totalBeforeCategoryFilter: diverse.length,
@@ -619,7 +1049,7 @@ export async function getMoreChristianShorts(options: {
     };
   }
 
-  // Unlimited YouTube Channel Uploads Archive pagination via playlistItems.list (1 quota unit per channel page)
+  // Unlimited YouTube pagination via playlistItems.list + YouTube-wide sermon search for pregacoes
   if (apiKeyConfigured) {
     const eligibleChannels = validCat
       ? ALL_CURATED_CHANNELS.filter(
@@ -627,10 +1057,19 @@ export async function getMoreChristianShorts(options: {
         )
       : ALL_CURATED_CHANNELS;
 
-    const collected: ChristianShort[] = [];
-    let anyPlaylistRemaining = false;
+    const getPlaylistIdForChannel = (ch: (typeof ALL_CURATED_CHANNELS)[number]): string => {
+      const suffix = ch.id.slice(2);
+      const hint = validCat || ch.defaultCategory;
+      if (hint === 'pregacoes') return `UULF${suffix}`;
+      if (hint === 'biblia' && ch.defaultCategory === 'biblia') return `UUSH${suffix}`;
+      return `UU${suffix}`;
+    };
 
-    for (let attempt = 0; attempt < 2 && collected.length < 18; attempt++) {
+    const collected: ChristianShort[] = [];
+    const maxAttempts = validCat === 'pregacoes' ? 3 : 2;
+    const targetMin = validCat === 'pregacoes' ? 12 : 18;
+
+    for (let attempt = 0; attempt < maxAttempts && collected.length < targetMin; attempt++) {
       const batchTargets: Array<{
         playlistId: string;
         hintCategory: ContentCategory;
@@ -640,12 +1079,8 @@ export async function getMoreChristianShorts(options: {
       const batchSize = Math.min(10, total);
       for (let i = 0; i < total && batchTargets.length < batchSize; i++) {
         const ch = eligibleChannels[(state.round * batchSize + i) % total];
-        const suffix = ch.id.slice(2);
         const hint = validCat || ch.defaultCategory;
-        const playlistId =
-          hint === 'biblia' && ch.defaultCategory === 'biblia'
-            ? `UUSH${suffix}`
-            : `UU${suffix}`;
+        const playlistId = getPlaylistIdForChannel(ch);
         const pState = state.playlistStates[playlistId];
         if (pState?.done) continue;
         batchTargets.push({ playlistId, hintCategory: hint });
@@ -690,6 +1125,7 @@ export async function getMoreChristianShorts(options: {
 
       const verified = await hydrateAndVerifyCandidates(apiKey, candidateMap);
       for (const item of verified) {
+        if (validCat && item.category !== validCat) continue;
         if (!state.seenIds.has(item.id)) {
           state.seenIds.add(item.id);
           collected.push(item);
@@ -697,19 +1133,35 @@ export async function getMoreChristianShorts(options: {
       }
     }
 
+    let anyPlaylistRemaining = false;
     for (const ch of eligibleChannels) {
-      const suffix = ch.id.slice(2);
-      const hint = validCat || ch.defaultCategory;
-      const pid =
-        hint === 'biblia' && ch.defaultCategory === 'biblia'
-          ? `UUSH${suffix}`
-          : `UU${suffix}`;
+      const pid = getPlaylistIdForChannel(ch);
       if (!state.playlistStates[pid]?.done) {
         anyPlaylistRemaining = true;
         break;
       }
     }
 
+    // For Pregações: also run unlimited YouTube-wide sermon discovery (search.list)
+    // to bring in new uploads and Adventist sermons across all of YouTube.
+    if (validCat === 'pregacoes') {
+      const shouldSearchYoutube =
+        collected.length < 10 || !anyPlaylistRemaining || state.round % 2 === 1;
+      if (shouldSearchYoutube) {
+        const searchTries = collected.length === 0 ? 2 : 1;
+        for (let sTry = 0; sTry < searchTries && collected.length < 16; sTry++) {
+          const discovered = await fetchPregacoesDiscoveryPage(apiKey, state);
+          for (const item of discovered) {
+            if (!state.seenIds.has(item.id)) {
+              state.seenIds.add(item.id);
+              collected.push(item);
+            }
+          }
+        }
+      }
+    }
+
+    const hasMore = validCat === 'pregacoes' ? true : anyPlaylistRemaining;
     const diverse = buildDiverseFeed(collected, true);
     return formatFilteredResponse(
       diverse,
@@ -718,22 +1170,34 @@ export async function getMoreChristianShorts(options: {
       fetchedAt,
       options.category,
       '',
-      anyPlaylistRemaining,
-      anyPlaylistRemaining ? cursor : null
+      hasMore,
+      hasMore ? cursor : null
     );
   }
 
-  // RSS archive fallback pagination
+  // RSS archive fallback pagination (+ YouTube web discovery for pregacoes)
   const rssPage = state.rssPage;
   state.rssPage += 1;
-  const rssItems = await fetchFromCuratedRss(rssPage);
-  const fresh = rssItems.filter((item) => {
-    if (state!.seenIds.has(item.id)) return false;
-    state!.seenIds.add(item.id);
-    return true;
-  });
+  const fresh: ChristianShort[] = [];
+  if (rssPage <= 2) {
+    const rssItems = await fetchFromCuratedRss(rssPage);
+    for (const item of rssItems) {
+      if (validCat && item.category !== validCat) continue;
+      if (state.seenIds.has(item.id)) continue;
+      state.seenIds.add(item.id);
+      fresh.push(item);
+    }
+  }
+  if (validCat === 'pregacoes' && (fresh.length < 10 || rssPage > 2)) {
+    const discovered = await fetchPregacoesDiscoveryPage('', state);
+    for (const item of discovered) {
+      if (state.seenIds.has(item.id)) continue;
+      state.seenIds.add(item.id);
+      fresh.push(item);
+    }
+  }
   const diverse = buildDiverseFeed(fresh, true);
-  const hasMoreRss = rssPage < 2;
+  const hasMoreRss = validCat === 'pregacoes' ? true : rssPage < 2;
 
   return formatFilteredResponse(
     diverse,
@@ -762,7 +1226,7 @@ export async function lookupSingleShort(videoId: string): Promise<ChristianShort
     try {
       const params = new URLSearchParams({
         key: apiKey,
-        part: 'snippet,contentDetails,statistics,status',
+        part: 'snippet,contentDetails,statistics,status,liveStreamingDetails',
         id: videoId,
       });
       const res = await fetch(
@@ -779,36 +1243,44 @@ export async function lookupSingleShort(videoId: string): Promise<ChristianShort
               channelId?: string;
               channelTitle?: string;
               publishedAt?: string;
+              liveBroadcastContent?: string;
               thumbnails?: { high?: { url?: string } };
             };
             contentDetails?: { duration?: string };
             statistics?: { viewCount?: string };
-            status?: { embeddable?: boolean };
+            status?: { embeddable?: boolean; privacyStatus?: string; publishAt?: string };
+            liveStreamingDetails?: {
+              scheduledStartTime?: string;
+              actualStartTime?: string;
+              actualEndTime?: string;
+            };
           }>;
         };
         const v = data.items?.[0];
-        if (v && v.snippet && v.status?.embeddable !== false) {
-          const classified = classifyShort(
-            v.snippet.channelId || '',
-            v.snippet.channelTitle || '',
-            v.snippet.title || '',
-            v.snippet.description || ''
-          );
-          if (!classified) return null;
-          return buildShortRecord({
-            id: v.id,
-            title: v.snippet.title || 'Vídeo Cristão',
-            description: v.snippet.description || '',
-            channelId: v.snippet.channelId || '',
-            channelTitle: v.snippet.channelTitle || '',
-            publishedAt: v.snippet.publishedAt || new Date().toISOString(),
-            thumbnailUrl: v.snippet.thumbnails?.high?.url,
-            category: classified.category,
-            doctrineScope: classified.doctrineScope,
-            durationSeconds: parseIso8601DurationSeconds(v.contentDetails?.duration),
-            viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
-          });
-        }
+        if (!v || !v.snippet) return null;
+        const check = isYouTubeVideoPlayable(v);
+        if (!check.playable) return null;
+
+        const classified = classifyShort(
+          v.snippet.channelId || '',
+          v.snippet.channelTitle || '',
+          v.snippet.title || '',
+          v.snippet.description || ''
+        );
+        if (!classified) return null;
+        return buildShortRecord({
+          id: v.id,
+          title: v.snippet.title || 'Vídeo Cristão',
+          description: v.snippet.description || '',
+          channelId: v.snippet.channelId || '',
+          channelTitle: v.snippet.channelTitle || '',
+          publishedAt: v.snippet.publishedAt || new Date().toISOString(),
+          thumbnailUrl: v.snippet.thumbnails?.high?.url,
+          category: classified.category,
+          doctrineScope: classified.doctrineScope,
+          durationSeconds: check.durationSeconds,
+          viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
+        });
       }
     } catch {
       // Fall through to oEmbed check

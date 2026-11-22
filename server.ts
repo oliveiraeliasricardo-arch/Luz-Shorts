@@ -55,7 +55,7 @@ async function startServer() {
       .split(',')
       .map((s) => s.trim())
       .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
-      .slice(0, 60);
+      .slice(0, 200);
 
     try {
       const payload = await getMoreChristianShorts({
