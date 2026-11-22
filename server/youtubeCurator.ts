@@ -159,6 +159,14 @@ async function hydrateAndVerifyCandidates(
     }
 
     if (
+      classified.category === 'pregacoes' &&
+      meta?.durationSeconds != null &&
+      meta.durationSeconds < 45
+    ) {
+      continue;
+    }
+
+    if (
       classified.category !== 'louvores' &&
       classified.category !== 'pregacoes' &&
       meta?.durationSeconds &&

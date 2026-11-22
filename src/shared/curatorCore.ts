@@ -95,8 +95,8 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     id: 'UC8PS8EsZsWXOQ1YmlJwCaYw',
     title: 'Feliz7Play',
     doctrineScope: 'adventista',
-    defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos', 'louvores'],
+    defaultCategory: 'biblia',
+    allowInCategories: ['biblia', 'testemunhos', 'louvores'],
   },
   {
     id: 'UC03Y0ieYROxw1FxCoDaSF9g',
@@ -634,53 +634,22 @@ const STRICT_BIBLE_TITLE_PATTERNS = [
   /\bevangelho\b/i,
 ];
 
-const SERMON_SPIRITUAL_PATTERNS = [
-  /\bdeus\b/i,
-  /\bjesus\b/i,
-  /\bcristo\b/i,
-  /\besp[ií]rito santo\b/i,
-  /\bora[cç][aã]o\b/i,
-  /\borar\b/i,
-  /\bf[eé]\b/i,
-  /\besperan[cç]a\b/i,
-  /\bpaz\b/i,
-  /\bamor\b/i,
-  /\bgra[cç]a\b/i,
-  /\bperd[aã]o\b/i,
-  /\bperdoar\b/i,
-  /\bsalva[cç][aã]o\b/i,
-  /\bcruz\b/i,
-  /\bc[eé]u\b/i,
-  /\beternidade\b/i,
-  /\bmilagre\b/i,
-  /\bserm[aã]o\b/i,
-  /\bprega[cç][aã]o\b/i,
-  /\bpastor\b/i,
-  /\bpalavra\b/i,
-  /\bevangelho\b/i,
-  /\bcora[cç][aã]o\b/i,
-  /\bconfian[cç]a\b/i,
-  /\bprop[oó]sito\b/i,
-  /\bvida saud[aá]vel\b/i,
-  /\bpecado/i,
-  /\buniverso\b/i,
-  /\bpagou o pre[cç]o\b/i,
-  /\bmission[aá]rio\b/i,
+const NON_SERMON_PATTERNS = [
+  /\b(podcast|inverso|bastidores|t\d+ep#?\d+|ep\.?\s*\d+|mesa redonda|bate-?papo|entrevista|c[oó]digo aberto)\b/i,
+  /\b(momento da sa[uú]de|luz solar|alimenta[cç][aã]o|nutri[cç][aã]o|nutra seu corpo|vida saud[aá]vel|equil[ií]brio|exerc[ií]cio f[ií]sico|descanso:\s*seu corpo|[aá]gua:\s*a ess[eê]ncia|8 rem[eé]dios)\b/i,
+  /\b(in concert|hin[aá]rio|clipe|canta|coral|express[aã]o de vida|horas benditas|a cruz n[aã]o [eé] o fim)\b/i,
+  /\b(treinamento|coordenador de interessados|aula\s*\d+|ciclo do evangelismo|trimestral|aposentadoria|quebrando o sil[eê]ncio|dia dos namorados|dia mundial dos desbravadores|feliz dia|lan[cç]amento do #|quem [eé] voc[eê] no|eu j[aá] fui|hist[oó]rias de volunt[aá]rios|pe[cç]a agora|revista esperan[cç]a|anos dos anjos|tv novo tempo\s*-\s*ao vivo|super lupa|em ingl[eê]s|filme|curta-metragem|bom dia mulher|o drama da paix[aã]o|allen, mission[aá]rio|pais conectados|evangelismo feminino|criadores e mission[aá]rios|encontro de evangelistas|onevoice27|bora fazer uma semana de ora[cç][aã]o)\b/i,
+];
+
+const STRICT_SERMON_TITLE_PATTERNS = [
+  /\b(prega[cç][aã]o|pregando|serm[aã]o|serm[oõ]es)\b/i,
   /\bculto\b/i,
-  /\bmedita[cç][aã]o\b/i,
-  /\bp[oô]r do sol\b/i,
-  /\bevangelismo\b/i,
-  /\barmagedom\b/i,
-  /\bdoug batchelor\b/i,
-  /\bhander heim\b/i,
-  /\bvoz da profecia\b/i,
-  /\bpr\.\s*[a-záéíóúâêôãõç]+/i,
-  /\bnao se preocupe\b|\bn[aã]o se preocupe\b/i,
-  /\bsegue jesus\b/i,
-  /\bmestre da tempestade\b/i,
-  /\bmachuca voc[eê]\b/i,
-  /\bconfiando\b/i,
-  /\banjos\b/i,
+  /\bmensagem\b/i,
+  /\b(pr\.\s*[a-záéíóúâêôãõç]{2,}|pr\s+[a-záéíóúâêôãõç]{2,}|pastor\s+[a-záéíóúâêôãõç]{2,})\b/i,
+  /\b(alejandro bull[oó]n|bull[oó]n|ivan saraiva|arilton oliveira|lu[ií]s gon[cç]alves|kleber gon[cç]alves|erton k[oö]hler|odailson fonseca|robson aleixo|mark finley|doug batchelor|gilson brito|tito rocha|michelson borges|ronaldo de oliveira|rafael santos|gustavo marques|stanley arco|felippe amorim)\b/i,
+  /\b(semana (especial|de ora[cç][aã]o|santa|de jejum|evangel[ií]stica)|s[aá]bado de jejum|movidos pela esperan[cç]a|jesus,?\s*nossa esperan[cç]a|vida que eleva|f[eé] para hoje|est[aá] escrito)\b/i,
+  /\b(maranata\s*-\s*conven[cç][aã]o|together\s*-\s*culto|reavivamento)\b/i,
+  /\b(medita[cç][aã]o do p[oô]r do sol|o poder da ora[cç][aã]o|como orar|queres ser curado|ele j[aá] pagou o pre[cç]o|sua f[eé] [eé] maior que o medo|verdadeiro jejum)\b/i,
 ];
 
 export function decodeXmlEntities(str: string): string {
@@ -730,6 +699,9 @@ function looksLikeWorshipSong(title: string, description: string, isWorshipChann
     return false;
   }
   if (WORSHIP_SONG_POSITIVE_PATTERNS.some((re) => re.test(title))) {
+    return true;
+  }
+  if (/\b(letra,\s*m[uú]sica e arranjo|letra e m[uú]sica:|arranjo musical:)\b/i.test(description)) {
     return true;
   }
   if (isWorshipChannel) {
@@ -783,6 +755,10 @@ export function classifyShort(
     STRICT_TESTIMONY_DESC_PATTERNS.some((re) => re.test(description));
   const isSong = looksLikeWorshipSong(title, description, isWorshipChannel);
   const isBibleTitle = STRICT_BIBLE_TITLE_PATTERNS.some((re) => re.test(title));
+  const isStrictSermon =
+    !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
+    !NON_SERMON_PATTERNS.some((re) => re.test(description.slice(0, 220))) &&
+    STRICT_SERMON_TITLE_PATTERNS.some((re) => re.test(title));
 
   let detectedCategory: ContentCategory | null = null;
 
@@ -799,20 +775,17 @@ export function classifyShort(
     detectedCategory = 'testemunhos';
   } else if (isSong) {
     detectedCategory = 'louvores';
-  } else if (isBibleTitle || isBibleChannel) {
+  } else if (
+    isBibleTitle ||
+    (isBibleChannel && channelId !== 'UC03Y0ieYROxw1FxCoDaSF9g')
+  ) {
     detectedCategory = 'biblia';
+  } else if (isStrictSermon) {
+    detectedCategory = 'pregacoes';
   } else if (hintCategory === 'biblia') {
     detectedCategory = 'biblia';
-  } else if (hintCategory === 'louvores') {
-    return null;
-  } else if (hintCategory === 'testemunhos') {
-    return null;
   } else {
-    // Default for preaching / Adventist general channels: require clear spiritual/sermon relevance
-    if (!SERMON_SPIRITUAL_PATTERNS.some((re) => re.test(combined))) {
-      return null;
-    }
-    detectedCategory = 'pregacoes';
+    return null;
   }
 
   // Sermons (pregacoes) & Bible/Gospel (biblia) MUST adhere strictly to Seventh-day Adventist doctrine
