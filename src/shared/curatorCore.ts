@@ -85,6 +85,34 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     allowInCategories: ['pregacoes', 'biblia', 'testemunhos'],
   },
   {
+    id: 'UC5O76sK8ffuQBHuPlB0QmeA',
+    title: 'Adventistas SP',
+    doctrineScope: 'adventista',
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes', 'biblia', 'testemunhos', 'louvores'],
+  },
+  {
+    id: 'UC8PS8EsZsWXOQ1YmlJwCaYw',
+    title: 'Feliz7Play',
+    doctrineScope: 'adventista',
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes', 'biblia', 'testemunhos', 'louvores'],
+  },
+  {
+    id: 'UC03Y0ieYROxw1FxCoDaSF9g',
+    title: 'Arilton Oliveira - Oficial',
+    doctrineScope: 'adventista',
+    defaultCategory: 'biblia',
+    allowInCategories: ['biblia', 'pregacoes'],
+  },
+  {
+    id: 'UCBm5ycqxuqK-UVs54-xA_2w',
+    title: 'ComTexto Diário',
+    doctrineScope: 'adventista',
+    defaultCategory: 'biblia',
+    allowInCategories: ['biblia', 'pregacoes'],
+  },
+  {
     id: 'UCkSu5ibA15OcBWTjop72dPA',
     title: 'Terceiro Anjo',
     doctrineScope: 'adventista',
@@ -108,6 +136,13 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
   {
     id: 'UC_w2igv5oCWmO9gG0TE-Lag',
     title: 'Pedro Valença',
+    doctrineScope: 'adventista',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCPlmObuWWQegQCgLkTlS2cw',
+    title: 'Daniel Lüdtke',
     doctrineScope: 'adventista',
     defaultCategory: 'louvores',
     allowInCategories: ['louvores', 'testemunhos'],
@@ -188,6 +223,55 @@ export const CHRISTIAN_GENERAL_CHANNELS: CuratedChannelSpec[] = [
   {
     id: 'UCAHUhfptduo5zq102PC9jew',
     title: 'Sarah Farias',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCbVwJCxsVbmaP1PFmbGQDeQ',
+    title: 'MK MUSIC',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCpf5YXmzGHC4m5uLCdlrrfA',
+    title: 'Todah Music',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCkskLrHR3ga1AG_QS-trE6w',
+    title: 'Musile Records',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UC8JmlV43Vtjtuhba8VT_FCg',
+    title: 'CASA Worship',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UC52rxcnme1pYpUfRrC4WWfQ',
+    title: 'Julliany Souza',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCo9xJDQC7M8mHavPh_BvXFA',
+    title: 'Kemuel',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores', 'testemunhos'],
+  },
+  {
+    id: 'UCwjkR1Md6fDeBd8Ad1VUhYg',
+    title: 'Laura Souguellis',
     doctrineScope: 'cristao_geral',
     defaultCategory: 'louvores',
     allowInCategories: ['louvores', 'testemunhos'],
@@ -324,6 +408,15 @@ const NON_PORTUGUESE_PATTERNS = [
   /\bgozo\s*[–-]\s*aline barros\b/i,
 ];
 
+const AI_GENERATED_PATTERNS = [
+  /\b(gerad[oa]|criad[oa]|feit[oa]|produzid[oa]|cantad[oa]|narrad[oa]|compost[oa]|anima[cç][aã]o|m[uú]sica|can[cç][aã]o|v[ií]deo|clipe|voz|arte)\s+(por|com|via|em|de)\s+(ia|intelig[eê]ncia artificial)\b/i,
+  /\b(ia\s+gospel|gospel\s+(com\s+|de\s+|em\s+)?ia|louvor\s+(com\s+|de\s+|em\s+)?ia)\b/i,
+  /\b(made with ai|ai[- ]generated|ai[- ]music|ai[- ]cover|ai[- ]animation|ai[- ]video|ai[- ]voice|synthetic content)\b/i,
+  /\b(suno\.?ai|suno|udio|elevenlabs|midjourney|runwayml|heygen|kling ai|sora ai|hailuo|leonardo\.ai)\b/i,
+  /#(ia|aiart|aivideo|aimusic|aicover|suno|sunoai|udio|runway|sora|kling|veo|midjourney|elevenlabs|heygen)\b/i,
+  /♫\s*♪\s*♬|\bt[ií]tulo:\s*["“]?|vers[aã]o adaptada\b/i,
+];
+
 const NOISE_AND_PROMO_PATTERNS = [
   /\binscri[cç][oõ]es (na|para|abertas)\b/i,
   /\bmatricule-se\b/i,
@@ -411,8 +504,8 @@ const NOISE_AND_PROMO_PATTERNS = [
   /\bessa m[uú]sica nos faz chorar\b/i,
   /\bse um dia me acostumar\b/i,
   /^\s*#shorts\s*$/i,
-  /\b(as melhores|mais tocadas|esta[cç][aã]o\/station|\d+\s*horas?\s*de\s*(adora[cç][aã]o|louvor))\b/i,
-  /\b(aprovados|aceitaram o desafio|3[ªa]\s*fase|top\s*10|partiu\s+portugal|amanh[aã]\s*-\s*\d{2}h|lan[cç]a sua primeira m[uú]sica)\b/i,
+  /\b(as melhores|mais tocadas|esta[cç][aã]o\/station|youtube station|\d+\s*horas?\s*de\s*(adora[cç][aã]o|louvor))\b/i,
+  /\b(aprovados|aceitaram o desafio|3[ªa]\s*fase|top\s*10|partiu\s+portugal|amanh[aã]\s*-\s*\d{2}h|lan[cç]a sua primeira m[uú]sica|teaser)\b/i,
 ];
 
 const STRICT_TESTIMONY_TITLE_PATTERNS = [
@@ -513,6 +606,8 @@ const NON_SONG_TALK_PATTERNS = [
   /\bfam[ií]lia\b/i,
   /\b(mensagem|reflex[aã]o|estudo|rea[cç][aã]o)\b/i,
   /\bvoz da profecia\b/i,
+  /\ba palavra que voc[eê] precisa\b/i,
+  /\best[aá] escrito adora[cç][aã]o\b/i,
 ];
 
 const STRICT_BIBLE_TITLE_PATTERNS = [
@@ -659,8 +754,12 @@ export function classifyShort(
   hintCategory?: ContentCategory
 ): { category: ContentCategory; doctrineScope: DoctrineScope } | null {
   const combined = `${title} ${description}`;
+  const fullContext = `${channelTitle} ${combined}`;
 
   if (containsBlockedTerms(combined, BLOCKED_GENERAL_TERMS)) {
+    return null;
+  }
+  if (AI_GENERATED_PATTERNS.some((re) => re.test(fullContext))) {
     return null;
   }
   if (NON_PORTUGUESE_PATTERNS.some((re) => re.test(title))) {

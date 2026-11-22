@@ -34,20 +34,25 @@ async function fetchFromCuratedRss(): Promise<ChristianShort[]> {
 
 const LOUVORES_QUERY_POOL: Array<{
   q: string;
+  channelId: string;
   order?: 'relevance' | 'date';
 }> = [
-  { q: 'louvor e adoração clipe oficial', order: 'relevance' },
-  { q: 'música gospel acústico ao vivo', order: 'date' },
-  { q: 'arautos do rei gravadora nt clipe oficial', order: 'relevance' },
-  { q: 'novo tom daniel ludtke clipe oficial', order: 'relevance' },
-  { q: 'adoração cristã vídeo oficial', order: 'date' },
-  { q: 'casa worship preto no branco louvor', order: 'relevance' },
-  { q: 'paulo cesar baruk laura souguellis louvor', order: 'relevance' },
-  { q: 'kemuel coral gospel ao vivo', order: 'relevance' },
-  { q: 'diante do trono louvor ao vivo', order: 'relevance' },
-  { q: 'valesca mayssa midian lima clipe oficial', order: 'date' },
-  { q: 'pedro valença música gospel clipe', order: 'relevance' },
-  { q: 'sued silva maria marçal louvor clipe oficial', order: 'date' },
+  { q: 'clipe oficial', channelId: 'UCbVwJCxsVbmaP1PFmbGQDeQ', order: 'date' },
+  { q: 'clipe oficial', channelId: 'UCpf5YXmzGHC4m5uLCdlrrfA', order: 'relevance' },
+  { q: 'ao vivo', channelId: 'UCkskLrHR3ga1AG_QS-trE6w', order: 'relevance' },
+  { q: 'clipe oficial', channelId: 'UCxDYiN3jS_3EuPSjhj1utbg', order: 'relevance' },
+  { q: 'arautos do rei', channelId: 'UCldCtvi4dAqZvd5-QLf5QvQ', order: 'relevance' },
+  { q: 'louvor', channelId: 'UCPlmObuWWQegQCgLkTlS2cw', order: 'relevance' },
+  { q: 'ao vivo', channelId: 'UC8JmlV43Vtjtuhba8VT_FCg', order: 'relevance' },
+  { q: 'acústico', channelId: 'UCHBbuIdm7UZ2t6iVhMihBIw', order: 'relevance' },
+  { q: 'ao vivo', channelId: 'UC4t2mdI8uAiJDJSRjiWJT1Q', order: 'relevance' },
+  { q: 'clipe oficial', channelId: 'UCK_FvuzJN7rP4k2Ppwnvj5g', order: 'relevance' },
+  { q: 'ao vivo', channelId: 'UCH1U29foC-5RyAa4ZgkuQYA', order: 'relevance' },
+  { q: 'clipe', channelId: 'UC_w2igv5oCWmO9gG0TE-Lag', order: 'relevance' },
+  { q: 'ao vivo', channelId: 'UC52rxcnme1pYpUfRrC4WWfQ', order: 'relevance' },
+  { q: 'clipe', channelId: 'UCo9xJDQC7M8mHavPh_BvXFA', order: 'relevance' },
+  { q: 'adoração', channelId: 'UCwjkR1Md6fDeBd8Ad1VUhYg', order: 'relevance' },
+  { q: 'clipe oficial', channelId: 'UCQp4yrRCGdGWi4TrF6xJyfg', order: 'relevance' },
 ];
 
 function pickLouvoresQueries(forceRefresh: boolean) {
@@ -58,8 +63,9 @@ function pickLouvoresQueries(forceRefresh: boolean) {
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
   }
-  return pool.slice(0, 6).map((entry) => ({
+  return pool.slice(0, 7).map((entry) => ({
     q: entry.q,
+    channelId: entry.channelId,
     hintCategory: 'louvores' as ContentCategory,
     order: forceRefresh ? ('date' as const) : entry.order,
   }));
@@ -75,17 +81,19 @@ async function fetchFromYoutubeApi(
     hintCategory: ContentCategory;
     order?: 'relevance' | 'date';
   }> = [
-    { q: 'pregação adventista #shorts', hintCategory: 'pregacoes', order: forceRefresh ? 'date' : 'relevance' },
-    { q: 'sermão esperança novo tempo #shorts', channelId: 'UC_OaSsAydgSIjUtjYn9qLog', hintCategory: 'pregacoes' },
-    { q: 'mensagem adventista #shorts', channelId: 'UCJAO3KgZdEhCqwpkZyAYY6A', hintCategory: 'pregacoes' },
-    { q: 'reflexão bíblica pastor adventista #shorts', hintCategory: 'pregacoes', order: 'date' },
-    { q: 'estudo bíblico adventista #shorts', hintCategory: 'biblia', order: forceRefresh ? 'date' : 'relevance' },
+    { q: 'sermão esperança', channelId: 'UC_OaSsAydgSIjUtjYn9qLog', hintCategory: 'pregacoes', order: forceRefresh ? 'date' : 'relevance' },
+    { q: 'mensagem adventista', channelId: 'UCJAO3KgZdEhCqwpkZyAYY6A', hintCategory: 'pregacoes', order: forceRefresh ? 'date' : 'relevance' },
+    { q: 'pregação evangelho', channelId: 'UCQ62PZK_94Rr8i96vJkYNXw', hintCategory: 'pregacoes', order: 'date' },
+    { q: 'reflexão esperança', channelId: 'UC5O76sK8ffuQBHuPlB0QmeA', hintCategory: 'pregacoes', order: 'relevance' },
     { q: 'na mira da verdade #shorts', channelId: 'UCIa6p9HWw1hEEfHzfJOcSbA', hintCategory: 'biblia' },
     { q: 'rodrigo silva arqueologia bíblia #shorts', channelId: 'UCn4M9vLHegNuqM8tnL872cA', hintCategory: 'biblia' },
     { q: 'lições da bíblia escola sabatina #shorts', channelId: 'UCLb09BPgh7xrswJRgYQthuw', hintCategory: 'biblia' },
+    { q: 'estudo bíblico #shorts', channelId: 'UC03Y0ieYROxw1FxCoDaSF9g', hintCategory: 'biblia' },
     ...pickLouvoresQueries(forceRefresh),
-    { q: 'testemunho cristão fé milagre #shorts', hintCategory: 'testemunhos', order: forceRefresh ? 'date' : 'relevance' },
-    { q: 'testemunho evangelho conversão #shorts', hintCategory: 'testemunhos', order: 'date' },
+    { q: 'testemunho', channelId: 'UC_OaSsAydgSIjUtjYn9qLog', hintCategory: 'testemunhos', order: forceRefresh ? 'date' : 'relevance' },
+    { q: 'testemunho', channelId: 'UC8PS8EsZsWXOQ1YmlJwCaYw', hintCategory: 'testemunhos', order: 'relevance' },
+    { q: 'testemunho jesus faz tudo novo', channelId: 'UCQ62PZK_94Rr8i96vJkYNXw', hintCategory: 'testemunhos', order: 'relevance' },
+    { q: 'testemunho conversão', channelId: 'UCJAO3KgZdEhCqwpkZyAYY6A', hintCategory: 'testemunhos', order: 'relevance' },
   ];
 
   const searchResponses = await Promise.allSettled(
