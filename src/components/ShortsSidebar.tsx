@@ -143,7 +143,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
                   isActive ? 'text-zinc-200' : 'text-zinc-500'
                 }`}
               >
-                {count}
+                {id !== 'salvos' && !searchQuery.trim() && count > 0 ? `${count}+` : count}
               </span>
             </button>
           );

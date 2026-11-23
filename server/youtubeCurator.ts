@@ -40,54 +40,70 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'pr rafael santos pregação adventista',
     'pr michelson borges pregação adventista',
     'novo tempo pregação sábado adventista',
+    'pr erton köhler sermão adventista',
+    'pr gustavo marques pregação adventista',
+    'meditação pôr do sol adventista mensagem',
+    'evangelismo adventista colheita pregação',
   ],
   biblia: [
-    'estudo bíblico adventista #shorts',
-    'rodrigo silva arqueologia bíblica #shorts',
-    'na mira da verdade bíblia #shorts',
-    'arilton oliveira bíblia #shorts',
-    'novo tempo apocalipse profecia #shorts',
-    'escola sabatina lição bíblia #shorts',
-    'terceiro anjo profecias bíblicas #shorts',
-    'michelson borges bíblia #shorts',
-    'sábado na bíblia adventista #shorts',
-    'ivan saraiva bíblia versículo #shorts',
-    'daniel apocalipse adventista #shorts',
-    'evangelho adventista reflexão bíblica #shorts',
-    'comtexto diário bíblia adventista #shorts',
-    'adventistas brasil versículo bíblia #shorts',
+    'estudo bíblico adventista',
+    'rodrigo silva arqueologia bíblica',
+    'na mira da verdade bíblia',
+    'arilton oliveira estudo bíblico',
+    'novo tempo apocalipse profecia',
+    'escola sabatina lição bíblia',
+    'terceiro anjo profecias bíblicas',
+    'michelson borges bíblia criação',
+    'sábado na bíblia adventista',
+    'ivan saraiva bíblia versículo',
+    'daniel apocalipse adventista profecia',
+    'evangelho adventista reflexão bíblica',
+    'comtexto diário bíblia adventista',
+    'adventistas brasil estudo bíblico',
+    'evidências bíblicas rodrigo silva',
+    'curiosidades bíblicas adventista',
+    'santuário na bíblia adventista',
+    'volta de jesus profecia adventista',
   ],
   louvores: [
     'louvor gospel clipe oficial',
     'música gospel adoração ao vivo',
     'arautos do rei música oficial',
     'novo tom gravadora nt clipe oficial',
-    'daniel ludtke louvor',
+    'daniel ludtke louvor oficial',
     'pedro valença música oficial',
     'fernandinho louvor ao vivo',
     'aline barros música oficial',
     'gabriela rocha clipe oficial',
-    'fhop music acústico',
-    'casa worship ao vivo',
+    'fhop music acústico adoração',
+    'casa worship louvor ao vivo',
     'isadora pompeo música oficial',
     'morada música gospel ao vivo',
     'laura souguellis louvor ao vivo',
     'ministério mergulhar adoração ao vivo',
     'hinário adventista cantado louvor',
+    'coral jovens adventistas música oficial',
+    'art trio louvor adventista oficial',
+    'theo rubia música gospel ao vivo',
+    'sarah farias clipe oficial louvor',
   ],
   testemunhos: [
-    'testemunho cristão conversão #shorts',
-    'meu testemunho jesus mudou minha vida #shorts',
-    'testemunho de milagre cristão #shorts',
-    'testemunho adventista conversão #shorts',
-    'como conheci jesus testemunho #shorts',
-    'depoimento cristão fé #shorts',
-    'história de conversão evangélica #shorts',
-    'testemunho novo tempo conversão #shorts',
-    'deus salvou minha vida testemunho #shorts',
-    'testemunho ex ateu cristão #shorts',
-    'testemunho de fé superação cristão #shorts',
-    'mudou minha vida jesus testemunho #shorts',
+    'testemunho cristão conversão',
+    'meu testemunho jesus mudou minha vida',
+    'testemunho de milagre cristão',
+    'testemunho adventista conversão',
+    'como conheci jesus testemunho',
+    'depoimento cristão fé conversão',
+    'história de conversão evangélica',
+    'testemunho novo tempo conversão',
+    'deus salvou minha vida testemunho',
+    'testemunho ex ateu cristão',
+    'testemunho de fé superação cristão',
+    'jesus transformou minha vida testemunho',
+    'história de fé e batismo adventista',
+    'eu era viciado jesus me libertou testemunho',
+    'milagre de deus meu testemunho real',
+    'como deus mudou minha família testemunho',
   ],
 };
 
@@ -119,12 +135,25 @@ interface PaginationSessionState {
   allCycleIdx: number;
 }
 
+const MAX_CACHED_CATALOG_ITEMS = 1200;
+
 let cachedCatalog: {
   items: ChristianShort[];
   sourceMode: 'youtube_api' | 'curated_rss';
   fetchedAt: string;
   fetchedAtMs: number;
+  playlistTokens: Record<string, string | null>;
 } | null = null;
+
+// Persistent server-side rotation cursors so new sessions and refreshes dig deeper
+// into YouTube rather than returning the exact same page-1 results every time.
+const persistentPlaylistTokens: Record<string, string | null> = {};
+const globalDiscoveryOffsets: Record<ContentCategory, number> = {
+  pregacoes: 0,
+  biblia: 0,
+  louvores: 0,
+  testemunhos: 0,
+};
 
 const paginationSessions = new Map<string, PaginationSessionState>();
 
@@ -142,18 +171,39 @@ function prunePaginationSessions(): void {
   }
 }
 
-function createPaginationCursor(initialIds: string[], searchToken: string | null = null): string {
+function createPaginationCursor(
+  initialIds: string[],
+  searchToken: string | null = null,
+  seedPlaylistTokens: Record<string, string | null> = {}
+): string {
   prunePaginationSessions();
   const cursor = crypto.randomUUID();
+
+  const seededPlaylists: Record<string, { nextPageToken?: string | null; done?: boolean }> = {};
+  for (const [pid, token] of Object.entries(seedPlaylistTokens)) {
+    seededPlaylists[pid] = token
+      ? { nextPageToken: token, done: false }
+      : { nextPageToken: null, done: true };
+  }
+
+  const discoveryByCategory: Partial<Record<ContentCategory, CategoryDiscoveryCursor>> = {};
+  const cats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+  for (const cat of cats) {
+    const qLen = DISCOVERY_QUERIES_BY_CATEGORY[cat].length;
+    const offset = globalDiscoveryOffsets[cat] % qLen;
+    globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % qLen;
+    discoveryByCategory[cat] = { queryIdx: offset, pageToken: null };
+  }
+
   paginationSessions.set(cursor, {
     createdAtMs: Date.now(),
-    playlistStates: {},
+    playlistStates: seededPlaylists,
     round: 0,
     seenIds: new Set(initialIds),
     searchToken,
     rssPage: 1,
-    discoveryByCategory: {},
-    allCycleIdx: 0,
+    discoveryByCategory,
+    allCycleIdx: Math.floor(Math.random() * 4),
   });
   return cursor;
 }
@@ -375,38 +425,51 @@ async function hydrateAndVerifyCandidates(
 
 async function fetchFromYoutubeApi(
   apiKey: string,
-  forceRefresh = false
-): Promise<{ items: ChristianShort[]; evaluatedIds: Set<string> }> {
-  // Fetch initial catalog using playlistItems.list (1 quota unit per call instead of 100 for search.list)
-  // across all curated verified channels, rotating offset/playlists on refresh for variety.
+  advancePlaylists = false
+): Promise<{
+  items: ChristianShort[];
+  evaluatedIds: Set<string>;
+  playlistTokens: Record<string, string | null>;
+}> {
+  // Fetch initial catalog using playlistItems.list (1 quota unit per call)
+  // across all curated verified channels, advancing saved page tokens on refresh
+  // so refreshes and new boots discover deeper channel history instead of repeating page 1.
   const channels = [...ALL_CURATED_CHANNELS];
-  if (forceRefresh) {
-    for (let i = channels.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [channels[i], channels[j]] = [channels[j], channels[i]];
-    }
+  for (let i = channels.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [channels[i], channels[j]] = [channels[j], channels[i]];
   }
 
-  const pageRequests = channels.map((spec) => {
+  const requestMeta = channels.map((spec) => {
     const suffix = spec.id.slice(2);
     const playlistId =
       spec.defaultCategory === 'biblia'
         ? `UUSH${suffix}`
-        : forceRefresh && Math.random() < 0.3
+        : advancePlaylists && Math.random() < 0.35
         ? `UUPV${suffix}`
         : spec.defaultCategory === 'pregacoes'
         ? `UULF${suffix}`
         : `UU${suffix}`;
-    return fetchChannelPlaylistPage(apiKey, playlistId, spec.defaultCategory, null);
+    const pageToken = advancePlaylists ? persistentPlaylistTokens[playlistId] ?? null : null;
+    return { spec, playlistId, pageToken };
   });
 
-  const responses = await Promise.allSettled(pageRequests);
+  const responses = await Promise.allSettled(
+    requestMeta.map((m) =>
+      fetchChannelPlaylistPage(apiKey, m.playlistId, m.spec.defaultCategory, m.pageToken)
+    )
+  );
   const candidates = new Map<string, CandidateVideo>();
+  const playlistTokens: Record<string, string | null> = {};
   let anyFulfilled = false;
 
-  for (const res of responses) {
+  for (let idx = 0; idx < responses.length; idx++) {
+    const res = responses[idx];
+    const { playlistId } = requestMeta[idx];
     if (res.status !== 'fulfilled') continue;
     if (res.value.candidates.length > 0) anyFulfilled = true;
+    playlistTokens[playlistId] = res.value.nextPageToken;
+    persistentPlaylistTokens[playlistId] = res.value.nextPageToken;
     for (const c of res.value.candidates) {
       if (!candidates.has(c.id)) {
         candidates.set(c.id, c);
@@ -420,7 +483,7 @@ async function fetchFromYoutubeApi(
 
   const evaluatedIds = new Set(candidates.keys());
   const items = await hydrateAndVerifyCandidates(apiKey, candidates);
-  return { items, evaluatedIds };
+  return { items, evaluatedIds, playlistTokens };
 }
 
 async function fetchChannelPlaylistPage(
@@ -865,14 +928,17 @@ async function fetchCategoryDiscoveryPage(
   state: PaginationSessionState
 ): Promise<ChristianShort[]> {
   const queries = DISCOVERY_QUERIES_BY_CATEGORY[targetCategory];
+  const initialIdx = globalDiscoveryOffsets[targetCategory] % queries.length;
   const cursorEntry = state.discoveryByCategory[targetCategory] ?? {
-    queryIdx: 0,
+    queryIdx: initialIdx,
     pageToken: null,
   };
   state.discoveryByCategory[targetCategory] = cursorEntry;
 
   const queryIdx = cursorEntry.queryIdx;
   const query = queries[queryIdx % queries.length];
+  const orderCycle: Array<'date' | 'relevance' | 'viewCount'> = ['date', 'relevance', 'viewCount'];
+  const orderMode = orderCycle[queryIdx % orderCycle.length];
   const sortByDate = queryIdx % 2 === 0;
 
   if (apiKey) {
@@ -885,7 +951,7 @@ async function fetchCategoryDiscoveryPage(
       relevanceLanguage: 'pt',
       regionCode: 'BR',
       maxResults: '30',
-      order: sortByDate ? 'date' : 'relevance',
+      order: orderMode,
       q: query,
     });
     if (targetCategory === 'biblia' || targetCategory === 'testemunhos') {
@@ -921,6 +987,8 @@ async function fetchCategoryDiscoveryPage(
       } else {
         cursorEntry.queryIdx += 1;
         cursorEntry.pageToken = null;
+        globalDiscoveryOffsets[targetCategory] =
+          (globalDiscoveryOffsets[targetCategory] + 1) % queries.length;
       }
 
       const candidates = new Map<string, CandidateVideo>();
@@ -951,6 +1019,8 @@ async function fetchCategoryDiscoveryPage(
   // Advance query index and fall back to zero-quota YouTube web search
   cursorEntry.queryIdx += 1;
   cursorEntry.pageToken = null;
+  globalDiscoveryOffsets[targetCategory] =
+    (globalDiscoveryOffsets[targetCategory] + 1) % queries.length;
   const webFound = await fetchYoutubeWebSearch(
     apiKey,
     query,
@@ -961,30 +1031,76 @@ async function fetchCategoryDiscoveryPage(
   return webFound.filter((item) => item.category === targetCategory);
 }
 
+async function fetchInitialDiscoveryExtras(
+  apiKey: string,
+  excludeIds: Set<string>
+): Promise<ChristianShort[]> {
+  const categories: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+  const tempState: PaginationSessionState = {
+    createdAtMs: Date.now(),
+    playlistStates: {},
+    round: 0,
+    seenIds: excludeIds,
+    rssPage: 1,
+    discoveryByCategory: {},
+    allCycleIdx: 0,
+  };
+
+  const results = await Promise.allSettled(
+    categories.map((cat) => {
+      const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+      const idx = globalDiscoveryOffsets[cat] % queries.length;
+      globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
+      const query = queries[idx];
+      return fetchYoutubeWebSearch(apiKey, query, cat, idx % 2 === 0, tempState.seenIds);
+    })
+  );
+
+  const discovered: ChristianShort[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const targetCat = categories[i];
+    if (r.status !== 'fulfilled') continue;
+    for (const item of r.value) {
+      if (item.category === targetCat) {
+        discovered.push(item);
+      }
+    }
+  }
+  return discovered;
+}
+
 export async function getCuratedChristianShorts(options: {
   category?: string;
   q?: string;
   forceRefresh?: boolean;
+  excludeIds?: string[];
 }): Promise<ShortsApiResponse> {
   const apiKey = process.env.YOUTUBE_API_KEY?.trim() || '';
   const apiKeyConfigured = apiKey.length > 0;
   const nowMs = Date.now();
   const trimmedQuery = (options.q || '').trim();
+  const clientExcludeSet = new Set(options.excludeIds ?? []);
 
-  let baseItems: ChristianShort[] = [];
+  let poolItems: ChristianShort[] = [];
   let sourceMode: 'youtube_api' | 'curated_rss' = 'curated_rss';
   let fetchedAt = new Date().toISOString();
+  let seedPlaylistTokens: Record<string, string | null> = cachedCatalog?.playlistTokens ?? {};
 
-  if (!options.forceRefresh && cachedCatalog && nowMs - cachedCatalog.fetchedAtMs < CACHE_TTL_MS) {
-    baseItems = cachedCatalog.items;
+  const cacheValid =
+    !options.forceRefresh &&
+    cachedCatalog !== null &&
+    nowMs - cachedCatalog.fetchedAtMs < CACHE_TTL_MS;
+
+  if (cacheValid && cachedCatalog) {
+    poolItems = cachedCatalog.items;
     sourceMode = cachedCatalog.sourceMode;
     fetchedAt = cachedCatalog.fetchedAt;
   } else {
-    const randomize = Boolean(options.forceRefresh);
     if (apiKeyConfigured) {
       try {
-        const [{ items: apiItems, evaluatedIds }, rssItems] = await Promise.all([
-          fetchFromYoutubeApi(apiKey, randomize),
+        const [{ items: apiItems, evaluatedIds, playlistTokens }, rssItems] = await Promise.all([
+          fetchFromYoutubeApi(apiKey, Boolean(options.forceRefresh)),
           fetchFromCuratedRss(0),
         ]);
 
@@ -1010,12 +1126,31 @@ export async function getCuratedChristianShorts(options: {
             ? await hydrateAndVerifyCandidates(apiKey, rssExtraCandidates)
             : [];
 
+        const combinedIds = new Set<string>([
+          ...apiItems.map((i) => i.id),
+          ...verifiedRssExtras.map((i) => i.id),
+          ...(cachedCatalog?.items ?? []).map((i) => i.id),
+        ]);
+        const webDiscoveryExtras = await fetchInitialDiscoveryExtras(apiKey, combinedIds);
+
+        // Merge new items with previously discovered catalog items (capped cleanly)
+        // so refreshing grows variety instead of recycling only the same 25 latest uploads.
         const merged = new Map<string, ChristianShort>();
-        for (const item of apiItems) merged.set(item.id, item);
+        for (const item of webDiscoveryExtras) merged.set(item.id, item);
+        for (const item of apiItems) {
+          if (!merged.has(item.id)) merged.set(item.id, item);
+        }
         for (const item of verifiedRssExtras) {
           if (!merged.has(item.id)) merged.set(item.id, item);
         }
-        baseItems = buildDiverseFeed([...merged.values()], randomize);
+        if (cachedCatalog) {
+          for (const item of cachedCatalog.items) {
+            if (!merged.has(item.id)) merged.set(item.id, item);
+          }
+        }
+
+        poolItems = [...merged.values()].slice(0, MAX_CACHED_CATALOG_ITEMS);
+        seedPlaylistTokens = { ...seedPlaylistTokens, ...playlistTokens };
         sourceMode = 'youtube_api';
       } catch {
         const rssFallback = await fetchFromCuratedRss(0);
@@ -1036,29 +1171,92 @@ export async function getCuratedChristianShorts(options: {
             ])
           );
           const verifiedFallback = await hydrateAndVerifyCandidates(apiKey, rssCandidates);
-          baseItems = buildDiverseFeed(
-            verifiedFallback.length > 0 ? verifiedFallback : rssFallback,
-            randomize
-          );
+          poolItems = verifiedFallback.length > 0 ? verifiedFallback : rssFallback;
           sourceMode = verifiedFallback.length > 0 ? 'youtube_api' : 'curated_rss';
         } else {
-          baseItems = [];
-          sourceMode = 'curated_rss';
+          poolItems = cachedCatalog?.items ?? [];
+          sourceMode = cachedCatalog?.sourceMode ?? 'curated_rss';
         }
       }
     } else {
-      baseItems = buildDiverseFeed(await fetchFromCuratedRss(0), randomize);
+      const rssPage0 = await fetchFromCuratedRss(0);
+      const webDiscoveryExtras = await fetchInitialDiscoveryExtras(
+        '',
+        new Set(rssPage0.map((i) => i.id))
+      );
+      const merged = new Map<string, ChristianShort>();
+      for (const item of webDiscoveryExtras) merged.set(item.id, item);
+      for (const item of rssPage0) {
+        if (!merged.has(item.id)) merged.set(item.id, item);
+      }
+      poolItems = [...merged.values()].slice(0, MAX_CACHED_CATALOG_ITEMS);
       sourceMode = 'curated_rss';
     }
 
     fetchedAt = new Date().toISOString();
     cachedCatalog = {
-      items: baseItems,
+      items: poolItems,
       sourceMode,
       fetchedAt,
       fetchedAtMs: nowMs,
+      playlistTokens: seedPlaylistTokens,
     };
   }
+
+  // If the client has already seen most of a category, pull a fresh YouTube discovery batch
+  // right away so re-entering the app always puts brand-new unseen videos at the top.
+  if (!trimmedQuery && clientExcludeSet.size > 0) {
+    const cats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+    const lowUnseenCats = cats.filter(
+      (c) => poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < 18
+    );
+    if (lowUnseenCats.length > 0) {
+      try {
+        const extraBatches = await Promise.allSettled(
+          lowUnseenCats.map((cat) => {
+            const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+            const idx = globalDiscoveryOffsets[cat] % queries.length;
+            globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
+            return fetchYoutubeWebSearch(
+              apiKey,
+              queries[idx],
+              cat,
+              idx % 2 === 0,
+              new Set([...clientExcludeSet, ...poolItems.map((i) => i.id)])
+            );
+          })
+        );
+        const existingIds = new Set(poolItems.map((i) => i.id));
+        const additions: ChristianShort[] = [];
+        for (let i = 0; i < extraBatches.length; i++) {
+          const r = extraBatches[i];
+          const targetCat = lowUnseenCats[i];
+          if (r.status !== 'fulfilled') continue;
+          for (const item of r.value) {
+            if (item.category === targetCat && !existingIds.has(item.id)) {
+              existingIds.add(item.id);
+              additions.push(item);
+            }
+          }
+        }
+        if (additions.length > 0 && cachedCatalog) {
+          poolItems = [...additions, ...poolItems].slice(0, MAX_CACHED_CATALOG_ITEMS);
+          cachedCatalog.items = poolItems;
+        }
+      } catch {
+        // Keep existing pool on transient discovery errors
+      }
+    }
+  }
+
+  // Always vary the opening order across categories and channels on every entry,
+  // and place unseen videos ahead of anything the user already watched.
+  const unseenPool = poolItems.filter((item) => !clientExcludeSet.has(item.id));
+  const seenPool = poolItems.filter((item) => clientExcludeSet.has(item.id));
+  const baseItems = [
+    ...buildDiverseFeed(unseenPool, true),
+    ...buildDiverseFeed(seenPool, true),
+  ];
 
   // If user searches with a query, query YouTube live (API search.list with automatic zero-quota web search fallback)
   let searchToken: string | null = null;
@@ -1105,7 +1303,8 @@ export async function getCuratedChristianShorts(options: {
 
   const cursor = createPaginationCursor(
     combinedItems.map((i) => i.id),
-    searchToken
+    searchToken,
+    seedPlaylistTokens
   );
 
   // When searching live on YouTube, merge live YouTube hits + accent-folded local matches
@@ -1189,7 +1388,11 @@ export async function getMoreChristianShorts(options: {
   let cursor = options.cursor?.trim() || '';
   let state = cursor ? paginationSessions.get(cursor) : undefined;
   if (!state) {
-    cursor = createPaginationCursor(options.excludeIds ?? []);
+    cursor = createPaginationCursor(
+      options.excludeIds ?? [],
+      null,
+      cachedCatalog?.playlistTokens ?? {}
+    );
     state = paginationSessions.get(cursor)!;
   }
   for (const id of options.excludeIds ?? []) {

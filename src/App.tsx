@@ -40,6 +40,15 @@ function readStoredIdList(key: string): string[] {
   }
 }
 
+function shuffleArray<T>(list: T[]): T[] {
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function spreadChannelOrder(list: ChristianShort[]): ChristianShort[] {
   const remaining = [...list];
   const arranged: ChristianShort[] = [];
@@ -90,6 +99,7 @@ export function App() {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const seenIdsRef = useRef<string[]>(readStoredIdList(SEEN_STORAGE_KEY));
   const categoryCursorsRef = useRef<Record<string, string | null>>({});
+  const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
   const emptyRetryCountRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
   const activeSearchTermRef = useRef('');
@@ -115,6 +125,7 @@ export function App() {
       setLoading(true);
     }
     setError(null);
+    fetchedCategoryBatchRef.current.clear();
 
     try {
       let data: ShortsApiResponse | null = null;
@@ -124,6 +135,10 @@ export function App() {
         try {
           const params = new URLSearchParams();
           if (forceRefresh) params.set('refresh', '1');
+          const recentSeen = seenIdsRef.current.slice(0, 150);
+          if (recentSeen.length > 0) {
+            params.set('exclude', recentSeen.join(','));
+          }
           const res = await fetch(
             `${API_BASE_URL}/api/shorts${params.toString() ? `?${params.toString()}` : ''}`
           );
@@ -142,7 +157,7 @@ export function App() {
         data = await fetchShortsOnNativeDevice(forceRefresh);
       }
 
-      // Prioritize unseen videos ahead of recently watched ones so feeds feel fresh without repeats
+      // Prioritize unseen videos in a fresh random spread on every entry
       const seenSet = new Set(seenIdsRef.current);
       const unseenItems = data.items.filter((item) => !seenSet.has(item.id));
       const seenItems = data.items.filter((item) => seenSet.has(item.id));
@@ -159,11 +174,18 @@ export function App() {
         }
         const recentSet = new Set(recentOnly);
         items = [
-          ...spreadChannelOrder(data.items.filter((item) => !recentSet.has(item.id))),
-          ...spreadChannelOrder(data.items.filter((item) => recentSet.has(item.id))),
+          ...spreadChannelOrder(
+            shuffleArray(data.items.filter((item) => !recentSet.has(item.id)))
+          ),
+          ...spreadChannelOrder(
+            shuffleArray(data.items.filter((item) => recentSet.has(item.id)))
+          ),
         ];
       } else {
-        items = [...spreadChannelOrder(unseenItems), ...spreadChannelOrder(seenItems)];
+        items = [
+          ...spreadChannelOrder(shuffleArray(unseenItems)),
+          ...spreadChannelOrder(shuffleArray(seenItems)),
+        ];
       }
 
       // Support direct shared video links (?v=VIDEO_ID) on initial load
@@ -454,12 +476,25 @@ export function App() {
     allShorts,
   ]);
 
-  // Automatically load more videos from YouTube as the user approaches the end of any category feed
+  // Automatically load more videos from YouTube as the user approaches the end of any category feed,
+  // and fetch a fresh YouTube batch once whenever switching into a specific category.
   useEffect(() => {
     if (loading || isRefreshing || activeCategory === 'salvos') return;
-    const lowStockInCategory =
-      !searchQuery.trim() && visibleShorts.length < 15;
-    if (visibleShorts.length === 0 || lowStockInCategory || activeIndex >= visibleShorts.length - 6) {
+    const trimmed = searchQuery.trim();
+    const needsCategoryWarmup =
+      !trimmed &&
+      activeCategory !== 'all' &&
+      !fetchedCategoryBatchRef.current.has(activeCategory);
+    const lowStockInCategory = !trimmed && visibleShorts.length < 15;
+    if (
+      visibleShorts.length === 0 ||
+      needsCategoryWarmup ||
+      lowStockInCategory ||
+      activeIndex >= visibleShorts.length - 6
+    ) {
+      if (needsCategoryWarmup) {
+        fetchedCategoryBatchRef.current.add(activeCategory);
+      }
       loadMoreShorts();
     }
   }, [
@@ -473,14 +508,29 @@ export function App() {
     loadMoreShorts,
   ]);
 
-  const handleSelectCategory = useCallback((cat: ShortCategory) => {
-    emptyRetryCountRef.current = 0;
-    setActiveCategory(cat);
-    setActiveIndex(0);
-    if (feedRef.current) {
-      feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
-    }
-  }, []);
+  const handleSelectCategory = useCallback(
+    (cat: ShortCategory) => {
+      const currentId = visibleShorts[activeIndex]?.id;
+      if (currentId) {
+        markShortSeen(currentId);
+      }
+      if (cat !== 'salvos') {
+        const seenSet = new Set(seenIdsRef.current);
+        setAllShorts((prev) => {
+          const unseen = prev.filter((item) => !seenSet.has(item.id));
+          const seen = prev.filter((item) => seenSet.has(item.id));
+          return unseen.length > 0 ? [...unseen, ...seen] : prev;
+        });
+      }
+      emptyRetryCountRef.current = 0;
+      setActiveCategory(cat);
+      setActiveIndex(0);
+      if (feedRef.current) {
+        feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
+      }
+    },
+    [activeIndex, visibleShorts, markShortSeen]
+  );
 
   const scrollToIndex = useCallback(
     (targetIdx: number) => {
@@ -530,14 +580,25 @@ export function App() {
     setAudioUnlocked(true);
   }, []);
 
-  // Track watched Shorts after 1 second on screen so refreshing brings fresh unseen clips
+  // Track watched Shorts quickly (400ms) and when leaving the app so next entry starts fresh
   useEffect(() => {
     const activeId = visibleShorts[activeIndex]?.id;
     if (!activeId) return;
     const timer = window.setTimeout(() => {
       markShortSeen(activeId);
-    }, 1000);
-    return () => window.clearTimeout(timer);
+    }, 400);
+    const handleVisibilityOrHide = () => {
+      if (document.visibilityState === 'hidden') {
+        markShortSeen(activeId);
+      }
+    };
+    window.addEventListener('pagehide', handleVisibilityOrHide);
+    document.addEventListener('visibilitychange', handleVisibilityOrHide);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pagehide', handleVisibilityOrHide);
+      document.removeEventListener('visibilitychange', handleVisibilityOrHide);
+    };
   }, [activeIndex, visibleShorts, markShortSeen]);
 
   const handleRefreshFeed = useCallback(() => {

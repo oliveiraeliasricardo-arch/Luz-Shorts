@@ -30,12 +30,19 @@ async function startServer() {
     const category = typeof req.query.category === 'string' ? req.query.category : 'all';
     const q = typeof req.query.q === 'string' ? req.query.q : '';
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const rawExclude = typeof req.query.exclude === 'string' ? req.query.exclude : '';
+    const excludeIds = rawExclude
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
+      .slice(0, 180);
 
     try {
       const payload = await getCuratedChristianShorts({
         category,
         q,
         forceRefresh,
+        excludeIds,
       });
       res.json(payload);
     } catch (err) {
