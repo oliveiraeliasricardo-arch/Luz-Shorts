@@ -154,6 +154,20 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     defaultCategory: 'louvores',
     allowInCategories: ['louvores', 'testemunhos'],
   },
+  {
+    id: 'UCj14fcdKiGxi2qQsqhPf9tg',
+    title: 'Adoradores Novo Tempo',
+    doctrineScope: 'adventista',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores'],
+  },
+  {
+    id: 'UCQhkLOO40bmTMeLcbspKW8A',
+    title: 'Casa Publicadora Brasileira',
+    doctrineScope: 'adventista',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores'],
+  },
 ];
 
 export const CHRISTIAN_GENERAL_CHANNELS: CuratedChannelSpec[] = [
@@ -380,6 +394,9 @@ const ADVENTIST_IDENTITY_PATTERNS = [
   /\b1844\b/i,
   /\bs[aá]bado\b.*\b(selo|senhor|quarto mandamento|bíblia|deus)\b/i,
   /\barautos do rei\b/i,
+  /\badoradores(\s*(novo tempo|[1-5]))?\b/i,
+  /\bnovo hin[aá]rio\b/i,
+  /\bcasa publicadora brasileira\b/i,
   /\bgravadora nt\b/i,
   /\berton k[oö]hler\b/i,
   /\bstanley arco\b/i,
@@ -472,7 +489,6 @@ const NOISE_AND_PROMO_PATTERNS = [
   /\btchau portugal\b/i,
   /\b24\s*h(oras)?\b/i,
   /\besta[cç][aã]o\b.*\b(24h|melhores)\b/i,
-  /\bcolet[aâ]nea\b/i,
   /\banos da tv\b/i,
   /\bvem correr\b/i,
   /\bsala da calma\b/i,
@@ -601,6 +617,12 @@ const WORSHIP_SONG_POSITIVE_PATTERNS = [
   /\bse ele n[aã]o for o primeiro\b/i,
   /\bem seu nome\b/i,
   /\bbrilhar por ti\b/i,
+  /\bn(o|ô)vo hin[aá]rio(\s+adventista)?\b/i,
+  /\bhin[aá]rio adventista\b/i,
+  /\bhino\s*\d+\b/i,
+  /\badoradores(\s*[1-5]|\s+novo tempo)?\b/i,
+  /\bcolet[aâ]nea\b.*\b(adoradores|hin[aá]rio|adventista|louvor|adora[cç][aã]o)\b/i,
+  /\b1\s*hora\s+de\s+adoradores\b/i,
   /\bele vem\b/i,
 ];
 
@@ -1171,7 +1193,7 @@ function normalizeTitleKey(title: string): string {
 }
 
 const SONG_ARTIST_OR_TAG_RE =
-  /\b(arautos do rei|art\s*trio|novo tom|novo tempo|live sessions?|dvd|hinos\s*\d*|clipe oficial|video oficial|acustico|ao vivo|gravadora nt|aline barros|isadora pompeo|gabriela rocha|fernandinho|sarah farias|pedro valenca|eli soares|theo rubia|fhop music|morada|mergulhar|dunamis|daniel ludtke|midian lima|sued silva|valesca mayssa|maria marcal|julliany souza|diante do trono|eyshila|ana paula valadao|carol tauber|casa worship|preto no branco|kemuel|paulo cesar baruk|laura souguellis|voz com letra|com letra|video letra|ministerio|coral|feat|ft)\b/i;
+  /\b(arautos do rei|art\s*trio|novo tom|novo tempo|adoradores\s*[1-5]?|live sessions?|dvd|hinos\s*\d*|clipe oficial|video oficial|acustico|ao vivo|gravadora nt|aline barros|isadora pompeo|gabriela rocha|fernandinho|sarah farias|pedro valenca|eli soares|theo rubia|fhop music|morada|mergulhar|dunamis|daniel ludtke|midian lima|sued silva|valesca mayssa|maria marcal|julliany souza|diante do trono|eyshila|ana paula valadao|carol tauber|casa worship|preto no branco|kemuel|paulo cesar baruk|laura souguellis|voz com letra|com letra|video letra|ministerio|coral|feat|ft)\b/i;
 
 function normalizeSongKey(title: string): string {
   let cleaned = title

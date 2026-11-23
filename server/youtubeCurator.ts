@@ -66,6 +66,16 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'volta de jesus profecia adventista',
   ],
   louvores: [
+    'novo hinário adventista oficial',
+    'novo hinário adventista hino letra',
+    'coletânea adoradores novo tempo',
+    'adoradores 5 gravadora novo tempo',
+    'adoradores 4 gravadora novo tempo',
+    'adoradores 3 gravadora novo tempo',
+    'adoradores 2 gravadora novo tempo',
+    'adoradores 1 gravadora novo tempo',
+    '1 hora de adoradores novo tempo',
+    'coletânea novo hinário adventista',
     'louvor gospel clipe oficial',
     'música gospel adoração ao vivo',
     'arautos do rei música oficial',
@@ -106,6 +116,19 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'como deus mudou minha família testemunho',
   ],
 };
+
+const SPECIAL_LOUVORES_PLAYLISTS: string[] = [
+  'PLAPpcKnpMfeO9Fydpl1tTKC9CRRnIMMSK', // Novo Hinário Adventista 1-100
+  'PLAPpcKnpMfeOsWzlaY0bXm1Q5pnQQxn_y', // Novo Hinário Adventista 101-200
+  'PLAPpcKnpMfeMnCMuGcdWKVkgpi2P_sRkE', // Novo Hinário Adventista 201-300
+  'PLAPpcKnpMfeNIrE1nk3w2OkcUdxuY6y1l', // Novo Hinário Adventista 301-400
+  'PLAPpcKnpMfePvD6DLI-Y5TR-RVVo62s6Z', // Novo Hinário Adventista 401-500
+  'PLAPpcKnpMfePWEOuIu4B4F3PVljyD8DoO', // Novo Hinário Adventista 501-600
+  'PLnjYWXTXSkDpfADeUa3LJkhdzzXwsqD_P', // Adoradores 5
+  'PLnjYWXTXSkDr-jo4daf3ZOkzccvMxsrb1', // Adoradores 5 Congregacional
+  'PLnjYWXTXSkDrri7WFuBCYB5Ljo9uhbOUG', // Adoradores 4 Ao Vivo
+  'PLnjYWXTXSkDqUHHAprAtUaoj-u_cOO_iq', // Adoradores 4 Congregacional
+];
 
 interface CandidateVideo {
   id: string;
@@ -371,35 +394,7 @@ async function hydrateAndVerifyCandidates(
     );
     if (!classified) continue;
 
-    if (
-      classified.category === 'louvores' &&
-      meta?.durationSeconds != null &&
-      (meta.durationSeconds < 75 || meta.durationSeconds > 1200)
-    ) {
-      continue;
-    }
-
-    if (
-      classified.category === 'pregacoes' &&
-      meta?.durationSeconds != null &&
-      meta.durationSeconds < 45
-    ) {
-      continue;
-    }
-
-    if (
-      classified.category === 'testemunhos' &&
-      meta?.durationSeconds != null &&
-      (meta.durationSeconds < 15 || meta.durationSeconds > 600)
-    ) {
-      continue;
-    }
-
-    if (
-      classified.category === 'biblia' &&
-      meta?.durationSeconds &&
-      meta.durationSeconds > 185
-    ) {
+    if (!isWithinCategoryDuration(classified.category, meta?.durationSeconds ?? null, c.title)) {
       continue;
     }
 
@@ -423,6 +418,33 @@ async function hydrateAndVerifyCandidates(
   return verifiedShorts;
 }
 
+function isWithinCategoryDuration(
+  category: ContentCategory,
+  durationSeconds: number | null | undefined,
+  title: string
+): boolean {
+  if (durationSeconds == null) return true;
+  if (category === 'louvores') {
+    const isHinario = /\b(n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|hino\s*\d+)\b/i.test(title);
+    const isColetanea = /\b(adoradores|colet[aâ]nea|n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|1\s*hora\s+de)\b/i.test(
+      title
+    );
+    const minSec = isHinario ? 35 : 75;
+    const maxSec = isColetanea ? 4500 : 1200;
+    return durationSeconds >= minSec && durationSeconds <= maxSec;
+  }
+  if (category === 'pregacoes') {
+    return durationSeconds >= 45;
+  }
+  if (category === 'testemunhos') {
+    return durationSeconds >= 15 && durationSeconds <= 600;
+  }
+  if (category === 'biblia') {
+    return durationSeconds <= 185;
+  }
+  return true;
+}
+
 async function fetchFromYoutubeApi(
   apiKey: string,
   advancePlaylists = false
@@ -432,15 +454,19 @@ async function fetchFromYoutubeApi(
   playlistTokens: Record<string, string | null>;
 }> {
   // Fetch initial catalog using playlistItems.list (1 quota unit per call)
-  // across all curated verified channels, advancing saved page tokens on refresh
-  // so refreshes and new boots discover deeper channel history instead of repeating page 1.
+  // across all curated verified channels + rotating Novo Hinário / Adoradores playlists,
+  // advancing saved page tokens on refresh so new boots discover deeper history.
   const channels = [...ALL_CURATED_CHANNELS];
   for (let i = channels.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [channels[i], channels[j]] = [channels[j], channels[i]];
   }
 
-  const requestMeta = channels.map((spec) => {
+  const requestMeta: Array<{
+    playlistId: string;
+    hintCategory: ContentCategory;
+    pageToken: string | null;
+  }> = channels.map((spec) => {
     const suffix = spec.id.slice(2);
     const playlistId =
       spec.defaultCategory === 'biblia'
@@ -451,12 +477,23 @@ async function fetchFromYoutubeApi(
         ? `UULF${suffix}`
         : `UU${suffix}`;
     const pageToken = advancePlaylists ? persistentPlaylistTokens[playlistId] ?? null : null;
-    return { spec, playlistId, pageToken };
+    return { hintCategory: spec.defaultCategory, playlistId, pageToken };
   });
+
+  // Always mix in rotating playlists from Novo Hinário Adventista (1-600) & Adoradores collections
+  const shuffledSpecial = [...SPECIAL_LOUVORES_PLAYLISTS];
+  for (let i = shuffledSpecial.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffledSpecial[i], shuffledSpecial[j]] = [shuffledSpecial[j], shuffledSpecial[i]];
+  }
+  for (const playlistId of shuffledSpecial.slice(0, 4)) {
+    const pageToken = advancePlaylists ? persistentPlaylistTokens[playlistId] ?? null : null;
+    requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken });
+  }
 
   const responses = await Promise.allSettled(
     requestMeta.map((m) =>
-      fetchChannelPlaylistPage(apiKey, m.playlistId, m.spec.defaultCategory, m.pageToken)
+      fetchChannelPlaylistPage(apiKey, m.playlistId, m.hintCategory, m.pageToken)
     )
   );
   const candidates = new Map<string, CandidateVideo>();
@@ -734,32 +771,7 @@ async function fetchYoutubeWebSearch(
         c.hintCategory
       );
       if (!classified) continue;
-      if (
-        classified.category === 'louvores' &&
-        c.durationSeconds != null &&
-        (c.durationSeconds < 75 || c.durationSeconds > 1200)
-      ) {
-        continue;
-      }
-      if (
-        classified.category === 'pregacoes' &&
-        c.durationSeconds != null &&
-        c.durationSeconds < 45
-      ) {
-        continue;
-      }
-      if (
-        classified.category === 'testemunhos' &&
-        c.durationSeconds != null &&
-        (c.durationSeconds < 15 || c.durationSeconds > 600)
-      ) {
-        continue;
-      }
-      if (
-        classified.category === 'biblia' &&
-        c.durationSeconds != null &&
-        c.durationSeconds > 185
-      ) {
+      if (!isWithinCategoryDuration(classified.category, c.durationSeconds, c.title)) {
         continue;
       }
       fallback.push(
@@ -1475,6 +1487,17 @@ export async function getMoreChristianShorts(options: {
       return `UU${suffix}`;
     };
 
+    const playlistPool: Array<{ playlistId: string; hintCategory: ContentCategory }> =
+      eligibleChannels.map((ch) => ({
+        playlistId: getPlaylistIdForChannel(ch),
+        hintCategory: validCat || ch.defaultCategory,
+      }));
+    if (!validCat || validCat === 'louvores') {
+      for (const specialPid of SPECIAL_LOUVORES_PLAYLISTS) {
+        playlistPool.push({ playlistId: specialPid, hintCategory: 'louvores' });
+      }
+    }
+
     const collected: ChristianShort[] = [];
     const maxAttempts = validCat ? 2 : 2;
     const targetMin = validCat === 'pregacoes' || validCat === 'testemunhos' ? 12 : 18;
@@ -1485,15 +1508,13 @@ export async function getMoreChristianShorts(options: {
         hintCategory: ContentCategory;
       }> = [];
 
-      const total = eligibleChannels.length;
+      const total = playlistPool.length;
       const batchSize = Math.min(10, total);
       for (let i = 0; i < total && batchTargets.length < batchSize; i++) {
-        const ch = eligibleChannels[(state.round * batchSize + i) % total];
-        const hint = validCat || ch.defaultCategory;
-        const playlistId = getPlaylistIdForChannel(ch);
-        const pState = state.playlistStates[playlistId];
+        const entry = playlistPool[(state.round * batchSize + i) % total];
+        const pState = state.playlistStates[entry.playlistId];
         if (pState?.done) continue;
-        batchTargets.push({ playlistId, hintCategory: hint });
+        batchTargets.push(entry);
       }
       state.round += 1;
 
