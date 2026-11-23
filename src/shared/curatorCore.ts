@@ -450,12 +450,14 @@ const BLOCKED_DOCTRINAL_CONFLICT_TERMS = [
   'candomble',
 ];
 
+const NON_ADVENTIST_PREACHER_OR_DENOM_RE =
+  /\b(silas malafaia|edir macedo|r\.?\s*r\.?\s*soares|valdemiro santiago|marco feliciano|deive leonardo|tiago brunet|andr[eé] valad[aã]o|cl[aá]udio duarte|felippe valad[aã]o|josu[eé] brand[aã]o|hernandes dias lopes|augustus nicodemus|paulo junior|luciano subir[aá]|yago martins|elizeu rodrigues|camila barros|rodrigo mocellin|renato cardoso|bruno leonardo|padres?\s+[a-záéíóúâêôãõç]+|frei\s+[a-záéíóúâêôãõç]+|can[cç][aã]o nova|tv aparecida|igreja cat[oó]lica|igreja universal|mundial do poder de deus|igreja da gra[cç]a|assembleia de deus|lagoinha|congrega[cç][aã]o crist[aã]|testemunhas de jeov[aá]|m[oó]rmon|esp[ií]rita)\b/i;
+
 const ADVENTIST_IDENTITY_PATTERNS = [
   /\badventista/i,
   /\biasd\b/i,
-  /\bnovo tempo\b/i,
-  /\btv novo tempo\b/i,
-  /\best[aá] escrito\b/i,
+  /\b(tv novo tempo|r[aá]dio novo tempo|gravadora novo tempo|canal novo tempo|novo tempo oficial|rede novo tempo|adoradores novo tempo|nt kids|nt play|novo tempo\s*[-|•:])\b/i,
+  /\b(programa est[aá] escrito|est[aá] escrito(\s+brasil)?\s*[-|•:])\b/i,
   /\bna mira da verdade\b/i,
   /\bescola sabatina\b/i,
   /\bli[cç][oõ]es da b[ií]blia\b/i,
@@ -472,7 +474,7 @@ const ADVENTIST_IDENTITY_PATTERNS = [
   /\bodailson fonseca\b/i,
   /\btito rocha\b/i,
   /\b1844\b/i,
-  /\bs[aá]bado\b.*\b(selo|senhor|quarto mandamento|bíblia|deus)\b/i,
+  /\bs[aá]bado\b.*\b(selo|senhor|quarto mandamento|b[ií]blia|deus)\b/i,
   /\barautos do rei\b/i,
   /\badoradores(\s*(novo tempo|[1-5]))?\b/i,
   /\bnovo hin[aá]rio\b/i,
@@ -500,45 +502,53 @@ const ADVENTIST_IDENTITY_PATTERNS = [
   /\bcamelo na agulha\b/i,
 ];
 
+const SECULAR_OFF_CONTEXT_TITLE_RE =
+  /\b(receita(s)?\s+(de|f[aá]cil|caseira|t[ií]pica|simples)|receita:|como fazer bolo|bolo de (banana|milho|fub[aá]|cenoura|chocolate|laranja|lim[aã]o|coco|trigo|rolo|festa|pote|anivers[aá]rio)|bolo (simples|fofinho)|de liquidificador|receita de pudim|fa[cç]a\s+seu\s+bolo|modo\s+de\s+preparo|ingredientes|renda extra|#empreendedorismo|flamengo\s*tv|corinthians\s*tv|palmeiras\s*tv|vasco\s*tv|som do meng[aã]o|meng[aã]o|flamengo\s+tetra|sr\s+waldemar|gl[oó]ria\s+eterna|melhores\s+momentos|brasileir[aã]o|libertadores|copa\s+do\s+brasil|campeonato\s+(carioca|paulista|mineiro|ga[uú]cho|brasileiro)|\bnbb\b|coletiva\s+de\s+imprensa|hino\s+do\s+(flamengo|corinthians|palmeiras|s[aã]o\s+paulo|vasco|botafogo|gr[eê]mio|internacional|cruzeiro|atl[eé]tico|santos|bahia|fluminense|nacional)|funk\s+do\s+|peppa\s+pig|galinha\s+pintadinha|patrulha\s+canina|bolofofos|mundo\s+bita|onde\s+est[aá]\s+chicky|giramille|cavalinho\s+colorido|cocomelon|baby\s+shark|emmanuel\s+cortes|pabllo\s+vittar|anitta|ludmilla|lu[ií]sa\s+sonza|gloria\s+groove|gusttavo\s+lima|mar[ií]lia\s+mendon[cç]a|henrique\s+e\s+juliano|jorge\s+e\s+mateus|ana\s+castela|luan\s+santana|alok|matu[eê]|mc\s+(daniel|ryan|ig|hariel|kevin|poze|livinho|pedrinho|cabelinho)|kondzilla|gr6\s+explode|love\s+funk|par[oó]dia)\b|#flamengo\b/i;
+
 const CHRISTIAN_RELEVANCE_PATTERNS = [
   /\bdeus\b/i,
-  /\bjesus\b/i,
+  /\bjesus(\s+cristo)?\b/i,
   /\bcristo\b/i,
   /\besp[ií]rito santo\b/i,
   /\bb[ií]bli[ao]s?\b/i,
   /\bevangelho\b/i,
   /\bevangelic[oa]s?\b/i,
   /\badventista/i,
-  /\blouvor/i,
+  /\biasd\b/i,
+  /\blouvor(es)?\b/i,
   /\badora[cç][aã]o\b/i,
-  /\bhino(s)?\b/i,
-  /\bhin[aá]rio\b/i,
+  /\bhino(s)?\s+(adventista|evang[eé]lic[oa]s?|crist[aã]o?s?|de\s+louvor|da\s+harpa|do\s+hin[aá]rio|iasd|\d{1,3}\b)/i,
+  /\b(novo\s+)?hin[aá]rio(\s+adventista)?\b/i,
   /\bharpa crist[aã]\b/i,
   /\bora[cç][aã]o\b/i,
-  /\bf[eé]\b/i,
+  /\b(f[eé]\s+(em\s+deus|em\s+cristo|em\s+jesus|crist[aã]|adventista)|homem\s+de\s+f[eé]|mulher\s+de\s+f[eé]|pela\s+f[eé]|poder\s+da\s+f[eé]|testemunho\s+de\s+f[eé])\b/i,
   /\btestemunho\b/i,
   /\bmilagre\b/i,
   /\bgospel\b/i,
   /\bigreja\b/i,
   /\bsalmo(s)?\b/i,
   /\bsalva[cç][aã]o\b/i,
-  /\besperan[cç]a\b/i,
   /\bprega[cç][aã]o\b/i,
   /\bserm[aã]o\b/i,
-  /\bs[aá]bado\b/i,
+  /\b(feliz\s+s[aá]bado|s[aá]bado\s+(do\s+senhor|santo|b[ií]blia)|guarda\s+do\s+s[aá]bado|escola\s+sabatina|quarto\s+mandamento)\b/i,
   /\bprofecia\b/i,
   /\bapocalipse\b/i,
-  /\bdaniel\b/i,
+  /\b(livro\s+de\s+daniel|profeta\s+daniel|daniel\s+\d+|daniel\s+e\s+apocalipse|daniel\s+l[uü]dtke)\b/i,
   /\bg[eê]nesis\b/i,
   /\baleluia\b/i,
-  /\bgrac[aã]\b|\bgra[cç]a\b/i,
+  /\bmaranata\b/i,
+  /\bhosana\b/i,
+  /\b(gra[cç]a\s+de\s+deus|gra[cç]a\s+divina|maravilhosa\s+gra[cç]a|gra[cç]a\s+music|pela\s+gra[cç]a)\b/i,
   /\bpastor\b/i,
   /\bcrist[aã]o?\b/i,
   /\bcd\s*jovem\b/i,
   /\bminist[eé]rio jovem\b/i,
   /\bfeliz7play\b/i,
+  /\bfeliz7kids\b/i,
+  /\bnt kids\b/i,
+  /\bnosso amiguinho\b/i,
   /\bdefensores da b[ií]blia\b/i,
-  /\b(mk music|todah music|musile records|onimusic|gra[cç]a music|central gospel|som livre gospel|universal music christian|sony music gospel|diante do trono|voz da verdade|aline barros|fernandinho|gabriela rocha|isadora pompeo|gabriel guedes|anderson freire|morada|fhop music|casa worship|thalles roberto|preto no branco|kleber lucas|bruna karla|cassiane|eli soares|sarah farias|julliany souza|theo rubia|paulo c[eé]sar baruk|leonardo gon[cç]alves|laura morena)\b/i,
+  /\b(mk music|todah music|musile records|onimusic|gra[cç]a music|central gospel|som livre gospel|universal music christian|sony music gospel|gravadora nt|casa publicadora brasileira|diante do trono|voz da verdade|aline barros|fernandinho|gabriela rocha|isadora pompeo|gabriel guedes|anderson freire|morada|fhop music|casa worship|thalles roberto|preto no branco|kleber lucas|bruna karla|cassiane|eyshila|elaine martins|damares|eli soares|sarah farias|julliany souza|theo rubia|paulo c[eé]sar baruk|leonardo gon[cç]alves|laura morena|arautos do rei|novo tom|pedro valen[cç]a|adoradores novo tempo|isa[ií]as saad|juliano son|livres para adorar|n[ií]vea soares|ana n[oó]brega|alessandro vilas boas|lukas agustinho|sued silva|midian lima|maria mar[cç]al|valesca mayssa|gerson rufino|kemuel|minist[eé]rio zoe|davi sacer|toque no altar|trazendo a arca|renascer praise|palavrantiga|oficina g3|rosa de saron|anjos de resgate|3\s*palavrinhas|turminha da promessa|reino kids)\b/i,
 ];
 
 const NON_PORTUGUESE_PATTERNS = [
@@ -684,6 +694,7 @@ const WORSHIP_SONG_POSITIVE_PATTERNS = [
   /\bhino\s+\d+\b/i,
   /\bnova m[uú]sica\b/i,
   /\bm[uú]sica oficial\b/i,
+  /\bm[uú]sica\s+tema\b/i,
   /\bm[uú]sica\s+(crist[aã]|gospel|adventista|in[eé]dita|nova)\b/i,
   /\bc[aâ]ntico\b/i,
   /\bcom coral\b/i,
@@ -806,7 +817,7 @@ const STRICT_BIBLE_TITLE_PATTERNS = [
 
 const NON_SERMON_PATTERNS = [
   /\b(podcast|inverso|bastidores|t\d+ep#?\d+|ep\.?\s*\d+|mesa redonda|bate-?papo|entrevista|c[oó]digo aberto)\b/i,
-  /\b(momento da sa[uú]de|luz solar|alimenta[cç][aã]o|nutri[cç][aã]o|nutra seu corpo|vida saud[aá]vel|equil[ií]brio|exerc[ií]cio f[ií]sico|descanso:\s*seu corpo|[aá]gua:\s*a ess[eê]ncia|8 rem[eé]dios)\b/i,
+  /\b(momento da sa[uú]de|vida e sa[uú]de|receita:|luz solar|alimenta[cç][aã]o|nutri[cç][aã]o|nutra seu corpo|vida saud[aá]vel|equil[ií]brio|exerc[ií]cio f[ií]sico|descanso:\s*seu corpo|[aá]gua:\s*a ess[eê]ncia|8 rem[eé]dios)\b/i,
   /\b(in concert|hin[aá]rio|clipe|canta|coral|express[aã]o de vida|horas benditas|a cruz n[aã]o [eé] o fim)\b/i,
   /\b(treinamento|coordenador de interessados|aula\s*\d+|ciclo do evangelismo|trimestral|aposentadoria|quebrando o sil[eê]ncio|dia dos namorados|dia mundial dos desbravadores|feliz dia|lan[cç]amento do #|quem [eé] voc[eê] no|eu j[aá] fui|hist[oó]rias de volunt[aá]rios|pe[cç]a agora|revista esperan[cç]a|anos dos anjos|tv novo tempo\s*-\s*ao vivo|super lupa|em ingl[eê]s|filme|curta-metragem|bom dia mulher|o drama da paix[aã]o|allen, mission[aá]rio|pais conectados|evangelismo feminino|criadores e mission[aá]rios|encontro de evangelistas|onevoice27|bora fazer uma semana de ora[cç][aã]o|homenagem|guia de pg)\b/i,
 ];
@@ -850,23 +861,30 @@ function isAdventistVerified(
 ): boolean {
   if (ADVENTIST_CHANNEL_IDS.has(channelId)) return true;
   const combined = `${channelTitle} ${title} ${description}`;
+  if (NON_ADVENTIST_PREACHER_OR_DENOM_RE.test(`${channelTitle} ${title}`)) {
+    return false;
+  }
+  if (/\b(tv |r[aá]dio |gravadora )?novo tempo\b/i.test(channelTitle)) {
+    return true;
+  }
   return ADVENTIST_IDENTITY_PATTERNS.some((re) => re.test(combined));
 }
+
+const STRONG_DESC_CHRISTIAN_RE =
+  /\b(m[uú]sica\s+(gospel|crist[aã])|louvor\s+e\s+adora[cç][aã]o|can[cç][aã]o\s+(gospel|crist[aã])|testemunho\s+(crist[aã]o|de\s+f[eé]|de\s+convers[aã]o)|igreja\s+(adventista|evang[eé]lica|batista|presbiteriana)|estudo\s+b[ií]blico|palavra\s+de\s+deus|evangelho\s+de\s+(cristo|jesus)|escola\s+sabatina|novo\s+tempo|feliz7play|gravadora\s+nt|mk\s+music|todah\s+music|musile\s+records|onimusic)\b/i;
 
 function hasChristianRelevance(
   title: string,
   description: string,
   channelTitle: string,
-  channelId: string,
-  searchMode = false
+  channelId: string
 ): boolean {
   if (CHANNEL_BY_ID.has(channelId)) return true;
-  const combined = `${channelTitle} ${title} ${description}`;
-  if (CHRISTIAN_RELEVANCE_PATTERNS.some((re) => re.test(combined))) return true;
-  if (searchMode && WORSHIP_SONG_POSITIVE_PATTERNS.some((re) => re.test(title))) {
+  const header = `${channelTitle} ${title}`;
+  if (CHRISTIAN_RELEVANCE_PATTERNS.some((re) => re.test(header))) {
     return true;
   }
-  return false;
+  return STRONG_DESC_CHRISTIAN_RE.test(description);
 }
 
 const STRICT_TALK_BLOCK_RE =
@@ -975,7 +993,10 @@ export function classifyShort(
   const combined = `${title} ${description}`;
   const fullContext = `${channelTitle} ${combined}`;
 
-  if (containsBlockedTerms(combined, BLOCKED_GENERAL_TERMS)) {
+  if (containsBlockedTerms(fullContext, BLOCKED_GENERAL_TERMS)) {
+    return null;
+  }
+  if (SECULAR_OFF_CONTEXT_TITLE_RE.test(`${channelTitle} ${title} ${description.slice(0, 220)}`)) {
     return null;
   }
   if (AI_GENERATED_PATTERNS.some((re) => re.test(fullContext))) {
@@ -999,14 +1020,7 @@ export function classifyShort(
   const channelSpec = CHANNEL_BY_ID.get(channelId);
   const adventist = isAdventistVerified(channelId, channelTitle, title, description);
 
-  if (
-    !hasChristianRelevance(title, description, channelTitle, channelId, searchMode) &&
-    !(
-      searchMode &&
-      (hintCategory === 'louvores' || hintCategory === 'testemunhos' || hintCategory === undefined) &&
-      /[^|–-]+\s[-–|]\s[^|–-]+/.test(title)
-    )
-  ) {
+  if (!hasChristianRelevance(title, description, channelTitle, channelId)) {
     return null;
   }
 
@@ -1017,7 +1031,9 @@ export function classifyShort(
     channelId !== 'UC03Y0ieYROxw1FxCoDaSF9g' &&
     channelId !== FELIZ7PLAY_CHANNEL_ID;
   const isFeliz7PlayChannel = channelId === FELIZ7PLAY_CHANNEL_ID;
-  const isAdventistAnimationChannel = ADVENTIST_ANIMATION_CHANNEL_IDS.has(channelId);
+  const isAdventistAnimationChannel =
+    ADVENTIST_ANIMATION_CHANNEL_IDS.has(channelId) ||
+    /\b(feliz7kids|nt kids|nosso amiguinho|minha vida [eé] uma viagem)\b/i.test(channelTitle);
   const titleAndChannel = `${channelTitle} ${title}`;
   const isBiblicalAnimation =
     !isWorshipChannel &&
@@ -1034,7 +1050,7 @@ export function classifyShort(
     (STRICT_TESTIMONY_TITLE_PATTERNS.some((re) => re.test(title)) ||
       STRICT_TESTIMONY_DESC_PATTERNS.some((re) => re.test(description.slice(0, 260))) ||
       (searchMode &&
-        /\b(testemunh|convers[aã]o|milagre|cura|salvou|liberta[cç][aã]o|hist[oó]ria real|depoimento|como conheci)\b/i.test(
+        /\b(testemunh|depoimento|hist[oó]ria real|hist[oó]ria de convers[aã]o|meu testemunho|como conheci (a deus|jesus|cristo)|deus (me|nos) (salvou|curou|libertou|resgatou))\b/i.test(
           `${title} ${description.slice(0, 220)}`
         )));
   const isBibleTitle = STRICT_BIBLE_TITLE_PATTERNS.some((re) => re.test(title));
@@ -1062,12 +1078,13 @@ export function classifyShort(
         adventist &&
         !hasStrongMusicTag &&
         !isBibleTitle &&
-        /\b(prega[cç][aã]o|serm[aã]o|culto|mensagem|estudo|palavra|ora[cç][aã]o|cristo|jesus|deus|esperan[cç]a|f[eé])\b/i.test(
+        /\b(prega[cç][aã]o|serm[aã]o|culto|mensagem|estudo|palavra|ora[cç][aã]o|cristo|jesus|deus|esperan[cç]a)\b/i.test(
           fullContext
         )));
   const isExplicitTestimony = hasExplicitTestimonySignals && !hasStrongMusicTag;
   const isSong =
     isSongRaw &&
+    !isAdventistAnimationChannel &&
     (!searchMode || hasStrongMusicTag || (!isExplicitTestimony && !isBibleTitle && !isStrictSermon && !isBiblicalAnimation));
 
   let detectedCategory: ContentCategory | null = null;
@@ -1078,7 +1095,7 @@ export function classifyShort(
     if (
       !NON_BIBLICAL_KIDS_NOISE_RE.test(title) &&
       !/\bkaraok[eê](?![a-záéíóúâêôãõç])/i.test(title) &&
-      (BIBLICAL_ANIMATION_TOPIC_RE.test(combined) || isBiblicalAnimation)
+      (BIBLICAL_ANIMATION_TOPIC_RE.test(combined) || isBiblicalAnimation || ANIMATION_MEDIUM_RE.test(title))
     ) {
       detectedCategory = 'feliz7play';
     } else {
@@ -1116,16 +1133,6 @@ export function classifyShort(
     isBibleDesc
   ) {
     detectedCategory = 'biblia';
-  } else if (searchMode && hintCategory === 'feliz7play' && adventist && !NON_BIBLICAL_KIDS_NOISE_RE.test(title)) {
-    detectedCategory = 'feliz7play';
-  } else if (searchMode && hintCategory === 'louvores' && !STRICT_TALK_BLOCK_RE.test(title)) {
-    detectedCategory = 'louvores';
-  } else if (
-    searchMode &&
-    hintCategory === 'testemunhos' &&
-    !NON_SONG_TALK_PATTERNS.some((re) => re.test(title))
-  ) {
-    detectedCategory = 'testemunhos';
   } else if (searchMode && adventist && !NON_SERMON_PATTERNS.some((re) => re.test(title))) {
     detectedCategory = hintCategory === 'biblia' ? 'biblia' : 'pregacoes';
   } else {

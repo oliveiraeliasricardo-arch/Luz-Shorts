@@ -949,6 +949,22 @@ function foldSearchText(s: string): string {
     .toLowerCase();
 }
 
+const SEARCH_STOPWORDS = new Set([
+  'a', 'o', 'e', 'de', 'do', 'da', 'dos', 'das', 'em', 'no', 'na', 'nos', 'nas',
+  'um', 'uma', 'para', 'por', 'com', 'sem', 'sobre', 'que', 'seu', 'sua', 'os', 'as',
+]);
+
+function hasQueryTokenInItem(item: ChristianShort, rawQuery: string): boolean {
+  const tokens = foldSearchText(rawQuery.trim())
+    .split(/\s+/)
+    .filter((t) => t.length >= 2 && !SEARCH_STOPWORDS.has(t));
+  if (tokens.length === 0) return true;
+  const meaningful = tokens.filter((t) => t.length >= 3);
+  const checkTokens = meaningful.length > 0 ? meaningful : tokens;
+  const haystack = foldSearchText(`${item.title} ${item.channelTitle} ${item.description}`);
+  return checkTokens.some((tok) => haystack.includes(tok));
+}
+
 function rankSearchResults(
   items: ChristianShort[],
   rawQuery: string,
@@ -958,7 +974,9 @@ function rankSearchResults(
   const tokens = foldedQuery.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return items;
 
-  const scored = items.map((item, idx) => {
+  const relevantItems = items.filter((item) => hasQueryTokenInItem(item, rawQuery));
+
+  const scored = relevantItems.map((item, idx) => {
     const fTitle = foldSearchText(item.title);
     const fChannel = foldSearchText(item.channelTitle);
     const fDesc = foldSearchText(item.description);
@@ -1071,17 +1089,25 @@ async function fetchLiveYoutubeSearch(
   }
 
   // Page 1 (or API continuation): run API search.list AND complementary zero-quota web searches
-  // in parallel so search results have maximum reach across YouTube.
+  // in parallel so search results have maximum reach across YouTube within app guidelines.
+  const hasAppContextKeyword =
+    /\b(deus|jesus|cristo|b[ií]bli|evangelho|gospel|louvor|adora[cç][aã]o|hino|hin[aá]rio|adoradores|cd\s*jovem|minist[eé]rio\s+jovem|adventista|iasd|novo\s+tempo|prega[cç][aã]o|serm[aã]o|culto|testemunho|milagre|ora[cç][aã]o|salmo|profecia|apocalipse|feliz7play|feliz7kids|nt\s*kids|harpa|arautos|novo\s+tom|daniel\s+l[uü]dtke|pedro\s+valen[cç]a|rodrigo\s+silva|ivan\s+saraiva|arilton|bull[oó]n|gabriel\s+guedes|anderson\s+freire|aline\s+barros|fernandinho|gabriela\s+rocha|isadora\s+pompeo|morada|fhop|casa\s+worship|diante\s+do\s+trono|davi\s+sacer|kemuel|mk\s+music|todah|musile)\b/i.test(
+      cleanQuery
+    );
+
   const webFanQueries: Array<{ q: string; hint?: ContentCategory; sortByDate: boolean }> = [];
   if (!pageToken) {
     if (validCat === 'louvores') {
-      webFanQueries.push({ q: cleanQuery, hint: 'louvores', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} louvor`, hint: 'louvores', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} oficial ao vivo`, hint: 'louvores', sortByDate: false });
+      if (hasAppContextKeyword) {
+        webFanQueries.push({ q: cleanQuery, hint: 'louvores', sortByDate: false });
+      }
+      webFanQueries.push({ q: `${cleanQuery} louvor gospel`, hint: 'louvores', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} louvor adventista`, hint: 'louvores', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} música cristã`, hint: 'louvores', sortByDate: false });
     } else if (validCat === 'testemunhos') {
       webFanQueries.push({ q: `${cleanQuery} testemunho cristão`, hint: 'testemunhos', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} testemunho conversão`, hint: 'testemunhos', sortByDate: false });
-      webFanQueries.push({ q: cleanQuery, hint: 'testemunhos', sortByDate: true });
+      webFanQueries.push({ q: `${cleanQuery} testemunho`, hint: 'testemunhos', sortByDate: true });
     } else if (validCat === 'pregacoes') {
       webFanQueries.push({ q: `${cleanQuery} pregação adventista`, hint: 'pregacoes', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} sermão adventista`, hint: 'pregacoes', sortByDate: false });
@@ -1095,11 +1121,15 @@ async function fetchLiveYoutubeSearch(
       webFanQueries.push({ q: `${cleanQuery} animação bíblica adventista`, hint: 'feliz7play', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} nt kids desenho bíblico`, hint: 'feliz7play', sortByDate: false });
     } else {
-      // "Todos": maximum breadth across exact query + Christian worship + Adventist + Testimonies
-      webFanQueries.push({ q: cleanQuery, hint: undefined, sortByDate: false });
+      // "Todos": Christian worship + Adventist + Testimonies (+ direct query when query already has app context)
       webFanQueries.push({ q: `${cleanQuery} louvor gospel`, hint: 'louvores', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} adventista`, hint: undefined, sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} testemunho`, hint: 'testemunhos', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} testemunho cristão`, hint: 'testemunhos', sortByDate: false });
+      if (hasAppContextKeyword) {
+        webFanQueries.push({ q: cleanQuery, hint: undefined, sortByDate: false });
+      } else {
+        webFanQueries.push({ q: `${cleanQuery} música cristã`, hint: 'louvores', sortByDate: false });
+      }
     }
   }
 

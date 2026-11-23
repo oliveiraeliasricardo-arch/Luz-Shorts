@@ -11,6 +11,7 @@ import {
   fetchShortsOnNativeDevice,
   isNativeCapacitorApp,
 } from './utils/nativeShortsFallback';
+import { buildDiverseFeed } from './shared/curatorCore';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -20,6 +21,53 @@ const LAST_SESSION_TOP_KEY = 'gracaplay_last_top_v1';
 const LEGACY_SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
 const MAX_SEEN_IDS = 5000;
+const MAX_SURFACED_TOP_IDS = 120;
+
+function prioritizeAndShuffleFeed(
+  source: ChristianShort[],
+  seenIds: string[],
+  surfacedTopIds: string[],
+  targetCategory?: ShortCategory
+): { items: ChristianShort[]; resetSurfacedIds: string[] } {
+  const seenSet = new Set(seenIds);
+  const surfacedSet = new Set(surfacedTopIds);
+
+  const unseenFresh = source.filter(
+    (item) => !seenSet.has(item.id) && !surfacedSet.has(item.id)
+  );
+  const unseenSurfaced = source.filter(
+    (item) => !seenSet.has(item.id) && surfacedSet.has(item.id)
+  );
+  const seenItems = source.filter((item) => seenSet.has(item.id));
+
+  const targetHasFresh =
+    targetCategory && targetCategory !== 'all' && targetCategory !== 'salvos'
+      ? unseenFresh.some((item) => item.category === targetCategory)
+      : unseenFresh.length > 0;
+
+  if (!targetHasFresh && unseenSurfaced.length > 0) {
+    const resetIds =
+      targetCategory && targetCategory !== 'all' && targetCategory !== 'salvos'
+        ? unseenSurfaced
+            .filter((item) => item.category === targetCategory)
+            .map((item) => item.id)
+        : unseenSurfaced.map((item) => item.id);
+    const allUnseen = source.filter((item) => !seenSet.has(item.id));
+    return {
+      items: [...buildDiverseFeed(allUnseen, true), ...buildDiverseFeed(seenItems, true)],
+      resetSurfacedIds: resetIds,
+    };
+  }
+
+  return {
+    items: [
+      ...buildDiverseFeed(unseenFresh, true),
+      ...buildDiverseFeed(unseenSurfaced, true),
+      ...buildDiverseFeed(seenItems, true),
+    ],
+    resetSurfacedIds: [],
+  };
+}
 
 function extractSessionTopIds(items: ChristianShort[]): string[] {
   const picked = new Set<string>();
@@ -129,6 +177,7 @@ export function App() {
     readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY)
   );
   const lastSessionTopRef = useRef<string[]>(readStoredIdList(LAST_SESSION_TOP_KEY));
+  const allShortsRef = useRef<ChristianShort[]>([]);
   const prevActiveIdRef = useRef<string | undefined>(undefined);
   const categoryCursorsRef = useRef<Record<string, string | null>>({});
   const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
@@ -138,6 +187,23 @@ export function App() {
   const remoteSearchQueryRef = useRef('');
   const remoteSearchLoadedCatsRef = useRef<Set<string>>(new Set());
   const lastSearchSubmitTickRef = useRef(0);
+  const hiddenAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    allShortsRef.current = allShorts;
+  }, [allShorts]);
+
+  const recordSurfacedTopIds = useCallback((ids: string[], removeIds: string[] = []) => {
+    const removeSet = new Set(removeIds);
+    const cleanedPrev = lastSessionTopRef.current.filter((id) => !removeSet.has(id));
+    const next = Array.from(new Set([...ids, ...cleanedPrev])).slice(0, MAX_SURFACED_TOP_IDS);
+    lastSessionTopRef.current = next;
+    try {
+      localStorage.setItem(LAST_SESSION_TOP_KEY, JSON.stringify(next));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, []);
 
   const markShortSeen = useCallback((shortId: string | undefined) => {
     if (!shortId) return;
@@ -152,6 +218,35 @@ export function App() {
       // Ignore storage quota errors
     }
   }, []);
+
+  const reshuffleUnseenFeed = useCallback(
+    (targetCat: ShortCategory) => {
+      const currentList = allShortsRef.current;
+      if (currentList.length === 0 || targetCat === 'salvos') return;
+
+      const { items: nextItems, resetSurfacedIds } = prioritizeAndShuffleFeed(
+        currentList,
+        seenIdsRef.current,
+        lastSessionTopRef.current,
+        targetCat
+      );
+
+      const seenSet = new Set(seenIdsRef.current);
+      const upcomingForTarget = (
+        targetCat === 'all'
+          ? nextItems
+          : nextItems.filter((item) => item.category === targetCat)
+      )
+        .filter((item) => !seenSet.has(item.id))
+        .slice(0, 3)
+        .map((item) => item.id);
+
+      recordSurfacedTopIds(upcomingForTarget, resetSurfacedIds);
+      allShortsRef.current = nextItems;
+      setAllShorts(nextItems);
+    },
+    [recordSurfacedTopIds]
+  );
 
   const loadShorts = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {
@@ -234,14 +329,9 @@ export function App() {
         items = [...unseenFresh, ...unseenPrevTop, ...seenItems];
       }
 
-      // Record top items from this session so reopening immediately rotates them out
+      // Record top items from this session so reopening or switching categories immediately rotates them out
       const nextSessionTop = extractSessionTopIds(items);
-      lastSessionTopRef.current = nextSessionTop;
-      try {
-        localStorage.setItem(LAST_SESSION_TOP_KEY, JSON.stringify(nextSessionTop));
-      } catch {
-        // Ignore storage quota errors
-      }
+      recordSurfacedTopIds(nextSessionTop);
 
       // Support direct shared video links (?v=VIDEO_ID) on initial load
       if (!forceRefresh) {
@@ -268,6 +358,7 @@ export function App() {
         }
       }
 
+      allShortsRef.current = items;
       setAllShorts(items);
       setSourceMode(data.sourceMode);
       setApiKeyConfigured(data.apiKeyConfigured);
@@ -298,7 +389,7 @@ export function App() {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [recordSurfacedTopIds]);
 
   useEffect(() => {
     // Pre-warm YouTube IFrame Player API immediately on mount for faster first playback
@@ -558,7 +649,9 @@ export function App() {
           if (fresh.length === 0) return prev;
           const unseen = fresh.filter((i) => !seenSet.has(i.id));
           const seen = fresh.filter((i) => seenSet.has(i.id));
-          return [...prev, ...unseen, ...seen];
+          const prevUnseen = prev.filter((i) => !seenSet.has(i.id));
+          const prevSeen = prev.filter((i) => seenSet.has(i.id));
+          return [...prevUnseen, ...unseen, ...prevSeen, ...seen];
         });
         categoryCursorsRef.current[activeCategory] = data.nextCursor ?? null;
         const nextHasMore = Boolean(data.hasMore);
@@ -634,12 +727,7 @@ export function App() {
         markShortSeen(currentId);
       }
       if (cat !== 'salvos') {
-        const seenSet = new Set(seenIdsRef.current);
-        setAllShorts((prev) => {
-          const unseen = prev.filter((item) => !seenSet.has(item.id));
-          const seen = prev.filter((item) => seenSet.has(item.id));
-          return unseen.length > 0 ? [...unseen, ...seen] : prev;
-        });
+        reshuffleUnseenFeed(cat);
       }
       emptyRetryCountRef.current = 0;
       setActiveCategory(cat);
@@ -648,8 +736,45 @@ export function App() {
         feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
       }
     },
-    [activeIndex, visibleShorts, markShortSeen]
+    [activeIndex, visibleShorts, markShortSeen, reshuffleUnseenFeed]
   );
+
+  // Automatically re-prioritize and shuffle unseen videos when returning via browser history (pageshow)
+  // or resuming the app/tab at the start of the feed after being away
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted && !searchQuery.trim() && activeCategory !== 'salvos') {
+        reshuffleUnseenFeed(activeCategory);
+        setActiveIndex(0);
+        if (feedRef.current) {
+          feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
+        }
+      }
+    };
+    const handleVisibilityResume = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      const hiddenAt = hiddenAtRef.current;
+      hiddenAtRef.current = null;
+      if (
+        hiddenAt !== null &&
+        Date.now() - hiddenAt > 90_000 &&
+        !searchQuery.trim() &&
+        activeCategory !== 'salvos' &&
+        activeIndex === 0
+      ) {
+        reshuffleUnseenFeed(activeCategory);
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityResume);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityResume);
+    };
+  }, [activeCategory, activeIndex, searchQuery, reshuffleUnseenFeed]);
 
   const scrollToIndex = useCallback(
     (targetIdx: number) => {
@@ -803,6 +928,13 @@ export function App() {
               onClick={() => {
                 setSearchQuery('');
                 setMobileSearchOpen(false);
+                if (activeCategory !== 'salvos') {
+                  reshuffleUnseenFeed(activeCategory);
+                  setActiveIndex(0);
+                  if (feedRef.current) {
+                    feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
+                  }
+                }
               }}
               aria-label="Fechar busca"
               className="w-8 h-8 flex items-center justify-center text-zinc-400 hover:text-white"
@@ -848,7 +980,17 @@ export function App() {
         <ShortsSidebar
           activeCategory={activeCategory}
           searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
+          onSearchChange={(q) => {
+            const wasSearching = searchQuery.trim().length > 0;
+            setSearchQuery(q);
+            if (wasSearching && q.trim().length === 0 && activeCategory !== 'salvos') {
+              reshuffleUnseenFeed(activeCategory);
+              setActiveIndex(0);
+              if (feedRef.current) {
+                feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
+              }
+            }
+          }}
           onSearchSubmit={() => {
             if (searchQuery.trim().length >= 2) {
               setSearchSubmitTick((t) => t + 1);
