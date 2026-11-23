@@ -11,7 +11,7 @@ import {
   fetchShortsOnNativeDevice,
   isNativeCapacitorApp,
 } from './utils/nativeShortsFallback';
-import { buildDiverseFeed } from './shared/curatorCore';
+import { buildDiverseFeed, buildTieredDiverseFeed } from './shared/curatorCore';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -61,8 +61,7 @@ function prioritizeAndShuffleFeed(
 
   return {
     items: [
-      ...buildDiverseFeed(unseenFresh, true),
-      ...buildDiverseFeed(unseenSurfaced, true),
+      ...buildTieredDiverseFeed([unseenFresh, unseenSurfaced], true),
       ...buildDiverseFeed(seenItems, true),
     ],
     resetSurfacedIds: [],
@@ -322,11 +321,14 @@ export function App() {
         }
         const recentSet = new Set(recentOnly);
         items = [
-          ...orderedSource.filter((item) => !recentSet.has(item.id)),
-          ...orderedSource.filter((item) => recentSet.has(item.id)),
+          ...buildDiverseFeed(orderedSource.filter((item) => !recentSet.has(item.id)), true),
+          ...buildDiverseFeed(orderedSource.filter((item) => recentSet.has(item.id)), true),
         ];
       } else {
-        items = [...unseenFresh, ...unseenPrevTop, ...seenItems];
+        items = [
+          ...buildTieredDiverseFeed([unseenFresh, unseenPrevTop], true),
+          ...buildDiverseFeed(seenItems, true),
+        ];
       }
 
       // Record top items from this session so reopening or switching categories immediately rotates them out

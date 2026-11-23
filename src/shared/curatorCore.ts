@@ -1636,78 +1636,63 @@ function buildRoundRobinChannelQueue(
   return stream;
 }
 
-export function buildDiverseFeed(
-  items: ChristianShort[],
+function buildCategoryStream(
+  cat: ContentCategory,
+  catItems: ChristianShort[],
   randomize: boolean
 ): ChristianShort[] {
-  const uniqueItems = deduplicateShorts(items);
-  const categories: ContentCategory[] = [
-    'pregacoes',
-    'biblia',
-    'louvores',
-    'testemunhos',
-    'feliz7play',
+  if (catItems.length === 0) return [];
+  if (cat !== 'louvores') {
+    return buildRoundRobinChannelQueue(catItems, randomize);
+  }
+
+  // Balance Louvores across Novo Hinário, CD Jovem, Adoradores/Adventist, and Gospel Geral
+  // so hymnals and CD Jovem appear prominently instead of being drowned 20-to-1 by gospel labels.
+  const subBuckets: Record<LouvorSubBucket, ChristianShort[]> = {
+    hinario: [],
+    cd_jovem: [],
+    adoradores_nt: [],
+    gospel_geral: [],
+  };
+  for (const item of catItems) {
+    subBuckets[classifyLouvorSubBucket(item)].push(item);
+  }
+  const subQueues: ChristianShort[][] = [
+    buildRoundRobinChannelQueue(subBuckets.hinario, randomize),
+    buildRoundRobinChannelQueue(subBuckets.cd_jovem, randomize),
+    buildRoundRobinChannelQueue(subBuckets.adoradores_nt, randomize),
+    buildRoundRobinChannelQueue(subBuckets.gospel_geral, randomize),
   ];
   if (randomize) {
-    shuffleInPlace(categories);
+    shuffleInPlace(subQueues);
   }
-
-  const categoryStreams: Record<ContentCategory, ChristianShort[]> = {
-    pregacoes: [],
-    biblia: [],
-    louvores: [],
-    testemunhos: [],
-    feliz7play: [],
-  };
-
-  for (const cat of categories) {
-    const catItems = uniqueItems.filter((item) => item.category === cat);
-    if (cat === 'louvores') {
-      // Balance Louvores across Novo Hinário, CD Jovem, Adoradores/Adventist, and Gospel Geral
-      // so hymnals and CD Jovem appear prominently instead of being drowned 20-to-1 by gospel labels.
-      const subBuckets: Record<LouvorSubBucket, ChristianShort[]> = {
-        hinario: [],
-        cd_jovem: [],
-        adoradores_nt: [],
-        gospel_geral: [],
-      };
-      for (const item of catItems) {
-        subBuckets[classifyLouvorSubBucket(item)].push(item);
+  const result: ChristianShort[] = [];
+  let lastChannelId: string | null = null;
+  let more = true;
+  while (more) {
+    more = false;
+    for (const sq of subQueues) {
+      if (sq.length === 0) continue;
+      more = true;
+      const activeBuckets = subQueues.filter((q) => q.length > 0);
+      const pickIdx =
+        activeBuckets.length > 1
+          ? Math.max(0, sq.findIndex((i) => i.channelId !== lastChannelId))
+          : 0;
+      const [picked] = sq.splice(pickIdx, 1);
+      if (picked) {
+        result.push(picked);
+        lastChannelId = picked.channelId;
       }
-      const subQueues: ChristianShort[][] = [
-        buildRoundRobinChannelQueue(subBuckets.hinario, randomize),
-        buildRoundRobinChannelQueue(subBuckets.cd_jovem, randomize),
-        buildRoundRobinChannelQueue(subBuckets.adoradores_nt, randomize),
-        buildRoundRobinChannelQueue(subBuckets.gospel_geral, randomize),
-      ];
-      if (randomize) {
-        shuffleInPlace(subQueues);
-      }
-      let lastChannelId: string | null = null;
-      let more = true;
-      while (more) {
-        more = false;
-        for (const sq of subQueues) {
-          if (sq.length === 0) continue;
-          more = true;
-          const activeBuckets = subQueues.filter((q) => q.length > 0);
-          const pickIdx =
-            activeBuckets.length > 1
-              ? Math.max(0, sq.findIndex((i) => i.channelId !== lastChannelId))
-              : 0;
-          const [picked] = sq.splice(pickIdx, 1);
-          if (picked) {
-            categoryStreams.louvores.push(picked);
-            lastChannelId = picked.channelId;
-          }
-        }
-      }
-      continue;
     }
-
-    categoryStreams[cat] = buildRoundRobinChannelQueue(catItems, randomize);
   }
+  return result;
+}
 
+function interleaveCategoryStreams(
+  categories: ContentCategory[],
+  categoryStreams: Record<ContentCategory, ChristianShort[]>
+): ChristianShort[] {
   const interleaved: ChristianShort[] = [];
   let lastChannelId: string | null = null;
   let remaining = true;
@@ -1731,6 +1716,54 @@ export function buildDiverseFeed(
   }
 
   return interleaved;
+}
+
+export function buildTieredDiverseFeed(
+  tiers: ChristianShort[][],
+  randomize: boolean
+): ChristianShort[] {
+  const categories: ContentCategory[] = [
+    'pregacoes',
+    'biblia',
+    'louvores',
+    'testemunhos',
+    'feliz7play',
+  ];
+  if (randomize) {
+    shuffleInPlace(categories);
+  }
+
+  const categoryStreams: Record<ContentCategory, ChristianShort[]> = {
+    pregacoes: [],
+    biblia: [],
+    louvores: [],
+    testemunhos: [],
+    feliz7play: [],
+  };
+
+  const globalSeenIds = new Set<string>();
+  for (const rawTier of tiers) {
+    const uniqueTier = deduplicateShorts(rawTier).filter((item) => {
+      if (globalSeenIds.has(item.id)) return false;
+      globalSeenIds.add(item.id);
+      return true;
+    });
+    for (const cat of categories) {
+      const tierCatItems = uniqueTier.filter((item) => item.category === cat);
+      if (tierCatItems.length > 0) {
+        categoryStreams[cat].push(...buildCategoryStream(cat, tierCatItems, randomize));
+      }
+    }
+  }
+
+  return interleaveCategoryStreams(categories, categoryStreams);
+}
+
+export function buildDiverseFeed(
+  items: ChristianShort[],
+  randomize: boolean
+): ChristianShort[] {
+  return buildTieredDiverseFeed([items], randomize);
 }
 
 function normalizeSearchFold(text: string): string {

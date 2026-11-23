@@ -7,6 +7,7 @@ import type {
 import {
   ALL_CURATED_CHANNELS,
   buildDiverseFeed,
+  buildTieredDiverseFeed,
   buildShortRecord,
   classifyShort,
   decodeXmlEntities,
@@ -1677,8 +1678,7 @@ export async function getCuratedChristianShorts(options: {
     );
     const seenPool = poolItems.filter((item) => clientExcludeSet.has(item.id));
     poolItems = [
-      ...buildDiverseFeed(freshUnseen, true),
-      ...buildDiverseFeed(olderUnseen, true),
+      ...buildTieredDiverseFeed([freshUnseen, olderUnseen], true),
       ...buildDiverseFeed(seenPool, true),
     ];
   }

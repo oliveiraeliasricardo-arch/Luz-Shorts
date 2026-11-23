@@ -48,9 +48,102 @@
   padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
 }
 
+@keyframes gracaplay-entrance {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gracaplay-badge-breathe {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.14);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 14px 1px rgba(255, 255, 255, 0.22);
+  }
+}
+
+@keyframes gracaplay-ring-pulse {
+  0% {
+    opacity: 0.48;
+    transform: scale(0.96);
+  }
+  70%, 100% {
+    opacity: 0;
+    transform: scale(1.42);
+  }
+}
+
+@keyframes gracaplay-wordmark-shimmer {
+  0%, 100% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes gracaplay-tap-pop {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  35% {
+    transform: scale(1.16) rotate(-8deg);
+  }
+  70% {
+    transform: scale(0.96) rotate(4deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.gracaplay-brand-entrance {
+  animation: gracaplay-entrance 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.gracaplay-play-badge {
+  animation: gracaplay-badge-breathe 3.2s ease-in-out infinite;
+}
+
+.gracaplay-play-ring {
+  animation: gracaplay-ring-pulse 3.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.gracaplay-tap-pop {
+  animation: gracaplay-tap-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gracaplay-wordmark {
+  background-image: linear-gradient(
+    105deg,
+    #ffffff 0%,
+    #ffffff 36%,
+    #a1a1aa 48%,
+    #ffffff 60%,
+    #ffffff 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gracaplay-wordmark-shimmer 4.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+  .gracaplay-wordmark {
+    background-image: none;
+    color: #ffffff;
   }
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
