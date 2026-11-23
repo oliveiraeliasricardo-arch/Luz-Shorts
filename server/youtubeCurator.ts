@@ -14,11 +14,14 @@ import {
   deduplicateShorts,
   fetchCuratedRssWithAdapter,
   formatFilteredResponse,
+  isSearchSuggestionSafe,
   isUpcomingOrPremiereEntry,
   parseIso8601DurationSeconds,
 } from '../src/shared/curatorCore.ts';
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
+const SEARCH_CACHE_TTL_MS = 3 * 60 * 1000;
+const SUGGEST_CACHE_TTL_MS = 5 * 60 * 1000;
 const CURSOR_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_CURSORS = 60;
 
@@ -404,7 +407,7 @@ async function hydrateAndVerifyCandidates(
     try {
       const res = await fetch(
         `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
-        { signal: AbortSignal.timeout(9000) }
+        { signal: AbortSignal.timeout(searchMode ? 6000 : 8500) }
       );
       if (!res.ok) continue;
 
@@ -735,7 +738,7 @@ async function fetchYoutubeWebSearch(
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
         'Accept-Language': 'pt-BR,pt;q=0.9',
       },
-      signal: AbortSignal.timeout(9000),
+      signal: AbortSignal.timeout(searchMode ? 6000 : 8500),
     });
     if (!res.ok) return [];
     const html = await res.text();
@@ -962,7 +965,9 @@ function hasQueryTokenInItem(item: ChristianShort, rawQuery: string): boolean {
   if (tokens.length === 0) return true;
   const meaningful = tokens.filter((t) => t.length >= 3);
   const checkTokens = meaningful.length > 0 ? meaningful : tokens;
-  const haystack = foldSearchText(`${item.title} ${item.channelTitle} ${item.description}`);
+  const haystack = foldSearchText(
+    `${item.title} ${item.channelTitle} ${item.description} ${item.categoryLabel}`
+  );
   return checkTokens.some((tok) => haystack.includes(tok));
 }
 
@@ -972,7 +977,9 @@ function rankSearchResults(
   preferredCategory?: ContentCategory
 ): ChristianShort[] {
   const foldedQuery = foldSearchText(rawQuery.trim());
-  const tokens = foldedQuery.split(/\s+/).filter(Boolean);
+  const rawTokens = foldedQuery.split(/\s+/).filter(Boolean);
+  const meaningfulTokens = rawTokens.filter((t) => t.length >= 2 && !SEARCH_STOPWORDS.has(t));
+  const tokens = meaningfulTokens.length > 0 ? meaningfulTokens : rawTokens;
   if (tokens.length === 0) return items;
 
   const relevantItems = items.filter((item) => hasQueryTokenInItem(item, rawQuery));
@@ -980,12 +987,18 @@ function rankSearchResults(
   const scored = relevantItems.map((item, idx) => {
     const fTitle = foldSearchText(item.title);
     const fChannel = foldSearchText(item.channelTitle);
+    const fCategory = foldSearchText(item.categoryLabel);
     const fDesc = foldSearchText(item.description);
     let score = 0;
 
-    if (fTitle.includes(foldedQuery)) score += 140;
-    if (fChannel.includes(foldedQuery)) score += 95;
-    if (fDesc.includes(foldedQuery)) score += 35;
+    if (fTitle === foldedQuery) score += 320;
+    else if (fTitle.startsWith(foldedQuery)) score += 260;
+    else if (fTitle.includes(foldedQuery)) score += 190;
+
+    if (fChannel === foldedQuery) score += 240;
+    else if (fChannel.includes(foldedQuery)) score += 150;
+
+    if (fDesc.includes(foldedQuery)) score += 45;
 
     let titleTokenHits = 0;
     let totalTokenHits = 0;
@@ -993,22 +1006,28 @@ function rankSearchResults(
       if (fTitle.includes(tok)) {
         titleTokenHits += 1;
         totalTokenHits += 1;
-        score += 32;
+        score += 36;
       } else if (fChannel.includes(tok)) {
         totalTokenHits += 1;
-        score += 24;
+        score += 26;
+      } else if (fCategory.includes(tok)) {
+        totalTokenHits += 1;
+        score += 14;
       } else if (fDesc.includes(tok)) {
         totalTokenHits += 1;
         score += 10;
       }
     }
-    if (titleTokenHits === tokens.length) score += 70;
-    else if (totalTokenHits === tokens.length) score += 35;
+    if (titleTokenHits === tokens.length) score += 140;
+    else if (totalTokenHits === tokens.length) score += 80;
 
-    if (preferredCategory && item.category === preferredCategory) score += 30;
+    if (preferredCategory && item.category === preferredCategory) score += 35;
     if (ALL_CURATED_CHANNELS.some((ch) => ch.id === item.channelId)) score += 25;
-    // Slight preference for direct YouTube hits early in list when scores tie
-    score -= idx * 0.05;
+    if (item.viewCount && item.viewCount > 0) {
+      score += Math.min(28, Math.log10(Math.max(10, item.viewCount)) * 4.2);
+    }
+    // Slight preference for direct YouTube top results when relevance ties
+    score -= idx * 0.04;
     return { item, score };
   });
 
@@ -1089,48 +1108,36 @@ async function fetchLiveYoutubeSearch(
     return { items: rankSearchResults(items, cleanQuery, validCat), nextPageToken: nextWebToken };
   }
 
-  // Page 1 (or API continuation): run API search.list AND complementary zero-quota web searches
-  // in parallel so search results have maximum reach across YouTube within app guidelines.
-  const hasAppContextKeyword =
-    /\b(deus|jesus|cristo|b[ií]bli|evangelho|gospel|louvor|adora[cç][aã]o|hino|hin[aá]rio|adoradores|cd\s*jovem|minist[eé]rio\s+jovem|adventista|iasd|novo\s+tempo|prega[cç][aã]o|serm[aã]o|culto|testemunho|milagre|ora[cç][aã]o|salmo|profecia|apocalipse|feliz7play|feliz7kids|nt\s*kids|harpa|arautos|novo\s+tom|daniel\s+l[uü]dtke|pedro\s+valen[cç]a|rodrigo\s+silva|ivan\s+saraiva|arilton|bull[oó]n|gabriel\s+guedes|anderson\s+freire|aline\s+barros|fernandinho|gabriela\s+rocha|isadora\s+pompeo|morada|fhop|casa\s+worship|diante\s+do\s+trono|davi\s+sacer|kemuel|mk\s+music|todah|musile)\b/i.test(
-      cleanQuery
-    );
-
+  // Page 1 (or API continuation): run API search.list AND direct + contextual YouTube searches
+  // in parallel so every query returns YouTube-quality top hits while enforcing app guidelines.
   const webFanQueries: Array<{ q: string; hint?: ContentCategory; sortByDate: boolean }> = [];
   if (!pageToken) {
     if (validCat === 'louvores') {
-      if (hasAppContextKeyword) {
-        webFanQueries.push({ q: cleanQuery, hint: 'louvores', sortByDate: false });
-      }
+      webFanQueries.push({ q: cleanQuery, hint: 'louvores', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} louvor gospel`, hint: 'louvores', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} louvor adventista`, hint: 'louvores', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} música cristã`, hint: 'louvores', sortByDate: false });
     } else if (validCat === 'testemunhos') {
       webFanQueries.push({ q: `${cleanQuery} testemunho cristão`, hint: 'testemunhos', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} testemunho conversão`, hint: 'testemunhos', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} testemunho`, hint: 'testemunhos', sortByDate: true });
+      webFanQueries.push({ q: cleanQuery, hint: 'testemunhos', sortByDate: false });
     } else if (validCat === 'pregacoes') {
       webFanQueries.push({ q: `${cleanQuery} pregação adventista`, hint: 'pregacoes', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} sermão adventista`, hint: 'pregacoes', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} adventista`, hint: 'pregacoes', sortByDate: false });
+      webFanQueries.push({ q: effectiveQuery, hint: 'pregacoes', sortByDate: false });
     } else if (validCat === 'biblia') {
       webFanQueries.push({ q: `${cleanQuery} estudo bíblico adventista`, hint: 'biblia', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} bíblia adventista`, hint: 'biblia', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} rodrigo silva na mira`, hint: 'biblia', sortByDate: false });
+      webFanQueries.push({ q: effectiveQuery, hint: 'biblia', sortByDate: false });
     } else if (validCat === 'feliz7play') {
       webFanQueries.push({ q: `${cleanQuery} feliz7play`, hint: 'feliz7play', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} animação bíblica adventista`, hint: 'feliz7play', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} nt kids desenho bíblico`, hint: 'feliz7play', sortByDate: false });
+      webFanQueries.push({ q: effectiveQuery, hint: 'feliz7play', sortByDate: false });
     } else {
-      // "Todos": Christian worship + Adventist + Testimonies (+ direct query when query already has app context)
+      // "Todos": always include direct YouTube query + Christian/Adventist/Testimony fan-out
+      webFanQueries.push({ q: cleanQuery, hint: undefined, sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} louvor gospel`, hint: 'louvores', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} adventista`, hint: undefined, sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} testemunho cristão`, hint: 'testemunhos', sortByDate: false });
-      if (hasAppContextKeyword) {
-        webFanQueries.push({ q: cleanQuery, hint: undefined, sortByDate: false });
-      } else {
-        webFanQueries.push({ q: `${cleanQuery} música cristã`, hint: 'louvores', sortByDate: false });
-      }
     }
   }
 
@@ -1152,7 +1159,7 @@ async function fetchLiveYoutubeSearch(
         }
         const res = await fetch(
           `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
-          { signal: AbortSignal.timeout(9000) }
+          { signal: AbortSignal.timeout(5500) }
         );
         if (!res.ok) return null;
         return (await res.json()) as {
@@ -1399,6 +1406,103 @@ async function fetchInitialDiscoveryExtras(
   return discovered;
 }
 
+const searchResponseCache = new Map<
+  string,
+  { expiresAt: number; payload: ShortsApiResponse }
+>();
+const suggestResponseCache = new Map<
+  string,
+  { expiresAt: number; suggestions: string[] }
+>();
+
+const CURATED_SUGGEST_SEEDS = [
+  'Novo Hinário Adventista',
+  'CD Jovem Adventista',
+  'Adoradores Novo Tempo',
+  'Pr. Alejandro Bullón',
+  'Pr. Arilton Oliveira',
+  'Pr. Ivan Saraiva',
+  'Rodrigo Silva Arqueologia',
+  'Na Mira da Verdade',
+  'Feliz7Play',
+  'Defensores da Bíblia',
+  'Arautos do Rei',
+  'Daniel Lüdtke',
+  'Pedro Valença',
+  'Aline Barros',
+  'Fernandinho',
+  'Gabriela Rocha',
+  'Voz da Verdade',
+  'Harpa Cristã',
+  'Salmo 23',
+  'Salmo 91',
+  'Testemunho de conversão',
+  'Estudo bíblico Apocalipse',
+];
+
+export async function getSearchSuggestions(rawQuery: string): Promise<string[]> {
+  const cleanQuery = rawQuery.trim().slice(0, 60);
+  if (!cleanQuery) return [];
+
+  const folded = foldSearchText(cleanQuery);
+  const cached = suggestResponseCache.get(folded);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.suggestions;
+  }
+
+  const localMatches: string[] = [];
+  for (const seed of CURATED_SUGGEST_SEEDS) {
+    if (foldSearchText(seed).includes(folded)) {
+      localMatches.push(seed);
+    }
+  }
+  for (const ch of ALL_CURATED_CHANNELS) {
+    if (foldSearchText(ch.title).includes(folded)) {
+      localMatches.push(ch.title);
+    }
+  }
+
+  let ytSuggestions: string[] = [];
+  try {
+    const res = await fetch(
+      `https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&hl=pt&gl=BR&q=${encodeURIComponent(
+        cleanQuery
+      )}`,
+      { signal: AbortSignal.timeout(2500) }
+    );
+    if (res.ok) {
+      const parsed = (await res.json()) as [string, string[]];
+      if (Array.isArray(parsed?.[1])) {
+        ytSuggestions = parsed[1].filter((s): s is string => typeof s === 'string');
+      }
+    }
+  } catch {
+    // Use local curated suggestions if network suggest times out
+  }
+
+  const seenFolded = new Set<string>();
+  const combined: string[] = [];
+  for (const candidate of [...localMatches, ...ytSuggestions]) {
+    const trimmed = candidate.trim();
+    const key = foldSearchText(trimmed);
+    if (!key || seenFolded.has(key)) continue;
+    if (!isSearchSuggestionSafe(trimmed)) continue;
+    seenFolded.add(key);
+    combined.push(trimmed);
+    if (combined.length >= 8) break;
+  }
+
+  if (suggestResponseCache.size >= 100) {
+    const oldest = suggestResponseCache.keys().next().value;
+    if (oldest) suggestResponseCache.delete(oldest);
+  }
+  suggestResponseCache.set(folded, {
+    expiresAt: Date.now() + SUGGEST_CACHE_TTL_MS,
+    suggestions: combined,
+  });
+  return combined;
+}
+
 export async function getCuratedChristianShorts(options: {
   category?: string;
   q?: string;
@@ -1410,6 +1514,14 @@ export async function getCuratedChristianShorts(options: {
   const nowMs = Date.now();
   const trimmedQuery = (options.q || '').trim();
   const clientExcludeSet = new Set(options.excludeIds ?? []);
+
+  if (trimmedQuery.length >= 2 && !options.forceRefresh) {
+    const searchCacheKey = `${options.category || 'all'}::${foldSearchText(trimmedQuery)}`;
+    const cachedSearch = searchResponseCache.get(searchCacheKey);
+    if (cachedSearch && cachedSearch.expiresAt > nowMs) {
+      return cachedSearch.payload;
+    }
+  }
 
   let poolItems: ChristianShort[] = [];
   let sourceMode: 'youtube_api' | 'curated_rss' = 'curated_rss';
@@ -1731,7 +1843,7 @@ export async function getCuratedChristianShorts(options: {
         ? liveCollected.filter((i) => i.category === validCat).length
         : liveCollected.length;
 
-      if (catHits < 20 && searchToken) {
+      if (catHits < 5 && searchToken) {
         const secondPage = await fetchLiveYoutubeSearch(
           apiKey,
           trimmedQuery,
@@ -1817,7 +1929,7 @@ export async function getCuratedChristianShorts(options: {
     const filtered =
       category === 'all' ? orderedSearch : orderedSearch.filter((i) => i.category === category);
 
-    return {
+    const searchPayload: ShortsApiResponse = {
       items: filtered,
       sourceMode,
       apiKeyConfigured,
@@ -1828,6 +1940,17 @@ export async function getCuratedChristianShorts(options: {
       hasMore: Boolean(searchToken),
       nextCursor: searchToken ? cursor : null,
     };
+
+    const searchCacheKey = `${category}::${foldSearchText(trimmedQuery)}`;
+    if (searchResponseCache.size >= 50) {
+      const oldestKey = searchResponseCache.keys().next().value;
+      if (oldestKey) searchResponseCache.delete(oldestKey);
+    }
+    searchResponseCache.set(searchCacheKey, {
+      expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
+      payload: searchPayload,
+    });
+    return searchPayload;
   }
 
   return formatFilteredResponse(

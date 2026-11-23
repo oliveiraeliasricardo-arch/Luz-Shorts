@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   getCuratedChristianShorts,
   getMoreChristianShorts,
+  getSearchSuggestions,
   lookupSingleShort,
 } from './server/youtubeCurator.ts';
 
@@ -37,6 +38,20 @@ async function startServer() {
       app: 'GraçaPlay',
       mode: apiKeyConfigured ? 'youtube_api' : 'curated_rss',
     });
+  });
+
+  app.get('/api/search/suggest', async (req, res) => {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    if (!q.trim()) {
+      res.json({ suggestions: [] });
+      return;
+    }
+    try {
+      const suggestions = await getSearchSuggestions(q);
+      res.json({ suggestions });
+    } catch {
+      res.json({ suggestions: [] });
+    }
   });
 
   const handleShortsRequest = async (

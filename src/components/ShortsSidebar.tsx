@@ -1,12 +1,16 @@
 import React from 'react';
-import { BookOpen, Bookmark, Clapperboard, HeartHandshake, Mic, Music, Search, Sparkles, X } from 'lucide-react';
-import type { ContentCategory, ShortCategory } from '../types/shorts';
+import { BookOpen, Bookmark, Clapperboard, HeartHandshake, Mic, Music, Sparkles } from 'lucide-react';
+import { SearchBoxWithSuggestions } from './SearchBoxWithSuggestions';
+import type { ChristianShort, ContentCategory, ShortCategory } from '../types/shorts';
 
 interface ShortsSidebarProps {
   activeCategory: ShortCategory;
   searchQuery: string;
   onSearchChange: (q: string) => void;
-  onSearchSubmit?: () => void;
+  onSearchSubmit?: (q: string) => void;
+  onClearSearch?: () => void;
+  catalogShorts?: ChristianShort[];
+  apiBaseUrl?: string;
   isSearching?: boolean;
   onSelectCategory: (category: ShortCategory) => void;
   categoryCounts: Record<ContentCategory, number>;
@@ -71,6 +75,9 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
   searchQuery,
   onSearchChange,
   onSearchSubmit,
+  onClearSearch,
+  catalogShorts = [],
+  apiBaseUrl = '',
   isSearching = false,
   onSelectCategory,
   categoryCounts,
@@ -87,39 +94,16 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
 
   return (
     <aside className="hidden lg:flex flex-col gap-6 w-[280px] shrink-0">
-      {/* Search input */}
-      <div className="relative">
-        <Search
-          className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
-            isSearching ? 'text-white animate-pulse' : 'text-zinc-500'
-          }`}
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && onSearchSubmit) {
-              e.preventDefault();
-              onSearchSubmit();
-            }
-          }}
-          placeholder="Buscar louvor, hino, pregação, bíblia ou testemunho"
-          aria-label="Buscar vídeos cristãos"
-          className="w-full h-11 pl-10 pr-9 text-sm text-zinc-100 placeholder:text-zinc-500 bg-zinc-950 border border-zinc-800/90 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-zinc-600 transition-shadow"
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={() => onSearchChange('')}
-            aria-label="Limpar busca"
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-white cursor-pointer"
-          >
-            <X className="w-4 h-4" aria-hidden="true" />
-          </button>
-        )}
-      </div>
+      {/* Search input with live YouTube-style suggestions */}
+      <SearchBoxWithSuggestions
+        value={searchQuery}
+        onChange={onSearchChange}
+        onSubmit={(q) => onSearchSubmit?.(q)}
+        onClear={onClearSearch}
+        catalogShorts={catalogShorts}
+        apiBaseUrl={apiBaseUrl}
+        isSearching={isSearching}
+      />
 
       {/* Category Filter Buttons */}
       <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-2 space-y-1">

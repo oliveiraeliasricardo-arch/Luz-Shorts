@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Bookmark, RefreshCw, Search, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Bookmark, RefreshCw, Search, X } from 'lucide-react';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { RightQueuePanel } from './components/RightQueuePanel';
+import { SearchBoxWithSuggestions } from './components/SearchBoxWithSuggestions';
+import { SearchResultsView } from './components/SearchResultsView';
 import { ShareModal } from './components/ShareModal';
 import { ShortsFeedStage } from './components/ShortsFeedStage';
 import { ShortsSidebar } from './components/ShortsSidebar';
@@ -155,6 +157,8 @@ export function App() {
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [activeCategory, setActiveCategory] = useState<ShortCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [submittedSearchQuery, setSubmittedSearchQuery] = useState('');
+  const [searchViewMode, setSearchViewMode] = useState<'results' | 'player'>('player');
   const [savedIds, setSavedIds] = useState<string[]>(() =>
     readStoredIdList(SAVED_STORAGE_KEY, LEGACY_SAVED_STORAGE_KEY)
   );
@@ -415,9 +419,9 @@ export function App() {
     loadShorts(false);
   }, [loadShorts]);
 
-  // Debounced live YouTube search whenever user types a query (>= 2 chars) or submits Enter
+  // Live YouTube search whenever user submits a query (>= 2 chars) or changes filter while searching
   useEffect(() => {
-    const trimmed = searchQuery.trim();
+    const trimmed = submittedSearchQuery.trim();
     if (trimmed.length < 2) {
       activeSearchTermRef.current = '';
       remoteSearchQueryRef.current = '';
@@ -450,13 +454,8 @@ export function App() {
 
     let cancelled = false;
     setIsSearching(true);
-    const delayMs = isManualSubmit
-      ? 0
-      : remoteSearchQueryRef.current === trimmed
-        ? 120
-        : 380;
 
-    const timer = window.setTimeout(async () => {
+    (async () => {
       try {
         const params = new URLSearchParams({
           q: trimmed,
@@ -496,13 +495,12 @@ export function App() {
           setIsSearching(false);
         }
       }
-    }, delayMs);
+    })();
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
     };
-  }, [searchQuery, activeCategory, searchSubmitTick]);
+  }, [submittedSearchQuery, activeCategory, searchSubmitTick]);
 
   useEffect(() => {
     if (audioUnlocked) return;
@@ -528,7 +526,7 @@ export function App() {
   const savedSet = useMemo(() => new Set(savedIds), [savedIds]);
 
   const queryFiltered = useMemo(() => {
-    const rawTrimmed = searchQuery.trim();
+    const rawTrimmed = submittedSearchQuery.trim();
     const q = rawTrimmed
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -554,7 +552,7 @@ export function App() {
       );
       return tokens.every((tok) => haystack.includes(tok));
     });
-  }, [allShorts, searchQuery, remoteSearchShorts]);
+  }, [allShorts, submittedSearchQuery, remoteSearchShorts]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<ContentCategory, number> = {
@@ -570,14 +568,19 @@ export function App() {
     return counts;
   }, [queryFiltered]);
 
-  const todosFeedCount = useMemo(
-    () => queryFiltered.filter((item) => item.category !== 'feliz7play').length,
-    [queryFiltered]
-  );
+  const todosFeedCount = useMemo(() => {
+    const trimmed = submittedSearchQuery.trim();
+    const allowFelizInSearch =
+      trimmed.length >= 2 &&
+      /\b(feliz7|defensores|camelo|nt kids)\b/i.test(trimmed);
+    return allowFelizInSearch
+      ? queryFiltered.length
+      : queryFiltered.filter((item) => item.category !== 'feliz7play').length;
+  }, [queryFiltered, submittedSearchQuery]);
 
   const visibleShorts = useMemo(() => {
     if (activeCategory === 'all') {
-      const trimmed = searchQuery.trim();
+      const trimmed = submittedSearchQuery.trim();
       const allowFelizInSearch =
         trimmed.length >= 2 &&
         /\b(feliz7|defensores|camelo|nt kids)\b/i.test(trimmed);
@@ -589,14 +592,14 @@ export function App() {
       return queryFiltered.filter((item) => savedSet.has(item.id));
     }
     return queryFiltered.filter((item) => item.category === activeCategory);
-  }, [queryFiltered, activeCategory, savedSet, searchQuery]);
+  }, [queryFiltered, activeCategory, savedSet, submittedSearchQuery]);
 
   const loadMoreShorts = useCallback(async () => {
     if (isLoadingMoreRef.current || loading || isRefreshing || activeCategory === 'salvos') {
       return;
     }
 
-    const trimmedQuery = searchQuery.trim();
+    const trimmedQuery = submittedSearchQuery.trim();
     const isLiveSearch =
       trimmedQuery.length >= 2 &&
       remoteSearchShorts !== null &&
@@ -725,7 +728,7 @@ export function App() {
     activeCategory,
     activeIndex,
     visibleShorts,
-    searchQuery,
+    submittedSearchQuery,
     remoteSearchShorts,
     searchHasMore,
     searchCursor,
@@ -737,8 +740,8 @@ export function App() {
   // and fetch a fresh YouTube batch once whenever switching into a specific category.
   useEffect(() => {
     if (loading || isRefreshing || activeCategory === 'salvos') return;
-    const trimmed = searchQuery.trim();
-    if (trimmed.length >= 2 && isSearching) return;
+    const trimmed = submittedSearchQuery.trim();
+    if (trimmed.length >= 2) return;
     const seenSet = new Set(seenIdsRef.current);
     const unseenCount = visibleShorts.filter((item) => !seenSet.has(item.id)).length;
     const needsCategoryWarmup =
@@ -778,10 +781,9 @@ export function App() {
     activeIndex,
     visibleShorts,
     activeCategory,
-    searchQuery,
+    submittedSearchQuery,
     loading,
     isRefreshing,
-    isSearching,
     paginationRetryTick,
     loadMoreShorts,
   ]);
@@ -792,7 +794,7 @@ export function App() {
       if (currentId) {
         markShortSeen(currentId);
       }
-      if (cat !== 'salvos') {
+      if (!submittedSearchQuery.trim() && cat !== 'salvos') {
         reshuffleUnseenFeed(cat);
       }
       emptyRetryCountRef.current = 0;
@@ -803,14 +805,14 @@ export function App() {
         feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
       }
     },
-    [activeIndex, visibleShorts, markShortSeen, reshuffleUnseenFeed]
+    [activeIndex, visibleShorts, submittedSearchQuery, markShortSeen, reshuffleUnseenFeed]
   );
 
   // Automatically re-prioritize and shuffle unseen videos when returning via browser history (pageshow)
   // or resuming the app/tab at the start of the feed after being away
   useEffect(() => {
     const handlePageShow = (event: PageTransitionEvent) => {
-      if (event.persisted && !searchQuery.trim() && activeCategory !== 'salvos') {
+      if (event.persisted && !submittedSearchQuery.trim() && activeCategory !== 'salvos') {
         reshuffleUnseenFeed(activeCategory);
         setActiveIndex(0);
         if (feedRef.current) {
@@ -828,7 +830,7 @@ export function App() {
       if (
         hiddenAt !== null &&
         Date.now() - hiddenAt > 90_000 &&
-        !searchQuery.trim() &&
+        !submittedSearchQuery.trim() &&
         activeCategory !== 'salvos' &&
         activeIndex === 0
       ) {
@@ -841,7 +843,7 @@ export function App() {
       window.removeEventListener('pageshow', handlePageShow);
       document.removeEventListener('visibilitychange', handleVisibilityResume);
     };
-  }, [activeCategory, activeIndex, searchQuery, reshuffleUnseenFeed]);
+  }, [activeCategory, activeIndex, submittedSearchQuery, reshuffleUnseenFeed]);
 
   const scrollToIndex = useCallback(
     (targetIdx: number) => {
@@ -959,85 +961,141 @@ export function App() {
     loadMoreShorts,
   ]);
 
+  const handleSubmitSearch = useCallback((rawTerm: string) => {
+    const clean = rawTerm.trim();
+    if (clean.length < 2) return;
+    setSearchQuery(clean);
+    setSubmittedSearchQuery(clean);
+    setSearchViewMode('results');
+    setSearchSubmitTick((t) => t + 1);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    const hadSubmitted = submittedSearchQuery.trim().length > 0;
+    setSearchQuery('');
+    setSubmittedSearchQuery('');
+    setSearchViewMode('player');
+    setMobileSearchOpen(false);
+    if (hadSubmitted && activeCategory !== 'salvos') {
+      reshuffleUnseenFeed(activeCategory);
+    }
+    setActiveIndex(0);
+    if (feedRef.current) {
+      feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, [submittedSearchQuery, activeCategory, reshuffleUnseenFeed]);
+
+  const handleSelectSearchVideo = useCallback(
+    (index: number) => {
+      setAudioUnlocked(true);
+      setSearchViewMode('player');
+      setMobileSearchOpen(false);
+      setActiveIndex(index);
+      window.requestAnimationFrame(() => {
+        const container = feedRef.current;
+        if (container) {
+          container.scrollTo({
+            top: index * container.clientHeight,
+            behavior: 'auto',
+          });
+        }
+      });
+    },
+    []
+  );
+
+  const isSearchActive = submittedSearchQuery.trim().length >= 2;
+  const showingSearchResults = isSearchActive && searchViewMode === 'results';
+
   return (
     <div className="h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-black text-zinc-100 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full">
       <TopBar
         activeCategory={activeCategory}
-        onSelectCategory={handleSelectCategory}
+        onSelectCategory={(cat) => {
+          if (isSearchActive && searchViewMode === 'player') {
+            setSearchViewMode('player');
+          }
+          handleSelectCategory(cat);
+        }}
       />
 
-      {/* Mobile compact single-line category bar (stays well below 15% sticky height cap) */}
-      <div className="lg:hidden shrink-0 z-20 bg-black/95 backdrop-blur-md border-b border-zinc-900 px-3 h-11 flex items-center gap-2 safe-px">
+      {/* Mobile compact single-line category / search bar (stays well below 15% sticky height cap) */}
+      <div className="lg:hidden shrink-0 z-30 bg-black/95 backdrop-blur-md border-b border-zinc-900 px-3 h-11 flex items-center gap-2 safe-px">
         {mobileSearchOpen ? (
-          <div className="flex items-center gap-2 w-full">
-            <Search
-              className={`w-4 h-4 shrink-0 transition-colors ${
-                isSearching ? 'text-white animate-pulse' : 'text-zinc-500'
-              }`}
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              autoFocus
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && searchQuery.trim().length >= 2) {
-                  e.preventDefault();
-                  setSearchSubmitTick((t) => t + 1);
-                }
-              }}
-              placeholder="Buscar pregação, bíblia, louvor..."
-              className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-zinc-100 placeholder:text-zinc-500"
-            />
+          <div className="flex items-center gap-1.5 w-full">
             <button
               type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setMobileSearchOpen(false);
-                if (activeCategory !== 'salvos') {
-                  reshuffleUnseenFeed(activeCategory);
-                  setActiveIndex(0);
-                  if (feedRef.current) {
-                    feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
-                  }
-                }
-              }}
-              aria-label="Fechar busca"
-              className="w-8 h-8 flex items-center justify-center text-zinc-400 hover:text-white"
+              onClick={() => setMobileSearchOpen(false)}
+              aria-label="Voltar às categorias"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white shrink-0"
             >
-              <X className="w-4 h-4" aria-hidden="true" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
             </button>
+            <div className="flex-1 min-w-0">
+              <SearchBoxWithSuggestions
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onSubmit={handleSubmitSearch}
+                onClear={handleClearSearch}
+                catalogShorts={allShorts}
+                apiBaseUrl={API_BASE_URL}
+                isSearching={isSearching}
+                autoFocus
+                compact
+                placeholder="Pesquisar no YouTube..."
+              />
+            </div>
           </div>
         ) : (
           <>
             <button
               type="button"
               onClick={() => setMobileSearchOpen(true)}
-              aria-label="Buscar vídeos"
+              aria-label="Pesquisar vídeos"
               className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:bg-zinc-900 shrink-0"
             >
               <Search className="w-4 h-4" aria-hidden="true" />
             </button>
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 flex-1 min-w-0">
-              {MOBILE_FILTERS.map((cat) => {
-                const isActive = activeCategory === cat.id;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => handleSelectCategory(cat.id)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap shrink-0 transition-colors ${
-                      isActive
-                        ? 'bg-white text-black'
-                        : 'bg-zinc-950 border border-zinc-800/80 text-zinc-300'
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                );
-              })}
-            </div>
+            {isSearchActive && searchViewMode === 'player' ? (
+              <div className="flex items-center justify-between gap-2 flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setSearchViewMode('results')}
+                  className="flex items-center gap-1.5 min-w-0 text-xs font-semibold text-white bg-zinc-900 border border-zinc-800 px-2.5 py-1.5 rounded-lg"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">Resultados: “{submittedSearchQuery}”</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  aria-label="Fechar pesquisa"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white shrink-0"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 flex-1 min-w-0">
+                {MOBILE_FILTERS.map((cat) => {
+                  const isActive = activeCategory === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => handleSelectCategory(cat.id)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap shrink-0 transition-colors ${
+                        isActive
+                          ? 'bg-white text-black'
+                          : 'bg-zinc-950 border border-zinc-800/80 text-zinc-300'
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -1047,22 +1105,11 @@ export function App() {
         <ShortsSidebar
           activeCategory={activeCategory}
           searchQuery={searchQuery}
-          onSearchChange={(q) => {
-            const wasSearching = searchQuery.trim().length > 0;
-            setSearchQuery(q);
-            if (wasSearching && q.trim().length === 0 && activeCategory !== 'salvos') {
-              reshuffleUnseenFeed(activeCategory);
-              setActiveIndex(0);
-              if (feedRef.current) {
-                feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
-              }
-            }
-          }}
-          onSearchSubmit={() => {
-            if (searchQuery.trim().length >= 2) {
-              setSearchSubmitTick((t) => t + 1);
-            }
-          }}
+          onSearchChange={setSearchQuery}
+          onSearchSubmit={handleSubmitSearch}
+          onClearSearch={handleClearSearch}
+          catalogShorts={allShorts}
+          apiBaseUrl={API_BASE_URL}
           isSearching={isSearching}
           onSelectCategory={handleSelectCategory}
           categoryCounts={categoryCounts}
@@ -1072,89 +1119,131 @@ export function App() {
           apiKeyConfigured={apiKeyConfigured}
         />
 
-        {/* Center Vertical Shorts Stage */}
-        <section
-          aria-label="Reprodutor vertical de vídeos cristãos"
-          className="w-full h-full min-h-0 lg:h-auto lg:w-auto flex-1 flex items-center justify-center"
-        >
-          <div className="w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-8.75rem)] lg:max-h-[760px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative">
-            {loading ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
-                <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
-                <p className="text-sm font-medium">
-                  Carregando vídeos cristãos selecionados...
-                </p>
-              </div>
-            ) : error && visibleShorts.length === 0 ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-white px-8 text-center">
-                <AlertCircle className="w-8 h-8 text-amber-400" aria-hidden="true" />
-                <p className="text-sm text-zinc-300">{error}</p>
-                <button
-                  type="button"
-                  onClick={() => loadShorts(true)}
-                  className="px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
-                >
-                  Tentar novamente
-                </button>
-              </div>
-            ) : visibleShorts.length === 0 && isSearching ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
-                <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
-                <p className="text-sm font-medium">
-                  Buscando vídeos no YouTube...
-                </p>
-              </div>
-            ) : visibleShorts.length === 0 ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white px-8 text-center">
-                <Bookmark className="w-8 h-8 text-zinc-500" aria-hidden="true" />
-                <p className="text-sm font-medium text-zinc-300">
-                  {activeCategory === 'salvos'
-                    ? 'Você ainda não salvou nenhum vídeo.'
-                    : 'Nenhum vídeo encontrado para este filtro.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    handleSelectCategory('all');
-                  }}
-                  className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
-                >
-                  Ver todos os vídeos
-                </button>
-              </div>
-            ) : (
-              <ShortsFeedStage
-                items={visibleShorts}
-                activeIndex={activeIndex}
-                audioUnlocked={audioUnlocked}
-                autoAdvance={autoAdvance}
-                isRefreshing={isRefreshing}
-                savedSet={savedSet}
-                feedRef={feedRef}
-                onActiveIndexChange={setActiveIndex}
-                onAudioUnlocked={handleUnlockAudio}
-                onToggleSave={handleToggleSave}
-                onShare={setShareTarget}
-                onRefresh={handleRefreshFeed}
-                onEnded={handleVideoEnded}
-              />
-            )}
-          </div>
-        </section>
+        {showingSearchResults ? (
+          <SearchResultsView
+            query={submittedSearchQuery}
+            items={visibleShorts}
+            activeCategory={activeCategory}
+            categoryCounts={categoryCounts}
+            todosCount={todosFeedCount}
+            isSearching={isSearching}
+            isLoadingMore={isLoadingMore}
+            hasMore={searchHasMore}
+            onSelectCategory={handleSelectCategory}
+            onSelectVideo={handleSelectSearchVideo}
+            onLoadMore={loadMoreShorts}
+            onExitSearch={handleClearSearch}
+          />
+        ) : (
+          <>
+            {/* Center Vertical Shorts Stage */}
+            <section
+              aria-label="Reprodutor vertical de vídeos cristãos"
+              className="w-full h-full min-h-0 lg:h-auto lg:w-auto flex-1 flex flex-col items-center justify-center gap-2.5"
+            >
+              {isSearchActive && (
+                <div className="hidden lg:flex w-full max-w-[438px] items-center justify-between gap-2 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setSearchViewMode('results')}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-200 hover:text-white bg-zinc-950 border border-zinc-800 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span className="truncate max-w-[260px]">
+                      Resultados para “{submittedSearchQuery}”
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-white px-2 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Limpar busca</span>
+                  </button>
+                </div>
+              )}
 
-        <RightQueuePanel
-          items={visibleShorts}
-          activeIndex={activeIndex}
-          autoAdvance={autoAdvance}
-          isRefreshing={isRefreshing}
-          onToggleAutoAdvance={() => setAutoAdvance((prev) => !prev)}
-          onPrev={() => scrollToIndex(activeIndex - 1)}
-          onNext={() => scrollToIndex(activeIndex + 1)}
-          onSelectIndex={scrollToIndex}
-          onShare={setShareTarget}
-          onRefresh={handleRefreshFeed}
-        />
+              <div className="w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-8.75rem)] lg:max-h-[760px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative">
+                {loading ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
+                    <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
+                    <p className="text-sm font-medium">
+                      Carregando vídeos cristãos selecionados...
+                    </p>
+                  </div>
+                ) : error && visibleShorts.length === 0 ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-white px-8 text-center">
+                    <AlertCircle className="w-8 h-8 text-amber-400" aria-hidden="true" />
+                    <p className="text-sm text-zinc-300">{error}</p>
+                    <button
+                      type="button"
+                      onClick={() => loadShorts(true)}
+                      className="px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
+                    >
+                      Tentar novamente
+                    </button>
+                  </div>
+                ) : visibleShorts.length === 0 && isSearching ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
+                    <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
+                    <p className="text-sm font-medium">
+                      Buscando vídeos no YouTube...
+                    </p>
+                  </div>
+                ) : visibleShorts.length === 0 ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white px-8 text-center">
+                    <Bookmark className="w-8 h-8 text-zinc-500" aria-hidden="true" />
+                    <p className="text-sm font-medium text-zinc-300">
+                      {activeCategory === 'salvos'
+                        ? 'Você ainda não salvou nenhum vídeo.'
+                        : 'Nenhum vídeo encontrado para este filtro.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleClearSearch();
+                        handleSelectCategory('all');
+                      }}
+                      className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
+                    >
+                      Ver todos os vídeos
+                    </button>
+                  </div>
+                ) : (
+                  <ShortsFeedStage
+                    items={visibleShorts}
+                    activeIndex={activeIndex}
+                    audioUnlocked={audioUnlocked}
+                    autoAdvance={autoAdvance}
+                    isRefreshing={isRefreshing}
+                    savedSet={savedSet}
+                    feedRef={feedRef}
+                    onActiveIndexChange={setActiveIndex}
+                    onAudioUnlocked={handleUnlockAudio}
+                    onToggleSave={handleToggleSave}
+                    onShare={setShareTarget}
+                    onRefresh={handleRefreshFeed}
+                    onEnded={handleVideoEnded}
+                  />
+                )}
+              </div>
+            </section>
+
+            <RightQueuePanel
+              items={visibleShorts}
+              activeIndex={activeIndex}
+              autoAdvance={autoAdvance}
+              isRefreshing={isRefreshing}
+              onToggleAutoAdvance={() => setAutoAdvance((prev) => !prev)}
+              onPrev={() => scrollToIndex(activeIndex - 1)}
+              onNext={() => scrollToIndex(activeIndex + 1)}
+              onSelectIndex={scrollToIndex}
+              onShare={setShareTarget}
+              onRefresh={handleRefreshFeed}
+            />
+          </>
+        )}
       </main>
 
       <ShareModal

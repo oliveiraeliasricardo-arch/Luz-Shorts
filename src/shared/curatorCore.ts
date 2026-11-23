@@ -1164,6 +1164,24 @@ export function classifyShort(
   };
 }
 
+export function isSearchSuggestionSafe(rawText: string): boolean {
+  const text = rawText.trim();
+  if (text.length < 2 || text.length > 80) return false;
+  if (containsBlockedTerms(text, BLOCKED_GENERAL_TERMS)) return false;
+  if (containsBlockedTerms(text, BLOCKED_DOCTRINAL_CONFLICT_TERMS)) return false;
+  if (SECULAR_OFF_CONTEXT_TITLE_RE.test(text)) return false;
+  if (AI_GENERATED_PATTERNS.some((re) => re.test(text))) return false;
+  if (NON_PORTUGUESE_PATTERNS.some((re) => re.test(text))) return false;
+  if (
+    /\b(karaok[eê]|playback|cifra|como tocar|pula-?pula|pol[eê]mic|fofoca|par[oó]dia|funk|sertanejo|tigrinho|betano|bullying|hino nacional|hino do brasil)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function parseIso8601DurationSeconds(iso: string | undefined): number | null {
   if (!iso) return null;
   if (iso === 'P0D') return 0;
