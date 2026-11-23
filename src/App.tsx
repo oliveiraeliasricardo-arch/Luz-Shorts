@@ -641,7 +641,6 @@ export function App() {
     <div className="h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-black text-zinc-100 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full">
       <TopBar
         activeCategory={activeCategory}
-        savedCount={savedIds.length}
         onSelectCategory={handleSelectCategory}
       />
 

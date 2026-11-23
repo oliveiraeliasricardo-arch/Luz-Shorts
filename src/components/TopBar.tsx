@@ -1,10 +1,8 @@
 import React from 'react';
-import { Bookmark } from 'lucide-react';
 import type { ShortCategory } from '../types/shorts';
 
 interface TopBarProps {
   activeCategory: ShortCategory;
-  savedCount: number;
   onSelectCategory: (category: ShortCategory) => void;
 }
 
@@ -18,11 +16,8 @@ const NAV_ITEMS: Array<{ id: ShortCategory; label: string }> = [
 
 export const TopBar: React.FC<TopBarProps> = ({
   activeCategory,
-  savedCount,
   onSelectCategory,
 }) => {
-  const isSavedActive = activeCategory === 'salvos';
-
   return (
     <header className="shrink-0 sticky top-0 z-30 bg-black/95 backdrop-blur-md border-b border-zinc-900 safe-pt safe-px">
       <div className="max-w-[1360px] mx-auto px-3 sm:px-6 h-[52px] lg:h-16 flex items-center justify-between gap-3 lg:gap-8">
@@ -72,26 +67,8 @@ export const TopBar: React.FC<TopBarProps> = ({
             );
           })}
         </nav>
-
-        {/* Zone 3: Single Primary Action (Salvos) */}
-        <div className="flex items-center shrink-0">
-          <button
-            type="button"
-            onClick={() => onSelectCategory(isSavedActive ? 'all' : 'salvos')}
-            className={`inline-flex items-center gap-2 px-4 py-2 min-h-[40px] text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
-              isSavedActive
-                ? 'bg-white text-black border-white'
-                : 'bg-zinc-950 hover:bg-zinc-900 text-zinc-100 border-zinc-800'
-            }`}
-          >
-            <Bookmark
-              className={`w-3.5 h-3.5 shrink-0 ${isSavedActive ? 'fill-current' : ''}`}
-              aria-hidden="true"
-            />
-            <span>Salvos{savedCount > 0 ? ` (${savedCount})` : ''}</span>
-          </button>
-        </div>
       </div>
     </header>
   );
 };
+
