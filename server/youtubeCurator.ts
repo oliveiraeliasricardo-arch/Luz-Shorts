@@ -71,6 +71,10 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'coletânea adoradores novo tempo',
     'adoradores 5 gravadora novo tempo',
     'adoradores 4 gravadora novo tempo',
+    'cd jovem adventista ministério jovem',
+    'cd jovem menos um adventista',
+    'cd jovem 2025 venha o teu reino ministério jovem',
+    'cd jovem coletânea adventista anos 2000',
     'adoradores 3 gravadora novo tempo',
     'adoradores 2 gravadora novo tempo',
     'adoradores 1 gravadora novo tempo',
@@ -128,6 +132,18 @@ const SPECIAL_LOUVORES_PLAYLISTS: string[] = [
   'PLnjYWXTXSkDr-jo4daf3ZOkzccvMxsrb1', // Adoradores 5 Congregacional
   'PLnjYWXTXSkDrri7WFuBCYB5Ljo9uhbOUG', // Adoradores 4 Ao Vivo
   'PLnjYWXTXSkDqUHHAprAtUaoj-u_cOO_iq', // Adoradores 4 Congregacional
+  'PL4sNlZt4GK2gdDHuCLJo7zbBrAgrejKgZ', // CD Jovem 2025 - Venha o Teu Reino
+  'PL4sNlZt4GK2ieNVMyoEWFpJ1zftJXLcj-', // CD Jovem 2008 - Vivo Por Jesus
+  'PL4sNlZt4GK2jISkKyc2RdLSWqzMLkqk3C', // CD Jovem 2002 - Você Me Pertence
+  'PL4sNlZt4GK2icCEOA5pAtNztbdP6ro_-6', // CD Jovem 2001 - Quase no Lar
+  'PL4sNlZt4GK2jyMHUzZ3RJ2tf9suE3DKuZ', // CD Jovem 1999 - Rumo ao Porto Seguro
+  'PL4sNlZt4GK2iD-NaMcmKFOkuCfsXUF1t2', // CD Jovem 1998 - Missão
+  'PL4sNlZt4GK2i4JnzCuLEODNUYDnq3bXBA', // CD Jovem 1996 - A Diferença é Cristo
+  'PL4sNlZt4GK2il6ONQag8PeZgwjbpNoKeI', // Ministério Jovem - Adoração & Louvor
+  'PL4sNlZt4GK2jgaK_KX3BUMZaAzYhkuv7V', // Ministério Jovem - Creio
+  'PLdKdSz4_lV0pHU80h21bq3uNR07-KaROd', // CD Jovem / CD JA (Menos Um)
+  'PLdKdSz4_lV0rcBygal6Pb4CYL2YQDpNGK', // Ministério Jovem Novo (Menos Um)
+  'PLdKdSz4_lV0psVHoo6-hquHfyTKu7O-Gl', // Coletânea Jovem 2018 (Menos Um)
 ];
 
 interface CandidateVideo {
@@ -426,7 +442,7 @@ function isWithinCategoryDuration(
   if (durationSeconds == null) return true;
   if (category === 'louvores') {
     const isHinario = /\b(n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|hino\s*\d+)\b/i.test(title);
-    const isColetanea = /\b(adoradores|colet[aâ]nea|n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|1\s*hora\s+de)\b/i.test(
+    const isColetanea = /\b(adoradores|colet[aâ]nea|n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|cd\s*jovem|minist[eé]rio jovem|1\s*hora\s+de)\b/i.test(
       title
     );
     const minSec = isHinario ? 35 : 75;
@@ -480,13 +496,13 @@ async function fetchFromYoutubeApi(
     return { hintCategory: spec.defaultCategory, playlistId, pageToken };
   });
 
-  // Always mix in rotating playlists from Novo Hinário Adventista (1-600) & Adoradores collections
+  // Always mix in rotating playlists from Novo Hinário Adventista (1-600), Adoradores & CD Jovem albums
   const shuffledSpecial = [...SPECIAL_LOUVORES_PLAYLISTS];
   for (let i = shuffledSpecial.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffledSpecial[i], shuffledSpecial[j]] = [shuffledSpecial[j], shuffledSpecial[i]];
   }
-  for (const playlistId of shuffledSpecial.slice(0, 4)) {
+  for (const playlistId of shuffledSpecial.slice(0, 6)) {
     const pageToken = advancePlaylists ? persistentPlaylistTokens[playlistId] ?? null : null;
     requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken });
   }

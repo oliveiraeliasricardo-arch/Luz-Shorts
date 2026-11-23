@@ -168,6 +168,20 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     defaultCategory: 'louvores',
     allowInCategories: ['louvores'],
   },
+  {
+    id: 'UCIvT_5iKmxPksHRqv4g_GZQ',
+    title: 'Ministério Jovem',
+    doctrineScope: 'adventista',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores'],
+  },
+  {
+    id: 'UCFTFFVStluyIusWi71Yc0sA',
+    title: 'MENOS UM',
+    doctrineScope: 'adventista',
+    defaultCategory: 'louvores',
+    allowInCategories: ['louvores'],
+  },
 ];
 
 export const CHRISTIAN_GENERAL_CHANNELS: CuratedChannelSpec[] = [
@@ -396,6 +410,9 @@ const ADVENTIST_IDENTITY_PATTERNS = [
   /\barautos do rei\b/i,
   /\badoradores(\s*(novo tempo|[1-5]))?\b/i,
   /\bnovo hin[aá]rio\b/i,
+  /\bcd\s*jovem\b/i,
+  /\bminist[eé]rio jovem\b/i,
+  /\bmenos um\b/i,
   /\bcasa publicadora brasileira\b/i,
   /\bgravadora nt\b/i,
   /\berton k[oö]hler\b/i,
@@ -433,6 +450,8 @@ const CHRISTIAN_RELEVANCE_PATTERNS = [
   /\bserm[aã]o\b/i,
   /\bs[aá]bado\b/i,
   /\bprofecia\b/i,
+  /\bcd\s*jovem\b/i,
+  /\bminist[eé]rio jovem\b/i,
 ];
 
 const NON_PORTUGUESE_PATTERNS = [
@@ -446,7 +465,7 @@ const NON_PORTUGUESE_PATTERNS = [
 
 const AI_GENERATED_PATTERNS = [
   /\b(gerad[oa]|criad[oa]|feit[oa]|produzid[oa]|cantad[oa]|narrad[oa]|compost[oa]|anima[cç][aã]o|m[uú]sica|can[cç][aã]o|v[ií]deo|clipe|voz|arte)\s+(por|com|via|em|de)\s+(ia|intelig[eê]ncia artificial)\b/i,
-  /\b(ia\s+gospel|gospel\s+(com\s+|de\s+|em\s+)?ia|louvor\s+(com\s+|de\s+|em\s+)?ia)\b/i,
+  /\b(ia\s+gospel|gospel\s+(com\s+|de\s+|em\s+)?ia|louvor\s+(adventista\s+)?(com\s+|de\s+|em\s+)?ia|adventista\s+ia)\b/i,
   /\b(made with ai|ai[- ]generated|ai[- ]music|ai[- ]cover|ai[- ]animation|ai[- ]video|ai[- ]voice|synthetic content)\b/i,
   /\b(suno\.?ai|suno|udio|elevenlabs|midjourney|runwayml|heygen|kling ai|sora ai|hailuo|leonardo\.ai)\b/i,
   /#(ia|aiart|aivideo|aimusic|aicover|suno|sunoai|udio|runway|sora|kling|veo|midjourney|elevenlabs|heygen)\b/i,
@@ -621,7 +640,11 @@ const WORSHIP_SONG_POSITIVE_PATTERNS = [
   /\bhin[aá]rio adventista\b/i,
   /\bhino\s*\d+\b/i,
   /\badoradores(\s*[1-5]|\s+novo tempo)?\b/i,
-  /\bcolet[aâ]nea\b.*\b(adoradores|hin[aá]rio|adventista|louvor|adora[cç][aã]o)\b/i,
+  /\bcd\s*jovem\b/i,
+  /\bminist[eé]rio jovem\b/i,
+  /\bmenos um\b/i,
+  /\bremaster\b|\([aá]udio\)|-\s*[aá]udio\b/i,
+  /\bcolet[aâ]nea\b.*\b(adoradores|hin[aá]rio|adventista|louvor|adora[cç][aã]o|jovem)\b/i,
   /\b1\s*hora\s+de\s+adoradores\b/i,
   /\bele vem\b/i,
 ];
@@ -1193,7 +1216,7 @@ function normalizeTitleKey(title: string): string {
 }
 
 const SONG_ARTIST_OR_TAG_RE =
-  /\b(arautos do rei|art\s*trio|novo tom|novo tempo|adoradores\s*[1-5]?|live sessions?|dvd|hinos\s*\d*|clipe oficial|video oficial|acustico|ao vivo|gravadora nt|aline barros|isadora pompeo|gabriela rocha|fernandinho|sarah farias|pedro valenca|eli soares|theo rubia|fhop music|morada|mergulhar|dunamis|daniel ludtke|midian lima|sued silva|valesca mayssa|maria marcal|julliany souza|diante do trono|eyshila|ana paula valadao|carol tauber|casa worship|preto no branco|kemuel|paulo cesar baruk|laura souguellis|voz com letra|com letra|video letra|ministerio|coral|feat|ft)\b/i;
+  /\b(arautos do rei|art\s*trio|novo tom|novo tempo|adoradores\s*[1-5]?|cd jovem|ministerio jovem|menos um|remaster|audio|live sessions?|dvd|hinos\s*\d*|clipe oficial|video oficial|acustico|ao vivo|gravadora nt|aline barros|isadora pompeo|gabriela rocha|fernandinho|sarah farias|pedro valenca|eli soares|theo rubia|fhop music|morada|mergulhar|dunamis|daniel ludtke|midian lima|sued silva|valesca mayssa|maria marcal|julliany souza|diante do trono|eyshila|ana paula valadao|carol tauber|casa worship|preto no branco|kemuel|paulo cesar baruk|laura souguellis|voz com letra|com letra|video letra|ministerio|coral|feat|ft)\b/i;
 
 function normalizeSongKey(title: string): string {
   let cleaned = title
