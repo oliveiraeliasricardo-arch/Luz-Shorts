@@ -5,6 +5,8 @@ import {
   Pause,
   Play,
   RefreshCw,
+  RotateCcw,
+  RotateCw,
   Share2,
 } from 'lucide-react';
 import type { ChristianShort } from '../types/shorts';
@@ -33,6 +35,18 @@ function formatViews(views: number | null): string | null {
   return `${views} visualizações`;
 }
 
+function formatPlaybackTime(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0:00';
+  const whole = Math.floor(totalSeconds);
+  const hours = Math.floor(whole / 3600);
+  const mins = Math.floor((whole % 3600) / 60);
+  const secs = whole % 60;
+  if (hours > 0) {
+    return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
 export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   items,
   activeIndex,
@@ -50,6 +64,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
 }) => {
   const playerHostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YTPlayer | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
   const currentVideoIdRef = useRef<string | null>(null);
   const autoplayCheckTimerRef = useRef<number | null>(null);
   const wheelLockUntilRef = useRef<number>(0);
@@ -57,23 +72,35 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   const touchConsumedRef = useRef<boolean>(false);
   const touchDraggedRef = useRef<boolean>(false);
   const pullDistanceRef = useRef<number>(0);
+  const isScrubbingRef = useRef<boolean>(false);
+  const seekGraceRef = useRef<{ target: number; until: number } | null>(null);
 
   const [playerReady, setPlayerReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isVideoVisible, setIsVideoVisible] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const [hasError, setHasError] = useState(false);
   const [feedbackState, setFeedbackState] = useState<'play' | 'pause' | null>(null);
 
   const activeShort = items[activeIndex] ?? items[0] ?? null;
   const activeVideoId = activeShort?.id ?? null;
+  const fallbackDuration =
+    activeShort?.durationSeconds && activeShort.durationSeconds > 0
+      ? activeShort.durationSeconds
+      : 0;
+  const effectiveDuration = duration > 0 ? duration : fallbackDuration;
 
   const activeVideoIdRef = useRef<string | null>(activeVideoId);
   const activeIndexRef = useRef(activeIndex);
   const audioUnlockedRef = useRef(audioUnlocked);
   const autoAdvanceRef = useRef(autoAdvance);
   const isRefreshingRef = useRef(isRefreshing);
+  const effectiveDurationRef = useRef(effectiveDuration);
+  const currentTimeRef = useRef(currentTime);
+  const hasErrorRef = useRef(hasError);
   const onEndedRef = useRef(onEnded);
   const onRefreshRef = useRef(onRefresh);
   const onAudioUnlockedRef = useRef(onAudioUnlocked);
@@ -84,15 +111,26 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   audioUnlockedRef.current = audioUnlocked;
   autoAdvanceRef.current = autoAdvance;
   isRefreshingRef.current = isRefreshing;
+  effectiveDurationRef.current = effectiveDuration;
+  currentTimeRef.current = currentTime;
+  hasErrorRef.current = hasError;
   onEndedRef.current = onEnded;
   onRefreshRef.current = onRefresh;
   onAudioUnlockedRef.current = onAudioUnlocked;
   onActiveIndexChangeRef.current = onActiveIndexChange;
 
+  const resetPlaybackClock = useCallback((nextFallbackDuration = 0) => {
+    isScrubbingRef.current = false;
+    seekGraceRef.current = null;
+    setScrubSeconds(null);
+    setCurrentTime(0);
+    setDuration(nextFallbackDuration > 0 ? nextFallbackDuration : 0);
+  }, []);
+
   const silenceCurrentVideoImmediately = useCallback(() => {
     setIsVideoVisible(false);
     setIsPlaying(false);
-    setProgress(0);
+    resetPlaybackClock(0);
     if (autoplayCheckTimerRef.current) {
       window.clearTimeout(autoplayCheckTimerRef.current);
       autoplayCheckTimerRef.current = null;
@@ -105,7 +143,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     } catch {
       // Ignore if player is still initializing
     }
-  }, []);
+  }, [resetPlaybackClock]);
 
   const jumpToSlide = useCallback(
     (nextIndex: number) => {
@@ -137,7 +175,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       currentVideoIdRef.current = videoId;
       setHasError(false);
       setIsVideoVisible(false);
-      setProgress(0);
+      resetPlaybackClock(effectiveDurationRef.current);
 
       if (autoplayCheckTimerRef.current) {
         window.clearTimeout(autoplayCheckTimerRef.current);
@@ -176,8 +214,17 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
         // Ignore transient play errors
       }
     },
-    []
+    [resetPlaybackClock]
   );
+
+  // Sync baseline duration whenever active slide changes
+  useEffect(() => {
+    setDuration(fallbackDuration);
+    setCurrentTime(0);
+    setScrubSeconds(null);
+    isScrubbingRef.current = false;
+    seekGraceRef.current = null;
+  }, [activeVideoId, fallbackDuration]);
 
   // Boot ONE single persistent YouTube IFrame Player once
   useEffect(() => {
@@ -234,6 +281,31 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
             },
             onStateChange: (event) => {
               if (cancelled) return;
+              try {
+                const liveDuration = event.target.getDuration();
+                if (Number.isFinite(liveDuration) && liveDuration > 0) {
+                  setDuration(liveDuration);
+                }
+                const liveCurrent = event.target.getCurrentTime();
+                if (
+                  !isScrubbingRef.current &&
+                  Number.isFinite(liveCurrent) &&
+                  liveCurrent >= 0
+                ) {
+                  const grace = seekGraceRef.current;
+                  if (
+                    !grace ||
+                    Date.now() > grace.until ||
+                    Math.abs(liveCurrent - grace.target) <= 1.5
+                  ) {
+                    seekGraceRef.current = null;
+                    setCurrentTime(liveCurrent);
+                  }
+                }
+              } catch {
+                // Ignore transient metadata reads
+              }
+
               if (event.data === YT.PlayerState.BUFFERING) {
                 setIsVideoVisible(true);
               } else if (event.data === YT.PlayerState.PLAYING) {
@@ -253,10 +325,14 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
               ) {
                 setIsPlaying(false);
               } else if (event.data === YT.PlayerState.ENDED) {
-                setProgress(1);
+                if (effectiveDurationRef.current > 0) {
+                  setCurrentTime(effectiveDurationRef.current);
+                }
                 if (autoAdvanceRef.current) {
                   onEndedRef.current();
                 } else {
+                  seekGraceRef.current = { target: 0, until: Date.now() + 500 };
+                  setCurrentTime(0);
                   event.target.seekTo(0, true);
                   event.target.playVideo();
                 }
@@ -299,6 +375,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       setPlayerReady(false);
       setIsPlaying(false);
       setIsVideoVisible(false);
+      resetPlaybackClock(0);
     };
     // Mount single persistent player once and reuse via loadVideoById
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -441,17 +518,32 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     }
   }, [audioUnlocked, playerReady]);
 
-  // Fast 100ms progress bar polling
+  // Fast 100ms progress & elapsed-time polling while playing
   useEffect(() => {
     if (!playerReady || !isPlaying) return;
     const interval = window.setInterval(() => {
+      if (isScrubbingRef.current) return;
       const player = playerRef.current;
       if (!player) return;
       try {
-        const duration = player.getDuration();
-        const current = player.getCurrentTime();
-        if (duration > 0) {
-          setProgress(Math.min(1, Math.max(0, current / duration)));
+        const liveDuration = player.getDuration();
+        const liveCurrent = player.getCurrentTime();
+        if (Number.isFinite(liveDuration) && liveDuration > 0) {
+          setDuration(liveDuration);
+        }
+        if (Number.isFinite(liveCurrent) && liveCurrent >= 0) {
+          const grace = seekGraceRef.current;
+          if (grace) {
+            if (
+              Date.now() > grace.until ||
+              Math.abs(liveCurrent - grace.target) <= 1.5
+            ) {
+              seekGraceRef.current = null;
+              setCurrentTime(liveCurrent);
+            }
+          } else {
+            setCurrentTime(liveCurrent);
+          }
         }
       } catch {
         // Ignore
@@ -459,6 +551,131 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     }, 100);
     return () => window.clearInterval(interval);
   }, [playerReady, isPlaying]);
+
+  const seekToSeconds = useCallback(
+    (nextSeconds: number) => {
+      const player = playerRef.current;
+      const total = effectiveDurationRef.current;
+      if (!player || !playerReady || total <= 0) return;
+
+      const clamped = Math.max(0, Math.min(total, nextSeconds));
+      onAudioUnlockedRef.current();
+      seekGraceRef.current = { target: clamped, until: Date.now() + 900 };
+      setCurrentTime(clamped);
+
+      try {
+        player.unMute();
+        player.setVolume(100);
+        player.seekTo(clamped, true);
+      } catch {
+        // Ignore transient seek errors
+      }
+    },
+    [playerReady]
+  );
+
+  // Keyboard Left/Right (-10s / +10s) seeking when not typing inside inputs or modals
+  useEffect(() => {
+    const handleKeySeek = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable ||
+          target.getAttribute('role') === 'slider')
+      ) {
+        return;
+      }
+      if (hasErrorRef.current || effectiveDurationRef.current <= 0) return;
+      if (document.querySelector('[role="dialog"]')) return;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        seekToSeconds(currentTimeRef.current - 10);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        seekToSeconds(currentTimeRef.current + 10);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeySeek);
+    return () => window.removeEventListener('keydown', handleKeySeek);
+  }, [seekToSeconds]);
+
+  const computeSecondsFromClientX = useCallback((clientX: number) => {
+    const track = trackRef.current;
+    const total = effectiveDurationRef.current;
+    if (!track || total <= 0) return 0;
+    const rect = track.getBoundingClientRect();
+    if (rect.width <= 0) return 0;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return ratio * total;
+  }, []);
+
+  const handleTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (effectiveDuration <= 0 || hasError || !playerReady) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore if pointer capture is unavailable
+    }
+    onAudioUnlocked();
+    isScrubbingRef.current = true;
+    setScrubSeconds(computeSecondsFromClientX(e.clientX));
+  };
+
+  const handleTrackPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (!isScrubbingRef.current) return;
+    setScrubSeconds(computeSecondsFromClientX(e.clientX));
+  };
+
+  const handleTrackPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (!isScrubbingRef.current) return;
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Ignore
+    }
+    const finalSeconds = computeSecondsFromClientX(e.clientX);
+    isScrubbingRef.current = false;
+    setScrubSeconds(null);
+    seekToSeconds(finalSeconds);
+  };
+
+  const handleTrackPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    isScrubbingRef.current = false;
+    setScrubSeconds(null);
+  };
+
+  const handleTrackKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (effectiveDuration <= 0 || hasError) return;
+    const current = scrubSeconds ?? currentTime;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      seekToSeconds(current - 5);
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      seekToSeconds(current + 5);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      e.stopPropagation();
+      seekToSeconds(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      e.stopPropagation();
+      seekToSeconds(effectiveDuration);
+    }
+  };
 
   const handleTogglePlayPause = () => {
     onAudioUnlocked();
@@ -484,6 +701,16 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     if (touchDraggedRef.current) return;
     handleTogglePlayPause();
   };
+
+  const isScrubbing = scrubSeconds !== null;
+  const displayedTime =
+    effectiveDuration > 0
+      ? Math.max(0, Math.min(effectiveDuration, scrubSeconds ?? currentTime))
+      : 0;
+  const progressPercent =
+    effectiveDuration > 0
+      ? Math.min(100, Math.max(0, (displayedTime / effectiveDuration) * 100))
+      : 0;
 
   const pullThreshold = activeIndex === 0 ? 92 : 132;
   const showPullIndicator = isRefreshing || pullDistance > 16;
@@ -630,9 +857,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
               )}
 
               {/* Bottom measured contrast scrim + video details */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/80 via-black/35 to-transparent z-20" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/50 to-transparent z-20" />
 
-              <div className="absolute inset-x-0 bottom-0 z-30 p-4 pr-16 sm:p-5 sm:pr-20 flex flex-col justify-end pointer-events-none">
+              <div className="absolute inset-x-0 bottom-0 z-30 px-4 pt-4 pb-[84px] pr-16 sm:px-5 sm:pt-5 sm:pb-[90px] sm:pr-20 flex flex-col justify-end pointer-events-none">
                 <div className="space-y-1.5">
                   <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-200 font-medium">
                     <span className="font-semibold text-white truncate max-w-[200px]">
@@ -665,7 +892,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
               </div>
 
               {/* Right-side thumb-zone actions */}
-              <div className="absolute right-2.5 bottom-5 z-30 flex flex-col items-center gap-3">
+              <div className="absolute right-2.5 bottom-[86px] sm:bottom-[92px] z-30 flex flex-col items-center gap-3">
                 <button
                   type="button"
                   onClick={(e) => {
@@ -714,23 +941,102 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                   <ExternalLink className="w-4 h-4" aria-hidden="true" />
                 </a>
               </div>
-
-              {/* Bottom hairline progress bar */}
-              {isCurrent && (
-                <div
-                  aria-hidden="true"
-                  className="absolute bottom-0 left-0 right-0 h-1 bg-white/15 z-30 overflow-hidden"
-                >
-                  <div
-                    className="h-full w-full bg-white origin-left transition-transform duration-100 ease-linear"
-                    style={{ transform: `scaleX(${progress})` }}
-                  />
-                </div>
-              )}
             </article>
           );
         })}
       </div>
+
+      {/* Interactive playback progress & seek bar (isolated from swipe gestures at z-40) */}
+      {activeShort && !hasError && (
+        <div
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-x-0 bottom-0 z-40 px-4 pt-2 pb-2.5 sm:px-5 sm:pb-3 bg-gradient-to-t from-black via-black/85 to-transparent"
+        >
+          <div className="flex items-center justify-between gap-2 mb-0.5">
+            <div className="flex items-baseline gap-1 font-mono tabular-nums text-[11px] sm:text-xs leading-none">
+              <span className="text-white font-semibold">
+                {formatPlaybackTime(displayedTime)}
+              </span>
+              <span className="text-zinc-500">/</span>
+              <span className="text-zinc-300">
+                {formatPlaybackTime(effectiveDuration)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={!playerReady || effectiveDuration <= 0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  seekToSeconds(displayedTime - 10);
+                }}
+                aria-label="Voltar 10 segundos"
+                title="Voltar 10 segundos"
+                className="inline-flex items-center gap-1 text-[11px] font-mono tabular-nums font-medium text-zinc-300 hover:text-white active:scale-95 py-1 px-1 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+              >
+                <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>10s</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={!playerReady || effectiveDuration <= 0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  seekToSeconds(displayedTime + 10);
+                }}
+                aria-label="Adiantar 10 segundos"
+                title="Adiantar 10 segundos"
+                className="inline-flex items-center gap-1 text-[11px] font-mono tabular-nums font-medium text-zinc-300 hover:text-white active:scale-95 py-1 px-1 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+              >
+                <span>10s</span>
+                <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+
+          <div
+            ref={trackRef}
+            role="slider"
+            tabIndex={0}
+            aria-label="Barra de reprodução do vídeo"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(effectiveDuration)}
+            aria-valuenow={Math.round(displayedTime)}
+            aria-valuetext={`${formatPlaybackTime(displayedTime)} de ${formatPlaybackTime(
+              effectiveDuration
+            )}`}
+            onPointerDown={handleTrackPointerDown}
+            onPointerMove={handleTrackPointerMove}
+            onPointerUp={handleTrackPointerUp}
+            onPointerCancel={handleTrackPointerCancel}
+            onKeyDown={handleTrackKeyDown}
+            className="relative w-full h-8 flex items-center cursor-pointer touch-none group focus:outline-none focus-visible:ring-1 focus-visible:ring-white/80 rounded"
+          >
+            <div
+              className={`relative w-full bg-white/25 rounded-full transition-[height] duration-100 ${
+                isScrubbing ? 'h-2' : 'h-1 group-hover:h-1.5'
+              }`}
+            >
+              <div
+                className="absolute inset-y-0 left-0 bg-white rounded-full pointer-events-none"
+                style={{ width: `${progressPercent}%` }}
+              />
+              <div
+                aria-hidden="true"
+                className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-[0_0_8px_rgba(0,0,0,0.8)] pointer-events-none transition-transform duration-100 ${
+                  isScrubbing ? 'scale-110' : 'scale-90 group-hover:scale-105'
+                }`}
+                style={{ left: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
