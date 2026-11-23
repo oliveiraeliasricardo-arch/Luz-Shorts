@@ -14,8 +14,21 @@ const __dirname = path.dirname(__filename);
 const PORT = Number(process.env.PORT) || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+function parseExcludeIds(raw: unknown): string[] {
+  const list = Array.isArray(raw)
+    ? raw.filter((v): v is string => typeof v === 'string')
+    : typeof raw === 'string'
+      ? raw.split(',')
+      : [];
+  return list
+    .map((s) => s.trim())
+    .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
+    .slice(0, 1200);
+}
+
 async function startServer() {
   const app = express();
+  app.use(express.json({ limit: '256kb' }));
 
   app.get('/api/health', (_req, res) => {
     const apiKeyConfigured = Boolean(process.env.YOUTUBE_API_KEY?.trim());
@@ -26,16 +39,15 @@ async function startServer() {
     });
   });
 
-  app.get('/api/shorts', async (req, res) => {
-    const category = typeof req.query.category === 'string' ? req.query.category : 'all';
-    const q = typeof req.query.q === 'string' ? req.query.q : '';
-    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
-    const rawExclude = typeof req.query.exclude === 'string' ? req.query.exclude : '';
-    const excludeIds = rawExclude
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
-      .slice(0, 800);
+  const handleShortsRequest = async (
+    params: { category?: unknown; q?: unknown; refresh?: unknown; exclude?: unknown },
+    res: express.Response
+  ) => {
+    const category = typeof params.category === 'string' ? params.category : 'all';
+    const q = typeof params.q === 'string' ? params.q : '';
+    const forceRefresh =
+      params.refresh === true || params.refresh === '1' || params.refresh === 'true';
+    const excludeIds = parseExcludeIds(params.exclude);
 
     try {
       const payload = await getCuratedChristianShorts({
@@ -51,18 +63,29 @@ async function startServer() {
         detail: err instanceof Error ? err.message : String(err),
       });
     }
-  });
+  };
 
-  app.get('/api/shorts/more', async (req, res) => {
-    const category = typeof req.query.category === 'string' ? req.query.category : 'all';
-    const q = typeof req.query.q === 'string' ? req.query.q : '';
-    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
-    const rawExclude = typeof req.query.exclude === 'string' ? req.query.exclude : '';
-    const excludeIds = rawExclude
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
-      .slice(0, 800);
+  app.get('/api/shorts', (req, res) => handleShortsRequest(req.query, res));
+  app.post('/api/shorts', (req, res) =>
+    handleShortsRequest(
+      {
+        category: req.body?.category ?? req.query.category,
+        q: req.body?.q ?? req.query.q,
+        refresh: req.body?.refresh ?? req.query.refresh,
+        exclude: req.body?.exclude ?? req.query.exclude,
+      },
+      res
+    )
+  );
+
+  const handleMoreShortsRequest = async (
+    params: { category?: unknown; q?: unknown; cursor?: unknown; exclude?: unknown },
+    res: express.Response
+  ) => {
+    const category = typeof params.category === 'string' ? params.category : 'all';
+    const q = typeof params.q === 'string' ? params.q : '';
+    const cursor = typeof params.cursor === 'string' ? params.cursor : undefined;
+    const excludeIds = parseExcludeIds(params.exclude);
 
     try {
       const payload = await getMoreChristianShorts({
@@ -78,7 +101,20 @@ async function startServer() {
         detail: err instanceof Error ? err.message : String(err),
       });
     }
-  });
+  };
+
+  app.get('/api/shorts/more', (req, res) => handleMoreShortsRequest(req.query, res));
+  app.post('/api/shorts/more', (req, res) =>
+    handleMoreShortsRequest(
+      {
+        category: req.body?.category ?? req.query.category,
+        q: req.body?.q ?? req.query.q,
+        cursor: req.body?.cursor ?? req.query.cursor,
+        exclude: req.body?.exclude ?? req.query.exclude,
+      },
+      res
+    )
+  );
 
   app.get('/api/shorts/video/:id', async (req, res) => {
     const rawId = req.params.id || '';

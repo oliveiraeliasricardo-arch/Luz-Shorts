@@ -1362,7 +1362,12 @@ async function fetchInitialDiscoveryExtras(
   const discoveryJobs: Array<{ cat: ContentCategory; query: string; sortByDate: boolean }> = [];
   for (const cat of categories) {
     const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-    const extraCount = cat === 'testemunhos' ? 3 : 1;
+    const extraCount =
+      cat === 'testemunhos'
+        ? 4
+        : cat === 'pregacoes' || cat === 'biblia'
+          ? 2
+          : 1;
     for (let k = 0; k < extraCount; k++) {
       const idx = globalDiscoveryOffsets[cat] % queries.length;
       globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
@@ -1555,26 +1560,27 @@ export async function getCuratedChristianShorts(options: {
     if (apiKeyConfigured) {
       const rotateTargets: Array<{ pid: string; hint: ContentCategory; token: string }> = [];
       const rotateSpecial = [
-        ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 3),
-        ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 4),
-        ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 3),
+        ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
+        ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 2),
+        ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 2),
       ];
       for (const pid of rotateSpecial) {
         const tok = persistentPlaylistTokens[pid];
         if (tok) rotateTargets.push({ pid, hint: 'louvores', token: tok });
       }
-      // Also advance 1–2 curated channels per other category (pregacoes, biblia, testemunhos, feliz7play)
+      // Also advance 2–3 curated channels per other category (pregacoes, biblia, testemunhos, feliz7play)
       for (const cat of ['pregacoes', 'biblia', 'testemunhos', 'feliz7play'] as ContentCategory[]) {
         const matchingChannels = ALL_CURATED_CHANNELS.filter(
           (ch) => ch.defaultCategory === cat || ch.allowInCategories.includes(cat)
         );
+        const targetForCat = cat === 'feliz7play' ? 2 : 3;
         const shuffledCh = pickRotatedPlaylists(
           matchingChannels.map((c) => c.id),
-          3
+          targetForCat + 1
         );
         let pickedForCat = 0;
         for (const chId of shuffledCh) {
-          if (pickedForCat >= 2) break;
+          if (pickedForCat >= targetForCat) break;
           const suffix = chId.slice(2);
           const candidatePids =
             cat === 'biblia'
@@ -1928,31 +1934,43 @@ export async function getMoreChristianShorts(options: {
 
   const ALL_DISCOVERY_ROTATION: ContentCategory[] = [
     'pregacoes',
-    'louvores',
     'biblia',
     'testemunhos',
-    'feliz7play',
+    'louvores',
   ];
+  const isAllFeed = !validCat;
 
   // Unlimited YouTube pagination via playlistItems.list + YouTube-wide discovery for EVERY category
   if (apiKeyConfigured) {
+    const MAIN_ALL_CATS: Array<'pregacoes' | 'biblia' | 'testemunhos' | 'louvores'> = [
+      'pregacoes',
+      'biblia',
+      'testemunhos',
+      'louvores',
+    ];
     const eligibleChannels = validCat
       ? ALL_CURATED_CHANNELS.filter(
           (ch) => ch.defaultCategory === validCat || ch.allowInCategories.includes(validCat)
         )
-      : ALL_CURATED_CHANNELS;
+      : ALL_CURATED_CHANNELS.filter(
+          (ch) =>
+            ch.defaultCategory !== 'feliz7play' ||
+            ch.allowInCategories.some((c) => c !== 'feliz7play')
+        );
 
-    const getPlaylistIdForChannel = (ch: (typeof ALL_CURATED_CHANNELS)[number]): string => {
+    const getPlaylistIdForChannel = (
+      ch: (typeof ALL_CURATED_CHANNELS)[number],
+      hintCat: ContentCategory
+    ): string => {
       const suffix = ch.id.slice(2);
-      const hint = validCat || ch.defaultCategory;
-      if (hint === 'pregacoes' || hint === 'feliz7play') return `UULF${suffix}`;
-      if (hint === 'biblia' && ch.defaultCategory === 'biblia') return `UUSH${suffix}`;
+      if (hintCat === 'pregacoes' || hintCat === 'feliz7play') return `UULF${suffix}`;
+      if (hintCat === 'biblia' && ch.defaultCategory === 'biblia') return `UUSH${suffix}`;
       return `UU${suffix}`;
     };
 
-    const playlistPool: Array<{ playlistId: string; hintCategory: ContentCategory }> = [];
+    const specialLouvorEntries: Array<{ playlistId: string; hintCategory: ContentCategory }> = [];
     if (!validCat || validCat === 'louvores') {
-      // Interleave Novo Hinário, CD Jovem, Adoradores & general channels in playlistPool
+      // Interleave Novo Hinário, CD Jovem, Adoradores in specialLouvorEntries
       const maxSpecial = Math.max(
         NOVO_HINARIO_PLAYLISTS.length,
         CD_JOVEM_PLAYLISTS.length,
@@ -1960,25 +1978,88 @@ export async function getMoreChristianShorts(options: {
       );
       for (let i = 0; i < maxSpecial; i++) {
         if (i < NOVO_HINARIO_PLAYLISTS.length) {
-          playlistPool.push({ playlistId: NOVO_HINARIO_PLAYLISTS[i], hintCategory: 'louvores' });
+          specialLouvorEntries.push({
+            playlistId: NOVO_HINARIO_PLAYLISTS[i],
+            hintCategory: 'louvores',
+          });
         }
         if (i < CD_JOVEM_PLAYLISTS.length) {
-          playlistPool.push({ playlistId: CD_JOVEM_PLAYLISTS[i], hintCategory: 'louvores' });
+          specialLouvorEntries.push({
+            playlistId: CD_JOVEM_PLAYLISTS[i],
+            hintCategory: 'louvores',
+          });
         }
         if (i < ADORADORES_PLAYLISTS.length) {
-          playlistPool.push({ playlistId: ADORADORES_PLAYLISTS[i], hintCategory: 'louvores' });
+          specialLouvorEntries.push({
+            playlistId: ADORADORES_PLAYLISTS[i],
+            hintCategory: 'louvores',
+          });
         }
       }
     }
-    for (const ch of eligibleChannels) {
-      playlistPool.push({
-        playlistId: getPlaylistIdForChannel(ch),
-        hintCategory: validCat || ch.defaultCategory,
-      });
+
+    const playlistPool: Array<{ playlistId: string; hintCategory: ContentCategory }> = [];
+    if (validCat) {
+      for (const entry of specialLouvorEntries) {
+        playlistPool.push(entry);
+      }
+      for (const ch of eligibleChannels) {
+        playlistPool.push({
+          playlistId: getPlaylistIdForChannel(ch, validCat),
+          hintCategory: validCat,
+        });
+      }
+    } else {
+      // Interleave playlists across pregacoes, biblia, testemunhos, louvores so every batch
+      // of 'all' pagination fetches balanced content from all 4 categories (excluding feliz7play).
+      const perCatPools: Record<'pregacoes' | 'biblia' | 'testemunhos' | 'louvores', Array<{ playlistId: string; hintCategory: ContentCategory }>> = {
+        pregacoes: [],
+        biblia: [],
+        testemunhos: [],
+        louvores: [],
+      };
+      for (const ch of eligibleChannels) {
+        const effectiveHint: 'pregacoes' | 'biblia' | 'testemunhos' | 'louvores' =
+          ch.defaultCategory === 'feliz7play'
+            ? (ch.allowInCategories.find((c) => c !== 'feliz7play') as
+                | 'pregacoes'
+                | 'biblia'
+                | 'testemunhos'
+                | 'louvores') || 'pregacoes'
+            : ch.defaultCategory;
+        perCatPools[effectiveHint].push({
+          playlistId: getPlaylistIdForChannel(ch, effectiveHint),
+          hintCategory: effectiveHint,
+        });
+      }
+      // Interleave special louvor playlists with channel louvor playlists
+      const louvorChannels = perCatPools.louvores;
+      const mergedLouvor: Array<{ playlistId: string; hintCategory: ContentCategory }> = [];
+      const maxL = Math.max(specialLouvorEntries.length, louvorChannels.length);
+      for (let i = 0; i < maxL; i++) {
+        if (i < louvorChannels.length) mergedLouvor.push(louvorChannels[i]);
+        if (i < specialLouvorEntries.length) mergedLouvor.push(specialLouvorEntries[i]);
+      }
+      perCatPools.louvores = mergedLouvor;
+
+      const maxPerCat = Math.max(
+        perCatPools.pregacoes.length,
+        perCatPools.biblia.length,
+        perCatPools.testemunhos.length,
+        perCatPools.louvores.length
+      );
+      for (let i = 0; i < maxPerCat; i++) {
+        for (const cat of MAIN_ALL_CATS) {
+          const list = perCatPools[cat];
+          if (list.length > 0) {
+            playlistPool.push(list[i % list.length]);
+          }
+        }
+      }
     }
 
     const collected: ChristianShort[] = [];
-    const maxAttempts = validCat ? 2 : 2;
+    const maxAttempts = 2;
     const targetMin = validCat === 'pregacoes' || validCat === 'testemunhos' ? 12 : 18;
 
     for (let attempt = 0; attempt < maxAttempts && collected.length < targetMin; attempt++) {
@@ -2036,6 +2117,7 @@ export async function getMoreChristianShorts(options: {
       const verified = await hydrateAndVerifyCandidates(apiKey, candidateMap);
       for (const item of verified) {
         if (validCat && item.category !== validCat) continue;
+        if (isAllFeed && item.category === 'feliz7play') continue;
         if (!state.seenIds.has(item.id)) {
           state.seenIds.add(item.id);
           collected.push(item);
@@ -2044,9 +2126,8 @@ export async function getMoreChristianShorts(options: {
     }
 
     let anyPlaylistRemaining = false;
-    for (const ch of eligibleChannels) {
-      const pid = getPlaylistIdForChannel(ch);
-      if (!state.playlistStates[pid]?.done) {
+    for (const entry of playlistPool) {
+      if (!state.playlistStates[entry.playlistId]?.done) {
         anyPlaylistRemaining = true;
         break;
       }
@@ -2064,6 +2145,7 @@ export async function getMoreChristianShorts(options: {
         const discovered = await fetchCategoryDiscoveryPage(apiKey, discoveryCat, state);
         for (const item of discovered) {
           if (validCat && item.category !== validCat) continue;
+          if (isAllFeed && item.category === 'feliz7play') continue;
           if (!state.seenIds.has(item.id)) {
             state.seenIds.add(item.id);
             collected.push(item);
@@ -2093,6 +2175,7 @@ export async function getMoreChristianShorts(options: {
     const rssItems = await fetchFromCuratedRss(rssPage);
     for (const item of rssItems) {
       if (validCat && item.category !== validCat) continue;
+      if (isAllFeed && item.category === 'feliz7play') continue;
       if (state.seenIds.has(item.id)) continue;
       state.seenIds.add(item.id);
       fresh.push(item);
@@ -2107,6 +2190,7 @@ export async function getMoreChristianShorts(options: {
       const discovered = await fetchCategoryDiscoveryPage('', discoveryCat, state);
       for (const item of discovered) {
         if (validCat && item.category !== validCat) continue;
+        if (isAllFeed && item.category === 'feliz7play') continue;
         if (state.seenIds.has(item.id)) continue;
         state.seenIds.add(item.id);
         fresh.push(item);

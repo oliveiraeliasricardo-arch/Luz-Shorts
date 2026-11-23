@@ -23,6 +23,13 @@ const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
 const MAX_SEEN_IDS = 5000;
 const MAX_SURFACED_TOP_IDS = 120;
 
+const MAIN_ALL_CATEGORIES: ContentCategory[] = [
+  'pregacoes',
+  'biblia',
+  'louvores',
+  'testemunhos',
+];
+
 function prioritizeAndShuffleFeed(
   source: ChristianShort[],
   seenIds: string[],
@@ -43,7 +50,9 @@ function prioritizeAndShuffleFeed(
   const targetHasFresh =
     targetCategory && targetCategory !== 'all' && targetCategory !== 'salvos'
       ? unseenFresh.some((item) => item.category === targetCategory)
-      : unseenFresh.length > 0;
+      : targetCategory === 'all'
+        ? unseenFresh.some((item) => item.category !== 'feliz7play')
+        : unseenFresh.length > 0;
 
   if (!targetHasFresh && unseenSurfaced.length > 0) {
     const resetIds =
@@ -51,7 +60,9 @@ function prioritizeAndShuffleFeed(
         ? unseenSurfaced
             .filter((item) => item.category === targetCategory)
             .map((item) => item.id)
-        : unseenSurfaced.map((item) => item.id);
+        : unseenSurfaced
+            .filter((item) => targetCategory !== 'all' || item.category !== 'feliz7play')
+            .map((item) => item.id);
     const allUnseen = source.filter((item) => !seenSet.has(item.id));
     return {
       items: [...buildDiverseFeed(allUnseen, true), ...buildDiverseFeed(seenItems, true)],
@@ -70,7 +81,7 @@ function prioritizeAndShuffleFeed(
 
 function extractSessionTopIds(items: ChristianShort[]): string[] {
   const picked = new Set<string>();
-  for (const item of items.slice(0, 10)) {
+  for (const item of items.filter((i) => i.category !== 'feliz7play').slice(0, 10)) {
     picked.add(item.id);
   }
   const categories: ContentCategory[] = [
@@ -181,6 +192,7 @@ export function App() {
   const categoryCursorsRef = useRef<Record<string, string | null>>({});
   const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
   const emptyRetryCountRef = useRef(0);
+  const allBalanceRetryCountRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
   const activeSearchTermRef = useRef('');
   const remoteSearchQueryRef = useRef('');
@@ -233,7 +245,7 @@ export function App() {
       const seenSet = new Set(seenIdsRef.current);
       const upcomingForTarget = (
         targetCat === 'all'
-          ? nextItems
+          ? nextItems.filter((item) => item.category !== 'feliz7play')
           : nextItems.filter((item) => item.category === targetCat)
       )
         .filter((item) => !seenSet.has(item.id))
@@ -255,6 +267,7 @@ export function App() {
     }
     setError(null);
     fetchedCategoryBatchRef.current.clear();
+    allBalanceRetryCountRef.current = 0;
 
     try {
       let data: ShortsApiResponse | null = null;
@@ -263,20 +276,23 @@ export function App() {
 
       if (!nativeApp || API_BASE_URL.length > 0) {
         try {
-          const params = new URLSearchParams();
-          if (forceRefresh) params.set('refresh', '1');
           const excludeIds = Array.from(
             new Set([
               ...lastSessionTopRef.current.slice(0, 45),
               ...seenIdsRef.current.slice(0, 600),
             ])
           ).slice(0, 645);
-          if (excludeIds.length > 0) {
-            params.set('exclude', excludeIds.join(','));
-          }
-          const res = await fetch(
-            `${API_BASE_URL}/api/shorts${params.toString() ? `?${params.toString()}` : ''}`
-          );
+          const res = await fetch(`${API_BASE_URL}/api/shorts`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              category: 'all',
+              refresh: forceRefresh,
+              exclude: excludeIds,
+            }),
+          });
           const contentType = res.headers.get('content-type') || '';
           if (res.ok && contentType.includes('application/json')) {
             data = (await res.json()) as ShortsApiResponse;
@@ -554,13 +570,26 @@ export function App() {
     return counts;
   }, [queryFiltered]);
 
+  const todosFeedCount = useMemo(
+    () => queryFiltered.filter((item) => item.category !== 'feliz7play').length,
+    [queryFiltered]
+  );
+
   const visibleShorts = useMemo(() => {
-    if (activeCategory === 'all') return queryFiltered;
+    if (activeCategory === 'all') {
+      const trimmed = searchQuery.trim();
+      const allowFelizInSearch =
+        trimmed.length >= 2 &&
+        /\b(feliz7|defensores|camelo|nt kids)\b/i.test(trimmed);
+      return allowFelizInSearch
+        ? queryFiltered
+        : queryFiltered.filter((item) => item.category !== 'feliz7play');
+    }
     if (activeCategory === 'salvos') {
       return queryFiltered.filter((item) => savedSet.has(item.id));
     }
     return queryFiltered.filter((item) => item.category === activeCategory);
-  }, [queryFiltered, activeCategory, savedSet]);
+  }, [queryFiltered, activeCategory, savedSet, searchQuery]);
 
   const loadMoreShorts = useCallback(async () => {
     if (isLoadingMoreRef.current || loading || isRefreshing || activeCategory === 'salvos') {
@@ -589,27 +618,32 @@ export function App() {
       const categoryCursor = categoryCursorsRef.current[activeCategory] ?? null;
 
       if (!nativeApp || API_BASE_URL.length > 0) {
-        const params = new URLSearchParams({
-          category: activeCategory,
-        });
         const cursorToUse = isLiveSearch ? searchCursor : categoryCursor;
-        if (cursorToUse) params.set('cursor', cursorToUse);
-        if (isLiveSearch) params.set('q', trimmedQuery);
         const activePool = isLiveSearch
           ? remoteSearchShorts ?? []
           : activeCategory === 'all'
-          ? allShorts
+          ? allShorts.filter((i) => i.category !== 'feliz7play')
           : allShorts.filter((i) => i.category === activeCategory);
         const combinedExclude = Array.from(
           new Set([
-            ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 260)),
-            ...activePool.slice(0, 120).map((i) => i.id),
-            ...activePool.slice(-120).map((i) => i.id),
+            ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 400)),
+            ...activePool.slice(0, 150).map((i) => i.id),
+            ...activePool.slice(-150).map((i) => i.id),
           ])
-        ).slice(0, 450);
-        if (combinedExclude.length > 0) params.set('exclude', combinedExclude.join(','));
+        ).slice(0, 700);
 
-        const res = await fetch(`${API_BASE_URL}/api/shorts/more?${params.toString()}`);
+        const res = await fetch(`${API_BASE_URL}/api/shorts/more`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            category: activeCategory,
+            cursor: cursorToUse || undefined,
+            q: isLiveSearch ? trimmedQuery : undefined,
+            exclude: combinedExclude,
+          }),
+        });
         const contentType = res.headers.get('content-type') || '';
         if (res.ok && contentType.includes('application/json')) {
           data = (await res.json()) as ShortsApiResponse;
@@ -644,16 +678,27 @@ export function App() {
       } else {
         const existingAll = new Set(allShorts.map((i) => i.id));
         const freshCount = data.items.filter((i) => !existingAll.has(i.id)).length;
+        const anchorId = visibleShorts[Math.min(activeIndex + 1, Math.max(0, visibleShorts.length - 1))]?.id;
         setAllShorts((prev) => {
           const existing = new Set(prev.map((i) => i.id));
           const seenSet = new Set(seenIdsRef.current);
           const fresh = data!.items.filter((i) => !existing.has(i.id));
           if (fresh.length === 0) return prev;
+
+          const anchorIdx = anchorId ? prev.findIndex((i) => i.id === anchorId) : -1;
+          const head = anchorIdx >= 0 ? prev.slice(0, anchorIdx + 1) : [];
+          const tail = anchorIdx >= 0 ? prev.slice(anchorIdx + 1) : prev;
+
           const unseen = fresh.filter((i) => !seenSet.has(i.id));
           const seen = fresh.filter((i) => seenSet.has(i.id));
-          const prevUnseen = prev.filter((i) => !seenSet.has(i.id));
-          const prevSeen = prev.filter((i) => seenSet.has(i.id));
-          return [...prevUnseen, ...unseen, ...prevSeen, ...seen];
+          const tailUnseen = tail.filter((i) => !seenSet.has(i.id));
+          const tailSeen = tail.filter((i) => seenSet.has(i.id));
+
+          return [
+            ...head,
+            ...buildDiverseFeed([...tailUnseen, ...unseen], true),
+            ...buildDiverseFeed([...tailSeen, ...seen], true),
+          ];
         });
         categoryCursorsRef.current[activeCategory] = data.nextCursor ?? null;
         const nextHasMore = Boolean(data.hasMore);
@@ -678,6 +723,8 @@ export function App() {
     loading,
     isRefreshing,
     activeCategory,
+    activeIndex,
+    visibleShorts,
     searchQuery,
     remoteSearchShorts,
     searchHasMore,
@@ -698,7 +745,21 @@ export function App() {
       !trimmed &&
       activeCategory !== 'all' &&
       !fetchedCategoryBatchRef.current.has(activeCategory);
-    const lowStockInCategory = !trimmed && unseenCount < 25;
+    const minMainUnseen =
+      !trimmed && activeCategory === 'all'
+        ? Math.min(
+            ...MAIN_ALL_CATEGORIES.map(
+              (cat) =>
+                visibleShorts.filter((item) => item.category === cat && !seenSet.has(item.id)).length
+            )
+          )
+        : Infinity;
+    const needsAllDiversification =
+      !trimmed &&
+      activeCategory === 'all' &&
+      minMainUnseen < 8 &&
+      allBalanceRetryCountRef.current < 3;
+    const lowStockInCategory = !trimmed && (unseenCount < 25 || needsAllDiversification);
     if (
       visibleShorts.length === 0 ||
       needsCategoryWarmup ||
@@ -707,6 +768,9 @@ export function App() {
     ) {
       if (needsCategoryWarmup) {
         fetchedCategoryBatchRef.current.add(activeCategory);
+      }
+      if (needsAllDiversification) {
+        allBalanceRetryCountRef.current += 1;
       }
       loadMoreShorts();
     }
@@ -732,6 +796,7 @@ export function App() {
         reshuffleUnseenFeed(cat);
       }
       emptyRetryCountRef.current = 0;
+      allBalanceRetryCountRef.current = 0;
       setActiveCategory(cat);
       setActiveIndex(0);
       if (feedRef.current) {
@@ -1001,7 +1066,7 @@ export function App() {
           isSearching={isSearching}
           onSelectCategory={handleSelectCategory}
           categoryCounts={categoryCounts}
-          totalCount={queryFiltered.length}
+          totalCount={todosFeedCount}
           savedCount={savedIds.length}
           sourceMode={sourceMode}
           apiKeyConfigured={apiKeyConfigured}
