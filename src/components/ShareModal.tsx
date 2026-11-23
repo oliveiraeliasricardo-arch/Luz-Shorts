@@ -27,7 +27,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ short, isOpen, onClose }
   if (!isOpen || !short) return null;
 
   const shareUrl = `${window.location.origin}/?v=${encodeURIComponent(short.id)}`;
-  const shareText = `${short.title} — ${short.channelTitle} (Luz Shorts)`;
+  const shareText = `${short.title} — ${short.channelTitle} (GraçaPlay)`;
 
   const handleCopy = async () => {
     try {
@@ -181,7 +181,13 @@ export const ShareModal: React.FC<ShareModalProps> = ({ short, isOpen, onClose }
             <span>Telegram</span>
           </a>
           <a
-            href={short.category === 'louvores' || short.category === 'pregacoes' ? short.youtubeUrl : short.shortsUrl}
+            href={
+              short.category === 'louvores' ||
+              short.category === 'pregacoes' ||
+              short.category === 'feliz7play'
+                ? short.youtubeUrl
+                : short.shortsUrl
+            }
             target="_blank"
             rel="noopener noreferrer"
             className="flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-xl bg-black border border-zinc-800 hover:bg-zinc-900 text-zinc-200 hover:text-white transition-colors text-xs font-medium min-h-[64px]"

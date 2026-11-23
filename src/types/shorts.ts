@@ -1,4 +1,9 @@
-export type ContentCategory = 'pregacoes' | 'biblia' | 'louvores' | 'testemunhos';
+export type ContentCategory =
+  | 'pregacoes'
+  | 'biblia'
+  | 'louvores'
+  | 'testemunhos'
+  | 'feliz7play';
 
 export type ShortCategory = 'all' | ContentCategory | 'salvos';
 

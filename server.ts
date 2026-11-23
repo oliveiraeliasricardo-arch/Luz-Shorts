@@ -21,7 +21,7 @@ async function startServer() {
     const apiKeyConfigured = Boolean(process.env.YOUTUBE_API_KEY?.trim());
     res.json({
       ok: true,
-      app: 'Luz Shorts',
+      app: 'GraçaPlay',
       mode: apiKeyConfigured ? 'youtube_api' : 'curated_rss',
     });
   });
@@ -35,7 +35,7 @@ async function startServer() {
       .split(',')
       .map((s) => s.trim())
       .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
-      .slice(0, 500);
+      .slice(0, 800);
 
     try {
       const payload = await getCuratedChristianShorts({
@@ -62,7 +62,7 @@ async function startServer() {
       .split(',')
       .map((s) => s.trim())
       .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
-      .slice(0, 500);
+      .slice(0, 800);
 
     try {
       const payload = await getMoreChristianShorts({
@@ -117,7 +117,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Luz Shorts server listening on http://0.0.0.0:${PORT}`);
+    console.log(`GraçaPlay server listening on http://0.0.0.0:${PORT}`);
   });
 }
 

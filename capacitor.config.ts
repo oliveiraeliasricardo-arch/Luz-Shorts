@@ -1,4 +1,4 @@
-// Configuração do Capacitor para empacotar o Luz Shorts como aplicativo nativo Android / iOS
+// Configuração do Capacitor para empacotar o GraçaPlay como aplicativo nativo Android / iOS
 export interface CapacitorConfig {
   appId: string;
   appName: string;
@@ -14,7 +14,7 @@ export interface CapacitorConfig {
 
 const config: CapacitorConfig = {
   appId: 'com.luzshorts.app',
-  appName: 'Luz Shorts',
+  appName: 'GraçaPlay',
   webDir: 'dist',
   bundledWebRuntime: false,
   server: {
@@ -27,7 +27,7 @@ const config: CapacitorConfig = {
     },
     SplashScreen: {
       launchShowDuration: 1800,
-      backgroundColor: '#0369a1',
+      backgroundColor: '#000000',
       showSpinner: false,
       androidSpinnerStyle: 'large',
       iosSpinnerStyle: 'small',

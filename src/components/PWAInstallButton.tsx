@@ -66,7 +66,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                 id="pwa-install-guide-title"
                 className="text-base font-display font-bold text-white"
               >
-                Instalar Luz Shorts como App
+                Instalar GraçaPlay como App
               </h3>
               <button
                 type="button"

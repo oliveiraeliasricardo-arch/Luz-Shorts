@@ -95,8 +95,36 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     id: 'UC8PS8EsZsWXOQ1YmlJwCaYw',
     title: 'Feliz7Play',
     doctrineScope: 'adventista',
-    defaultCategory: 'biblia',
-    allowInCategories: ['biblia', 'testemunhos', 'louvores'],
+    defaultCategory: 'feliz7play',
+    allowInCategories: ['feliz7play'],
+  },
+  {
+    id: 'UC4E-81u6afu-KY14PPeg4VQ',
+    title: 'Feliz7Kids',
+    doctrineScope: 'adventista',
+    defaultCategory: 'feliz7play',
+    allowInCategories: ['feliz7play'],
+  },
+  {
+    id: 'UCC_6_OXZRP5PVuzJLfINXLg',
+    title: 'NT Kids',
+    doctrineScope: 'adventista',
+    defaultCategory: 'feliz7play',
+    allowInCategories: ['feliz7play'],
+  },
+  {
+    id: 'UCpYhv-j3DeaOYhPByA4-eLQ',
+    title: 'Nosso Amiguinho Oficial',
+    doctrineScope: 'adventista',
+    defaultCategory: 'feliz7play',
+    allowInCategories: ['feliz7play'],
+  },
+  {
+    id: 'UCa0Nja57-8BPQn3C2e-qhhw',
+    title: 'Minha Vida É Uma Viagem',
+    doctrineScope: 'adventista',
+    defaultCategory: 'feliz7play',
+    allowInCategories: ['feliz7play'],
   },
   {
     id: 'UC03Y0ieYROxw1FxCoDaSF9g',
@@ -350,6 +378,7 @@ const CATEGORY_LABELS: Record<ContentCategory, string> = {
   biblia: 'Bíblia e Evangelho',
   louvores: 'Louvor',
   testemunhos: 'Testemunho',
+  feliz7play: 'Feliz7Play',
 };
 
 const DOCTRINE_LABELS: Record<DoctrineScope, string> = {
@@ -455,6 +484,13 @@ const ADVENTIST_IDENTITY_PATTERNS = [
   /\bunasp\b/i,
   /\bfadba\b|\biaene\b/i,
   /\bcanal esperan[cç]a\b/i,
+  /\bfeliz7play\b/i,
+  /\bfeliz7kids\b/i,
+  /\bnt kids\b/i,
+  /\bnosso amiguinho\b/i,
+  /\bminha vida [eé] uma viagem\b/i,
+  /\bdefensores da b[ií]blia\b/i,
+  /\bcamelo na agulha\b/i,
 ];
 
 const CHRISTIAN_RELEVANCE_PATTERNS = [
@@ -493,6 +529,8 @@ const CHRISTIAN_RELEVANCE_PATTERNS = [
   /\bcrist[aã]o?\b/i,
   /\bcd\s*jovem\b/i,
   /\bminist[eé]rio jovem\b/i,
+  /\bfeliz7play\b/i,
+  /\bdefensores da b[ií]blia\b/i,
 ];
 
 const NON_PORTUGUESE_PATTERNS = [
@@ -502,6 +540,7 @@ const NON_PORTUGUESE_PATTERNS = [
   /\b(educaci[oó]n|predicaci[oó]n|oraci[oó]n|salvaci[oó]n|bendici[oó]n|coraz[oó]n|deja de|en espa[ñn]ol|iglesia adventista del)\b/i,
   /\b(d[ií]a\s*\d+\s*\|.*(semana|adventista)|\(esp\))\b/i,
   /\bgozo\s*[–-]\s*aline barros\b/i,
+  /\(espa[ñn]ol\)|\bun[ao]s chicos\b|\bel regalo de nick\b|\blos tres libros\b|\bbasta de l[aá]grimas\b|\bpertenecemos\b|\bdefensores de la biblia\b|\binvencibles\b|\bun mini villano\b|\b(el gran|los defensores|las aventuras|cap[ií]tulo \d+.*espa[ñn]ol|para ni[ñn]os)\b/i,
 ];
 
 const AI_GENERATED_PATTERNS = [
@@ -601,7 +640,7 @@ const NOISE_AND_PROMO_PATTERNS = [
   /\bse um dia me acostumar\b/i,
   /^\s*#shorts\s*$/i,
   /\b(as melhores|mais tocadas|esta[cç][aã]o\/station|youtube station|\d+\s*horas?\s*de\s*(adora[cç][aã]o|louvor))\b/i,
-  /\b(aprovados|aceitaram o desafio|3[ªa]\s*fase|top\s*10|partiu\s+portugal|amanh[aã]\s*-\s*\d{2}h|lan[cç]a sua primeira m[uú]sica|teaser)\b/i,
+  /\b(aprovados|aceitaram o desafio|3[ªa]\s*fase|top\s*10|partiu\s+portugal|amanh[aã]\s*-\s*\d{2}h|lan[cç]a sua primeira m[uú]sica|teaser(\s*\d+)?)\b/i,
 ];
 
 const STRICT_TESTIMONY_TITLE_PATTERNS = [
@@ -890,6 +929,23 @@ function looksLikeWorshipSong(
   return false;
 }
 
+const FELIZ7PLAY_CHANNEL_ID = 'UC8PS8EsZsWXOQ1YmlJwCaYw';
+const ADVENTIST_ANIMATION_CHANNEL_IDS = new Set([
+  'UC4E-81u6afu-KY14PPeg4VQ', // Feliz7Kids
+  'UCC_6_OXZRP5PVuzJLfINXLg', // NT Kids
+  'UCpYhv-j3DeaOYhPByA4-eLQ', // Nosso Amiguinho Oficial
+  'UCa0Nja57-8BPQn3C2e-qhhw', // Minha Vida É Uma Viagem
+]);
+
+const ANIMATION_MEDIUM_RE =
+  /\b(anima[cç][aã]o|desenho(s)?( animados?)?|filme animado|maratona.*desenho|camelo na agulha|defensores da b[ií]blia|presente de nick|the tuis|meu her[oó]i da b[ií]blia|capit[aã]o do mar|anjinhos da esperan[cç]a|nt kids|feliz7kids|minha vida [eé] uma viagem|nosso amiguinho)\b/i;
+
+const BIBLICAL_ANIMATION_TOPIC_RE =
+  /\b(b[ií]bli[ao]s?|defensores da b[ií]blia|meu her[oó]i da b[ií]blia|camelo na agulha|hist[oó]rias? da b[ií]blia|a cria[cç][aã]o|arca de no[eé]|davi|golias|daniel|jonas|mois[eé]s|jos[eé]|abra[aã]o|ester|rute|sans[aã]o|gide[aã]o|raabe|elias|eliseu|ad[aã]o|jesus|milagres|par[aá]bola|apocalipse|anjos?|deus|cristo|natal.*jesus|p[aá]scoa.*jesus|salvador|salva[cç][aã]o)\b/i;
+
+const NON_BIBLICAL_KIDS_NOISE_RE =
+  /\b(como desenhar|desenhando com a letra|sinais de tr[aâ]nsito|alimenta[cç][aã]o saud[aá]vel|peso pesado|halloween|dia das m[aã]es fora|dia de fotos|escovar os dentes|reciclagem|brincadeira sem gra[cç]a|baita mal entendido|aventura das letras|visitante chique)\b/i;
+
 export function classifyShort(
   channelId: string,
   channelTitle: string,
@@ -942,7 +998,16 @@ export function classifyShort(
   const isBibleChannel =
     channelSpec?.defaultCategory === 'biblia' &&
     channelId !== 'UC03Y0ieYROxw1FxCoDaSF9g' &&
-    channelId !== 'UC8PS8EsZsWXOQ1YmlJwCaYw';
+    channelId !== FELIZ7PLAY_CHANNEL_ID;
+  const isFeliz7PlayChannel = channelId === FELIZ7PLAY_CHANNEL_ID;
+  const isAdventistAnimationChannel = ADVENTIST_ANIMATION_CHANNEL_IDS.has(channelId);
+  const titleAndChannel = `${channelTitle} ${title}`;
+  const isBiblicalAnimation =
+    !isWorshipChannel &&
+    !NON_BIBLICAL_KIDS_NOISE_RE.test(title) &&
+    !/\bkaraok[eê]\b/i.test(title) &&
+    ANIMATION_MEDIUM_RE.test(titleAndChannel) &&
+    BIBLICAL_ANIMATION_TOPIC_RE.test(`${title} ${description.slice(0, 220)}`);
 
   const isSong = looksLikeWorshipSong(
     title,
@@ -982,7 +1047,21 @@ export function classifyShort(
 
   let detectedCategory: ContentCategory | null = null;
 
-  if (isWorshipChannel && !searchMode) {
+  if (isFeliz7PlayChannel) {
+    detectedCategory = 'feliz7play';
+  } else if (isAdventistAnimationChannel) {
+    if (
+      !NON_BIBLICAL_KIDS_NOISE_RE.test(title) &&
+      !/\bkaraok[eê]\b/i.test(title) &&
+      (BIBLICAL_ANIMATION_TOPIC_RE.test(combined) || isBiblicalAnimation)
+    ) {
+      detectedCategory = 'feliz7play';
+    } else {
+      return null;
+    }
+  } else if (isBiblicalAnimation && adventist) {
+    detectedCategory = 'feliz7play';
+  } else if (isWorshipChannel && !searchMode) {
     // Worship channels only enter 'louvores' (when actual music) or 'testemunhos' (only if explicit spoken testimony)
     if (isSong) {
       detectedCategory = 'louvores';
@@ -1012,6 +1091,8 @@ export function classifyShort(
     isBibleDesc
   ) {
     detectedCategory = 'biblia';
+  } else if (searchMode && hintCategory === 'feliz7play' && adventist && !NON_BIBLICAL_KIDS_NOISE_RE.test(title)) {
+    detectedCategory = 'feliz7play';
   } else if (searchMode && hintCategory === 'louvores' && !STRICT_TALK_BLOCK_RE.test(title)) {
     detectedCategory = 'louvores';
   } else if (
@@ -1026,8 +1107,12 @@ export function classifyShort(
     return null;
   }
 
-  // Sermons (pregacoes) & Bible/Gospel (biblia) MUST adhere strictly to Seventh-day Adventist doctrine
-  if (detectedCategory === 'pregacoes' || detectedCategory === 'biblia') {
+  // Sermons (pregacoes), Bible/Gospel (biblia), and Feliz7Play/Biblical Animations MUST adhere strictly to Seventh-day Adventist doctrine
+  if (
+    detectedCategory === 'pregacoes' ||
+    detectedCategory === 'biblia' ||
+    detectedCategory === 'feliz7play'
+  ) {
     if (!adventist) {
       return null;
     }
@@ -1184,7 +1269,7 @@ export function parseChannelRssXml(
     const classified = classifyShort(spec.id, authorName, title, description);
     if (!classified) continue;
 
-    // Allow full-length videos for Louvores, Pregações, and explicit Testemunhos;
+    // Allow full-length videos for Louvores, Pregações, Feliz7Play, and explicit Testemunhos;
     // reject /shorts/ links on Louvores RSS so 15s promo reels never slip in.
     const isShortLink = linkHref.includes('/shorts/');
     if (classified.category === 'louvores' && isShortLink) {
@@ -1193,7 +1278,9 @@ export function parseChannelRssXml(
     if (!isDedicatedShortsPlaylist && !isShortLink) {
       const canIncludeFullVideo =
         (allowFullLengthCategories &&
-          (classified.category === 'louvores' || classified.category === 'pregacoes')) ||
+          (classified.category === 'louvores' ||
+            classified.category === 'pregacoes' ||
+            classified.category === 'feliz7play')) ||
         classified.category === 'testemunhos';
       if (!canIncludeFullVideo) {
         continue;
@@ -1240,14 +1327,17 @@ export async function fetchCuratedRssWithAdapter(
       // Secondary archive pages for RSS / standalone APK pagination
       const archivePlaylistId =
         pageIndex === 1
-          ? spec.defaultCategory === 'louvores' || spec.defaultCategory === 'pregacoes'
+          ? spec.defaultCategory === 'louvores' ||
+            spec.defaultCategory === 'pregacoes' ||
+            spec.defaultCategory === 'feliz7play'
             ? uulfPlaylistId
             : uupvPlaylistId
-          : spec.defaultCategory === 'louvores'
+          : spec.defaultCategory === 'louvores' || spec.defaultCategory === 'feliz7play'
           ? uupvPlaylistId
           : uuPlaylistId;
       const allowFull =
         spec.defaultCategory === 'louvores' ||
+        spec.defaultCategory === 'feliz7play' ||
         spec.allowInCategories.includes('pregacoes') ||
         spec.allowInCategories.includes('testemunhos');
 
@@ -1263,9 +1353,8 @@ export async function fetchCuratedRssWithAdapter(
       continue;
     }
 
-    if (spec.defaultCategory === 'louvores') {
-      // Worship channels: fetch full-length music uploads (channel_id) only,
-      // skipping UUSH promo Shorts reels (15s countdowns/tour clips).
+    if (spec.defaultCategory === 'louvores' || spec.defaultCategory === 'feliz7play') {
+      // Worship & Feliz7Play channels: fetch full-length uploads (channel_id) directly
       tasks.push(
         (async () => {
           const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
@@ -1516,7 +1605,13 @@ export function buildDiverseFeed(
   randomize: boolean
 ): ChristianShort[] {
   const uniqueItems = deduplicateShorts(items);
-  const categories: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+  const categories: ContentCategory[] = [
+    'pregacoes',
+    'biblia',
+    'louvores',
+    'testemunhos',
+    'feliz7play',
+  ];
   if (randomize) {
     shuffleInPlace(categories);
   }
@@ -1526,6 +1621,7 @@ export function buildDiverseFeed(
     biblia: [],
     louvores: [],
     testemunhos: [],
+    feliz7play: [],
   };
 
   for (const cat of categories) {
@@ -1618,7 +1714,14 @@ export function formatFilteredResponse(
   hasMore = false,
   nextCursor: string | null = null
 ): ShortsApiResponse {
-  const validCategories = new Set(['all', 'pregacoes', 'biblia', 'louvores', 'testemunhos']);
+  const validCategories = new Set([
+    'all',
+    'pregacoes',
+    'biblia',
+    'louvores',
+    'testemunhos',
+    'feliz7play',
+  ]);
   const category = rawCategory && validCategories.has(rawCategory) ? rawCategory : 'all';
   const sanitizedQuery = normalizeSearchFold(
     (rawQuery || '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 80)
@@ -1640,6 +1743,7 @@ export function formatFilteredResponse(
     biblia: 0,
     louvores: 0,
     testemunhos: 0,
+    feliz7play: 0,
   };
   for (const item of queryFiltered) {
     categoryCounts[item.category] += 1;

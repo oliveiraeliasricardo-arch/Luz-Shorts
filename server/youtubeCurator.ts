@@ -131,6 +131,20 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'deus salvou minha vida testemunho real',
     'como deus mudou minha família testemunho',
   ],
+  feliz7play: [
+    'feliz7play série filme adventista',
+    'feliz7play defensores da bíblia',
+    'feliz7play camelo na agulha animação bíblica',
+    'feliz7play comtexto bíblico episódio',
+    'feliz7play apocalipse série',
+    'feliz7play documentário adventista',
+    'animação bíblica adventista novo tempo',
+    'nt kids desenho bíblico adventista',
+    'nosso amiguinho meu herói da bíblia desenho',
+    'minha vida é uma viagem história bíblica',
+    'feliz7kids desenho animado adventista',
+    'desenho bíblico infantil adventista história da bíblia',
+  ],
 };
 
 const NOVO_HINARIO_PLAYLISTS: string[] = [
@@ -210,6 +224,7 @@ const globalDiscoveryOffsets: Record<ContentCategory, number> = {
   biblia: 0,
   louvores: 0,
   testemunhos: 0,
+  feliz7play: 0,
 };
 
 const paginationSessions = new Map<string, PaginationSessionState>();
@@ -244,7 +259,13 @@ function createPaginationCursor(
   }
 
   const discoveryByCategory: Partial<Record<ContentCategory, CategoryDiscoveryCursor>> = {};
-  const cats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+  const cats: ContentCategory[] = [
+    'pregacoes',
+    'biblia',
+    'louvores',
+    'testemunhos',
+    'feliz7play',
+  ];
   for (const cat of cats) {
     const qLen = DISCOVERY_QUERIES_BY_CATEGORY[cat].length;
     const offset = globalDiscoveryOffsets[cat] % qLen;
@@ -260,7 +281,7 @@ function createPaginationCursor(
     searchToken,
     rssPage: 1,
     discoveryByCategory,
-    allCycleIdx: Math.floor(Math.random() * 4),
+    allCycleIdx: Math.floor(Math.random() * 5),
   });
   return cursor;
 }
@@ -268,7 +289,7 @@ function createPaginationCursor(
 async function fetchFromCuratedRss(pageIndex = 0): Promise<ChristianShort[]> {
   return fetchCuratedRssWithAdapter(async (url) => {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LuzShorts/1.0)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GracaPlay/1.0)' },
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
@@ -472,12 +493,16 @@ function isWithinCategoryDuration(
 ): boolean {
   if (durationSeconds == null) return true;
   if (searchMode) {
-    // Live search allows broader durations across all categories (including full Bible studies, sermons & albums)
+    // Live search allows broader durations across all categories (including full Bible studies, sermons, albums & Feliz7Play series)
     if (category === 'louvores') return durationSeconds >= 25 && durationSeconds <= 7200;
     if (category === 'pregacoes') return durationSeconds >= 25 && durationSeconds <= 10800;
     if (category === 'biblia') return durationSeconds >= 15 && durationSeconds <= 10800;
     if (category === 'testemunhos') return durationSeconds >= 15 && durationSeconds <= 10800;
+    if (category === 'feliz7play') return durationSeconds >= 20 && durationSeconds <= 10800;
     return true;
+  }
+  if (category === 'feliz7play') {
+    return durationSeconds >= 30 && durationSeconds <= 10800;
   }
   if (category === 'louvores') {
     const isHinarioOrYouth =
@@ -545,14 +570,12 @@ async function fetchFromYoutubeApi(
         ? `UUSH${suffix}`
         : advancePlaylists && Math.random() < 0.35
         ? `UUPV${suffix}`
-        : spec.defaultCategory === 'pregacoes'
+        : spec.defaultCategory === 'pregacoes' || spec.defaultCategory === 'feliz7play'
         ? `UULF${suffix}`
         : `UU${suffix}`;
     const savedToken = persistentPlaylistTokens[playlistId] ?? null;
     const pageToken =
-      advancePlaylists || (spec.defaultCategory === 'louvores' && savedToken && Math.random() < 0.7)
-        ? savedToken
-        : null;
+      savedToken && (advancePlaylists || Math.random() < 0.78) ? savedToken : null;
     return { hintCategory: spec.defaultCategory, playlistId, pageToken };
   });
 
@@ -965,7 +988,8 @@ async function fetchLiveYoutubeSearch(
     rawCategory === 'pregacoes' ||
     rawCategory === 'biblia' ||
     rawCategory === 'louvores' ||
-    rawCategory === 'testemunhos'
+    rawCategory === 'testemunhos' ||
+    rawCategory === 'feliz7play'
       ? rawCategory
       : undefined;
 
@@ -984,6 +1008,13 @@ async function fetchLiveYoutubeSearch(
     )
   ) {
     effectiveQuery = `${cleanQuery} adventista`;
+  } else if (
+    validCat === 'feliz7play' &&
+    !/\b(feliz7play|feliz7kids|nt kids|nosso amiguinho|adventista|novo tempo|camelo na agulha|defensores da b[ií]blia)\b/i.test(
+      cleanQuery
+    )
+  ) {
+    effectiveQuery = `${cleanQuery} feliz7play`;
   }
 
   // Handle web search continuation tokens for deep multi-page reach
@@ -1019,8 +1050,11 @@ async function fetchLiveYoutubeSearch(
     } else if (validCat === 'biblia') {
       webFanQueries.push({ q: `${cleanQuery} estudo bíblico adventista`, hint: 'biblia', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} bíblia adventista`, hint: 'biblia', sortByDate: false });
+    } else if (validCat === 'feliz7play') {
+      webFanQueries.push({ q: `${cleanQuery} feliz7play`, hint: 'feliz7play', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} animação bíblica adventista`, hint: 'feliz7play', sortByDate: false });
     } else {
-      // "Todos": combine broad exact query + Christian worship/message/Bible reach
+      // "Todos": combine broad exact query + Christian worship/message/Bible/Feliz7Play reach
       webFanQueries.push({ q: cleanQuery, hint: undefined, sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} louvor gospel`, hint: 'louvores', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} adventista`, hint: undefined, sortByDate: false });
@@ -1235,7 +1269,13 @@ async function fetchInitialDiscoveryExtras(
   apiKey: string,
   excludeIds: Set<string>
 ): Promise<ChristianShort[]> {
-  const categories: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+  const categories: ContentCategory[] = [
+    'pregacoes',
+    'biblia',
+    'louvores',
+    'testemunhos',
+    'feliz7play',
+  ];
   const tempState: PaginationSessionState = {
     createdAtMs: Date.now(),
     playlistStates: {},
@@ -1414,46 +1454,91 @@ export async function getCuratedChristianShorts(options: {
     };
   }
 
-  // On app reopen (especially with seen history) or when any category has low unseen stock,
-  // pull deeper playlist pages (Novo Hinário, CD Jovem, Adoradores) & discovery batches
-  // so reopening the app always brings brand-new unseen louvores and fresh content at the top.
+  // On app reopen (with seen history) across ALL categories, pull deeper playlist pages
+  // (sermons, Bible, louvores, testimonies, Feliz7Play) & fresh YouTube discovery batches
+  // so reopening the app always brings unseen fresh videos to the top in every category.
   if (!trimmedQuery && clientExcludeSet.size > 0) {
-    const cats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+    const cats: ContentCategory[] = [
+      'pregacoes',
+      'biblia',
+      'louvores',
+      'testemunhos',
+      'feliz7play',
+    ];
     const lowUnseenCats = cats.filter((c) => {
-      const minNeeded = c === 'louvores' ? 45 : 22;
+      const minNeeded = c === 'louvores' ? 45 : 24;
       return poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < minNeeded;
     });
+    // Guarantee at least 2 rotating categories pull fresh web discovery on every reopen
+    const reopenDiscoveryCats = new Set<ContentCategory>(lowUnseenCats);
+    const startRotate = Math.floor(Math.random() * cats.length);
+    for (let k = 0; k < cats.length && reopenDiscoveryCats.size < 3; k++) {
+      reopenDiscoveryCats.add(cats[(startRotate + k) % cats.length]);
+    }
+    const discoveryTargets = [...reopenDiscoveryCats];
 
     const reopenPlaylistPromises: Array<Promise<CandidateVideo[]>> = [];
     if (apiKeyConfigured) {
+      const rotateTargets: Array<{ pid: string; hint: ContentCategory; token: string }> = [];
       const rotateSpecial = [
         ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
         ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 2),
         ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 1),
       ];
       for (const pid of rotateSpecial) {
-        const nextTok = persistentPlaylistTokens[pid] ?? null;
-        if (nextTok) {
-          reopenPlaylistPromises.push(
-            fetchChannelPlaylistPage(apiKey, pid, 'louvores', nextTok).then((r) => {
-              persistentPlaylistTokens[pid] = r.nextPageToken;
-              seedPlaylistTokens[pid] = r.nextPageToken;
-              return r.candidates;
-            })
-          );
+        const tok = persistentPlaylistTokens[pid];
+        if (tok) rotateTargets.push({ pid, hint: 'louvores', token: tok });
+      }
+      // Also advance 1–2 curated channels per other category (pregacoes, biblia, testemunhos, feliz7play)
+      for (const cat of ['pregacoes', 'biblia', 'testemunhos', 'feliz7play'] as ContentCategory[]) {
+        const matchingChannels = ALL_CURATED_CHANNELS.filter(
+          (ch) => ch.defaultCategory === cat || ch.allowInCategories.includes(cat)
+        );
+        const shuffledCh = pickRotatedPlaylists(
+          matchingChannels.map((c) => c.id),
+          3
+        );
+        let pickedForCat = 0;
+        for (const chId of shuffledCh) {
+          if (pickedForCat >= 2) break;
+          const suffix = chId.slice(2);
+          const candidatePids =
+            cat === 'biblia'
+              ? [`UUSH${suffix}`, `UU${suffix}`]
+              : cat === 'pregacoes' || cat === 'feliz7play'
+              ? [`UULF${suffix}`, `UU${suffix}`, `UUPV${suffix}`]
+              : [`UU${suffix}`, `UUPV${suffix}`];
+          for (const pid of candidatePids) {
+            const tok = persistentPlaylistTokens[pid];
+            if (tok) {
+              rotateTargets.push({ pid, hint: cat, token: tok });
+              pickedForCat += 1;
+              break;
+            }
+          }
         }
+      }
+
+      for (const t of rotateTargets) {
+        reopenPlaylistPromises.push(
+          fetchChannelPlaylistPage(apiKey, t.pid, t.hint, t.token).then((r) => {
+            persistentPlaylistTokens[t.pid] = r.nextPageToken;
+            seedPlaylistTokens[t.pid] = r.nextPageToken;
+            return r.candidates;
+          })
+        );
       }
     }
 
-    if (lowUnseenCats.length > 0 || reopenPlaylistPromises.length > 0) {
+    if (discoveryTargets.length > 0 || reopenPlaylistPromises.length > 0) {
       try {
         const [playlistRes, discoveryRes] = await Promise.all([
           reopenPlaylistPromises.length > 0
             ? Promise.allSettled(reopenPlaylistPromises)
             : Promise.resolve([]),
-          lowUnseenCats.length > 0
+          discoveryTargets.length > 0
             ? Promise.allSettled(
-                lowUnseenCats.map((cat) => {
+                discoveryTargets.map((cat) => {
                   const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
                   const idx = globalDiscoveryOffsets[cat] % queries.length;
                   globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
@@ -1493,7 +1578,7 @@ export async function getCuratedChristianShorts(options: {
         }
         for (let i = 0; i < discoveryRes.length; i++) {
           const r = discoveryRes[i];
-          const targetCat = lowUnseenCats[i];
+          const targetCat = discoveryTargets[i];
           if (r.status !== 'fulfilled') continue;
           for (const item of r.value) {
             if (item.category === targetCat && !existingIds.has(item.id)) {
@@ -1541,7 +1626,8 @@ export async function getCuratedChristianShorts(options: {
         options.category === 'pregacoes' ||
         options.category === 'biblia' ||
         options.category === 'louvores' ||
-        options.category === 'testemunhos'
+        options.category === 'testemunhos' ||
+        options.category === 'feliz7play'
           ? options.category
           : null;
       const catHits = validCat
@@ -1582,7 +1668,14 @@ export async function getCuratedChristianShorts(options: {
   // When searching live on YouTube, merge live YouTube hits + accent-folded token catalog matches,
   // ranked by direct relevance to the user's query (not scrambled by channel publish date).
   if (trimmedQuery.length >= 2) {
-    const validCategories = new Set(['all', 'pregacoes', 'biblia', 'louvores', 'testemunhos']);
+    const validCategories = new Set([
+      'all',
+      'pregacoes',
+      'biblia',
+      'louvores',
+      'testemunhos',
+      'feliz7play',
+    ]);
     const category =
       options.category && validCategories.has(options.category) ? options.category : 'all';
     const queryTokens = foldSearchText(trimmedQuery).split(/\s+/).filter(Boolean);
@@ -1608,7 +1701,8 @@ export async function getCuratedChristianShorts(options: {
       category === 'pregacoes' ||
       category === 'biblia' ||
       category === 'louvores' ||
-      category === 'testemunhos'
+      category === 'testemunhos' ||
+      category === 'feliz7play'
         ? (category as ContentCategory)
         : undefined;
     const orderedSearch = deduplicateShorts(
@@ -1619,6 +1713,7 @@ export async function getCuratedChristianShorts(options: {
       biblia: 0,
       louvores: 0,
       testemunhos: 0,
+      feliz7play: 0,
     };
     for (const item of orderedSearch) counts[item.category] += 1;
     const filtered =
@@ -1662,7 +1757,8 @@ export async function getMoreChristianShorts(options: {
     options.category === 'pregacoes' ||
     options.category === 'biblia' ||
     options.category === 'louvores' ||
-    options.category === 'testemunhos'
+    options.category === 'testemunhos' ||
+    options.category === 'feliz7play'
       ? options.category
       : undefined;
   const trimmedQuery = (options.q || '').trim();
@@ -1718,6 +1814,7 @@ export async function getMoreChristianShorts(options: {
       biblia: 0,
       louvores: 0,
       testemunhos: 0,
+      feliz7play: 0,
     };
     for (const item of orderedPage) counts[item.category] += 1;
 
@@ -1739,6 +1836,7 @@ export async function getMoreChristianShorts(options: {
     'louvores',
     'biblia',
     'testemunhos',
+    'feliz7play',
   ];
 
   // Unlimited YouTube pagination via playlistItems.list + YouTube-wide discovery for EVERY category
@@ -1752,7 +1850,7 @@ export async function getMoreChristianShorts(options: {
     const getPlaylistIdForChannel = (ch: (typeof ALL_CURATED_CHANNELS)[number]): string => {
       const suffix = ch.id.slice(2);
       const hint = validCat || ch.defaultCategory;
-      if (hint === 'pregacoes') return `UULF${suffix}`;
+      if (hint === 'pregacoes' || hint === 'feliz7play') return `UULF${suffix}`;
       if (hint === 'biblia' && ch.defaultCategory === 'biblia') return `UUSH${suffix}`;
       return `UU${suffix}`;
     };

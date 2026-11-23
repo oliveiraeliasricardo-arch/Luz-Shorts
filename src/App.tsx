@@ -14,8 +14,10 @@ import {
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
-const SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
+const SAVED_STORAGE_KEY = 'gracaplay_saved_ids_v1';
+const SEEN_STORAGE_KEY = 'gracaplay_seen_ids_v1';
+const LEGACY_SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
+const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
 const MAX_SEEN_IDS = 5000;
 
 const MOBILE_FILTERS: Array<{ id: ShortCategory; label: string }> = [
@@ -24,12 +26,13 @@ const MOBILE_FILTERS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'biblia', label: 'Bíblia' },
   { id: 'louvores', label: 'Louvores' },
   { id: 'testemunhos', label: 'Testemunhos' },
+  { id: 'feliz7play', label: 'Feliz7Play' },
   { id: 'salvos', label: 'Salvos' },
 ];
 
-function readStoredIdList(key: string): string[] {
+function readStoredIdList(key: string, legacyKey?: string): string[] {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(key) ?? (legacyKey ? localStorage.getItem(legacyKey) : null);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
@@ -73,7 +76,7 @@ export function App() {
   const [activeCategory, setActiveCategory] = useState<ShortCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [savedIds, setSavedIds] = useState<string[]>(() =>
-    readStoredIdList(SAVED_STORAGE_KEY)
+    readStoredIdList(SAVED_STORAGE_KEY, LEGACY_SAVED_STORAGE_KEY)
   );
   const [activeIndex, setActiveIndex] = useState(0);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -87,6 +90,7 @@ export function App() {
     biblia: true,
     louvores: true,
     testemunhos: true,
+    feliz7play: true,
   });
   const [paginationRetryTick, setPaginationRetryTick] = useState(0);
   const [remoteSearchShorts, setRemoteSearchShorts] = useState<ChristianShort[] | null>(null);
@@ -97,7 +101,9 @@ export function App() {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const feedRef = useRef<HTMLDivElement | null>(null);
-  const seenIdsRef = useRef<string[]>(readStoredIdList(SEEN_STORAGE_KEY));
+  const seenIdsRef = useRef<string[]>(
+    readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY)
+  );
   const prevActiveIdRef = useRef<string | undefined>(undefined);
   const categoryCursorsRef = useRef<Record<string, string | null>>({});
   const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
@@ -136,7 +142,7 @@ export function App() {
         try {
           const params = new URLSearchParams();
           if (forceRefresh) params.set('refresh', '1');
-          const recentSeen = seenIdsRef.current.slice(0, 400);
+          const recentSeen = seenIdsRef.current.slice(0, 650);
           if (recentSeen.length > 0) {
             params.set('exclude', recentSeen.join(','));
           }
@@ -228,6 +234,7 @@ export function App() {
         biblia: true,
         louvores: true,
         testemunhos: true,
+        feliz7play: true,
       });
       setActiveIndex(0);
       if (feedRef.current) {
@@ -349,6 +356,7 @@ export function App() {
       biblia: 0,
       louvores: 0,
       testemunhos: 0,
+      feliz7play: 0,
     };
     for (const item of queryFiltered) {
       counts[item.category] += 1;
@@ -741,7 +749,7 @@ export function App() {
           aria-label="Reprodutor vertical de vídeos cristãos"
           className="w-full h-full min-h-0 lg:h-auto lg:w-auto flex-1 flex items-center justify-center"
         >
-          <div className="w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-7.5rem)] lg:max-h-[780px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative">
+          <div className="w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-8.75rem)] lg:max-h-[760px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative">
             {loading ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
                 <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />

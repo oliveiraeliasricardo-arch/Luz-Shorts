@@ -14,13 +14,13 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'Luz Shorts — Vídeos Cristãos',
-          short_name: 'Luz Shorts',
+          name: 'GraçaPlay — Vídeos Cristãos',
+          short_name: 'GraçaPlay',
           lang: 'pt-BR',
           description:
-            'Vídeos curtos cristãos com pregações e Bíblia na doutrina adventista, louvores e testemunhos.',
-          theme_color: '#0369a1',
-          background_color: '#f8fafc',
+            'Vídeos cristãos com pregações, Bíblia, Feliz7Play e animações bíblicas na doutrina adventista, louvores e testemunhos.',
+          theme_color: '#000000',
+          background_color: '#000000',
           display: 'standalone',
           orientation: 'portrait',
           start_url: '/',

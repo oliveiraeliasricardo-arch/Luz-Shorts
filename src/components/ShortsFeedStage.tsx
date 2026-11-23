@@ -842,7 +842,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                   </p>
                   <a
                     href={
-                      short.category === 'louvores' || short.category === 'pregacoes'
+                      short.category === 'louvores' ||
+                      short.category === 'pregacoes' ||
+                      short.category === 'feliz7play'
                         ? short.youtubeUrl
                         : short.shortsUrl
                     }
@@ -924,7 +926,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
 
                 <a
                   href={
-                    short.category === 'louvores' || short.category === 'pregacoes'
+                    short.category === 'louvores' ||
+                    short.category === 'pregacoes' ||
+                    short.category === 'feliz7play'
                       ? short.youtubeUrl
                       : short.shortsUrl
                   }

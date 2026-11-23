@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Bookmark, HeartHandshake, Mic, Music, Search, Sparkles, X } from 'lucide-react';
+import { BookOpen, Bookmark, Clapperboard, HeartHandshake, Mic, Music, Search, Sparkles, X } from 'lucide-react';
 import type { ContentCategory, ShortCategory } from '../types/shorts';
 
 interface ShortsSidebarProps {
@@ -49,6 +49,12 @@ const CATEGORIES: Array<{
     label: 'Testemunhos',
     subtitle: 'Todas as congregações',
     Icon: HeartHandshake,
+  },
+  {
+    id: 'feliz7play',
+    label: 'Feliz7Play',
+    subtitle: 'Séries e animações bíblicas',
+    Icon: Clapperboard,
   },
   {
     id: 'salvos',
@@ -156,8 +162,8 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
           Critério de Curadoria
         </h2>
         <p className="text-xs text-zinc-400 leading-relaxed">
-          Pregações e estudos de Bíblia e Evangelho são filtrados exclusivamente
-          dentro da doutrina Adventista do Sétimo Dia.
+          Pregações, Bíblia e Evangelho, Feliz7Play e animações bíblicas seguem
+          exclusivamente a doutrina Adventista do Sétimo Dia.
         </p>
         <p className="text-xs text-zinc-400 leading-relaxed">
           Louvores e testemunhos abrangem expressões cristãs de todas as

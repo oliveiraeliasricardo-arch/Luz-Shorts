@@ -12,6 +12,7 @@ const NAV_ITEMS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'biblia', label: 'Bíblia' },
   { id: 'louvores', label: 'Louvores' },
   { id: 'testemunhos', label: 'Testemunhos' },
+  { id: 'feliz7play', label: 'Feliz7Play' },
 ];
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -20,28 +21,30 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   return (
     <header className="shrink-0 sticky top-0 z-30 bg-black/95 backdrop-blur-md border-b border-zinc-900 safe-pt safe-px">
-      <div className="max-w-[1360px] mx-auto px-3 sm:px-6 h-[52px] lg:h-16 flex items-center justify-between gap-3 lg:gap-8">
-        {/* Zone 1: Single-line Brand Wordmark */}
-        <a
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            onSelectCategory('all');
-          }}
-          className="flex items-center gap-2.5 text-lg font-display font-bold tracking-tight text-white whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded-md"
-        >
-          <span className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 text-white flex items-center justify-center shrink-0">
-            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" aria-hidden="true">
-              <path d="M8 5.5v13l10-6.5-10-6.5z" />
-            </svg>
-          </span>
-          <span>Luz Shorts</span>
-        </a>
+      <div className="max-w-[1360px] mx-auto px-3 sm:px-6 flex flex-col items-center">
+        {/* Centered Brand Wordmark at the top */}
+        <div className="w-full h-12 lg:h-[52px] flex items-center justify-center">
+          <a
+            href="/"
+            onClick={(e) => {
+              e.preventDefault();
+              onSelectCategory('all');
+            }}
+            className="flex items-center gap-2.5 text-lg font-display font-bold tracking-tight text-white whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded-md"
+          >
+            <span className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 text-white flex items-center justify-center shrink-0">
+              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" aria-hidden="true">
+                <path d="M8 5.5v13l10-6.5-10-6.5z" />
+              </svg>
+            </span>
+            <span>GraçaPlay</span>
+          </a>
+        </div>
 
-        {/* Zone 2: Clean Single-Line Navigation Links */}
+        {/* Desktop Single-Line Centered Category Navigation */}
         <nav
           aria-label="Categorias principais"
-          className="hidden md:flex items-center gap-6"
+          className="hidden md:flex items-center justify-center gap-6 h-10 w-full border-t border-zinc-900/70"
         >
           {NAV_ITEMS.map((item) => {
             const isActive = activeCategory === item.id;

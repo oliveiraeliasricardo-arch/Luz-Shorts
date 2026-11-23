@@ -22,7 +22,7 @@ export async function fetchShortsOnNativeDevice(
     const response = await CapacitorHttp.get({
       url,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) LuzShorts/1.0',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) GracaPlay/1.0',
       },
       connectTimeout: 8000,
       readTimeout: 8000,
