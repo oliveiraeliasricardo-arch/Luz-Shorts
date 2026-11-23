@@ -12,6 +12,7 @@ import {
   decodeXmlEntities,
   fetchCuratedRssWithAdapter,
   formatFilteredResponse,
+  isUpcomingOrPremiereEntry,
   parseIso8601DurationSeconds,
 } from '../src/shared/curatorCore.ts';
 
@@ -169,9 +170,14 @@ async function fetchFromCuratedRss(pageIndex = 0): Promise<ChristianShort[]> {
 }
 
 function isYouTubeVideoPlayable(v: {
-  snippet?: { liveBroadcastContent?: string };
+  snippet?: { liveBroadcastContent?: string; publishedAt?: string };
   contentDetails?: { duration?: string };
-  status?: { embeddable?: boolean; privacyStatus?: string; publishAt?: string };
+  status?: {
+    embeddable?: boolean;
+    privacyStatus?: string;
+    publishAt?: string;
+    uploadStatus?: string;
+  };
   liveStreamingDetails?: {
     scheduledStartTime?: string;
     actualStartTime?: string;
@@ -180,26 +186,40 @@ function isYouTubeVideoPlayable(v: {
 }): { playable: boolean; durationSeconds: number | null } {
   const durationSeconds = parseIso8601DurationSeconds(v.contentDetails?.duration);
   const embeddable =
-    v.status?.embeddable !== false && v.status?.privacyStatus !== 'private';
+    v.status?.embeddable !== false &&
+    v.status?.privacyStatus !== 'private' &&
+    v.status?.privacyStatus !== 'unlisted';
   if (!embeddable) {
     return { playable: false, durationSeconds };
   }
 
+  if (v.status?.uploadStatus && v.status.uploadStatus !== 'processed') {
+    return { playable: false, durationSeconds };
+  }
+
   const broadcast = v.snippet?.liveBroadcastContent;
-  if (broadcast === 'upcoming' || broadcast === 'live') {
+  if (broadcast && broadcast !== 'none') {
     return { playable: false, durationSeconds };
   }
 
   const live = v.liveStreamingDetails;
-  if (live?.scheduledStartTime && !live?.actualStartTime) {
-    return { playable: false, durationSeconds };
-  }
-  if (live?.actualStartTime && !live?.actualEndTime) {
-    return { playable: false, durationSeconds };
+  if (live) {
+    const schedMs = live.scheduledStartTime ? Date.parse(live.scheduledStartTime) : NaN;
+    if (Number.isFinite(schedMs) && schedMs > Date.now()) {
+      return { playable: false, durationSeconds };
+    }
+    if (!live.actualStartTime || !live.actualEndTime) {
+      return { playable: false, durationSeconds };
+    }
   }
 
   const publishAtMs = v.status?.publishAt ? Date.parse(v.status.publishAt) : NaN;
   if (Number.isFinite(publishAtMs) && publishAtMs > Date.now()) {
+    return { playable: false, durationSeconds };
+  }
+
+  const snippetPubMs = v.snippet?.publishedAt ? Date.parse(v.snippet.publishedAt) : NaN;
+  if (Number.isFinite(snippetPubMs) && snippetPubMs > Date.now() + 60_000) {
     return { playable: false, durationSeconds };
   }
 
@@ -217,7 +237,6 @@ async function hydrateAndVerifyCandidates(
   if (candidates.size === 0) return [];
 
   const candidateIds = [...candidates.keys()];
-  const checkedIds = new Set<string>();
   const videoMeta = new Map<
     string,
     {
@@ -225,6 +244,7 @@ async function hydrateAndVerifyCandidates(
       durationSeconds: number | null;
       viewCount: number | null;
       fullDescription: string;
+      publishedAt: string | null;
     }
   >();
 
@@ -235,45 +255,63 @@ async function hydrateAndVerifyCandidates(
       part: 'snippet,contentDetails,statistics,status,liveStreamingDetails',
       id: chunk.join(','),
     });
-    const res = await fetch(
-      `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
-      { signal: AbortSignal.timeout(9000) }
-    );
-    if (!res.ok) continue;
-    for (const id of chunk) checkedIds.add(id);
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
+        { signal: AbortSignal.timeout(9000) }
+      );
+      if (!res.ok) continue;
 
-    const data = (await res.json()) as {
-      items?: Array<{
-        id: string;
-        snippet?: { description?: string; liveBroadcastContent?: string };
-        contentDetails?: { duration?: string };
-        statistics?: { viewCount?: string };
-        status?: { embeddable?: boolean; privacyStatus?: string; publishAt?: string };
-        liveStreamingDetails?: {
-          scheduledStartTime?: string;
-          actualStartTime?: string;
-          actualEndTime?: string;
-        };
-      }>;
-    };
-    for (const v of data.items ?? []) {
-      const check = isYouTubeVideoPlayable(v);
-      videoMeta.set(v.id, {
-        playable: check.playable,
-        durationSeconds: check.durationSeconds,
-        viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
-        fullDescription: decodeXmlEntities(v.snippet?.description || ''),
-      });
+      const data = (await res.json()) as {
+        items?: Array<{
+          id: string;
+          snippet?: {
+            description?: string;
+            liveBroadcastContent?: string;
+            publishedAt?: string;
+          };
+          contentDetails?: { duration?: string };
+          statistics?: { viewCount?: string };
+          status?: {
+            embeddable?: boolean;
+            privacyStatus?: string;
+            publishAt?: string;
+            uploadStatus?: string;
+          };
+          liveStreamingDetails?: {
+            scheduledStartTime?: string;
+            actualStartTime?: string;
+            actualEndTime?: string;
+          };
+        }>;
+      };
+      for (const v of data.items ?? []) {
+        const check = isYouTubeVideoPlayable(v);
+        videoMeta.set(v.id, {
+          playable: check.playable,
+          durationSeconds: check.durationSeconds,
+          viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
+          fullDescription: decodeXmlEntities(v.snippet?.description || ''),
+          publishedAt: v.snippet?.publishedAt || null,
+        });
+      }
+    } catch {
+      // Unverified chunks are excluded below rather than crashing or letting premieres leak
     }
   }
 
   const verifiedShorts: ChristianShort[] = [];
   for (const c of candidates.values()) {
     const meta = videoMeta.get(c.id);
-    if (checkedIds.has(c.id) && (!meta || !meta.playable)) continue;
-    if (meta && !meta.playable) continue;
+    // Strict API verification: never allow unverified, upcoming, or premiere candidates
+    if (!meta || !meta.playable) continue;
 
-    const fullDesc = meta?.fullDescription || c.description;
+    const fullDesc = meta.fullDescription || c.description;
+    const effectivePublishedAt = meta.publishedAt || c.publishedAt;
+    if (isUpcomingOrPremiereEntry(c.title, fullDesc, effectivePublishedAt)) {
+      continue;
+    }
+
     const classified = classifyShort(
       c.channelId,
       c.channelTitle,
@@ -507,7 +545,14 @@ async function fetchYoutubeWebSearch(
                         snippetText?: { runs?: Array<{ text?: string }> };
                       }>;
                       upcomingEventData?: unknown;
+                      publishedTimeText?: { simpleText?: string };
                       badges?: Array<{ metadataBadgeRenderer?: { label?: string; style?: string } }>;
+                      thumbnailOverlays?: Array<{
+                        thumbnailOverlayTimeStatusRenderer?: {
+                          style?: string;
+                          text?: { simpleText?: string; runs?: Array<{ text?: string }> };
+                        };
+                      }>;
                     };
                   }>;
                 };
@@ -533,7 +578,44 @@ async function fetchYoutubeWebSearch(
         const badges = (vr.badges ?? []).map((b) =>
           (b.metadataBadgeRenderer?.label || '').toLowerCase()
         );
-        if (badges.some((b) => b.includes('ao vivo') || b === 'live' || b.includes('estreia'))) {
+        if (
+          badges.some(
+            (b) =>
+              b.includes('ao vivo') ||
+              b === 'live' ||
+              b.includes('estreia') ||
+              b.includes('estr') ||
+              b.includes('em breve') ||
+              b.includes('premiere') ||
+              b.includes('upcoming') ||
+              b.includes('aguardando')
+          )
+        ) {
+          continue;
+        }
+
+        const hasUpcomingOverlay = (vr.thumbnailOverlays ?? []).some((ov) => {
+          const renderer = ov.thumbnailOverlayTimeStatusRenderer;
+          if (!renderer) return false;
+          if (renderer.style === 'UPCOMING' || renderer.style === 'LIVE') return true;
+          const ovText = (
+            renderer.text?.simpleText ||
+            (renderer.text?.runs ?? []).map((r) => r.text || '').join('')
+          ).toLowerCase();
+          return (
+            ovText.includes('estreia') ||
+            ovText.includes('em breve') ||
+            ovText.includes('ao vivo') ||
+            ovText.includes('premiere') ||
+            ovText.includes('upcoming')
+          );
+        });
+        if (hasUpcomingOverlay) continue;
+
+        const pubTimeText = (vr.publishedTimeText?.simpleText || '').toLowerCase();
+        if (
+          /\b(estreia|em breve|premieres|aguardando|scheduled)\b/i.test(pubTimeText)
+        ) {
           continue;
         }
 
@@ -553,6 +635,10 @@ async function fetchYoutubeWebSearch(
             .map((r) => r.text || '')
             .join('')
         );
+        if (isUpcomingOrPremiereEntry(title, description, '')) {
+          continue;
+        }
+
         const thumbs = vr.thumbnail?.thumbnails ?? [];
         const thumbnailUrl = thumbs[thumbs.length - 1]?.url;
 
@@ -932,8 +1018,33 @@ export async function getCuratedChristianShorts(options: {
         baseItems = buildDiverseFeed([...merged.values()], randomize);
         sourceMode = 'youtube_api';
       } catch {
-        baseItems = buildDiverseFeed(await fetchFromCuratedRss(0), randomize);
-        sourceMode = 'curated_rss';
+        const rssFallback = await fetchFromCuratedRss(0);
+        if (rssFallback.length > 0) {
+          const rssCandidates = new Map<string, CandidateVideo>(
+            rssFallback.map((item) => [
+              item.id,
+              {
+                id: item.id,
+                title: item.title,
+                description: item.description,
+                channelId: item.channelId,
+                channelTitle: item.channelTitle,
+                publishedAt: item.publishedAt,
+                thumbnailUrl: item.thumbnailUrl,
+                hintCategory: item.category,
+              },
+            ])
+          );
+          const verifiedFallback = await hydrateAndVerifyCandidates(apiKey, rssCandidates);
+          baseItems = buildDiverseFeed(
+            verifiedFallback.length > 0 ? verifiedFallback : rssFallback,
+            randomize
+          );
+          sourceMode = verifiedFallback.length > 0 ? 'youtube_api' : 'curated_rss';
+        } else {
+          baseItems = [];
+          sourceMode = 'curated_rss';
+        }
       }
     } else {
       baseItems = buildDiverseFeed(await fetchFromCuratedRss(0), randomize);
@@ -1339,53 +1450,63 @@ export async function lookupSingleShort(videoId: string): Promise<ChristianShort
         const data = (await res.json()) as {
           items?: Array<{
             id: string;
-            snippet?: {
-              title?: string;
-              description?: string;
-              channelId?: string;
-              channelTitle?: string;
-              publishedAt?: string;
-              liveBroadcastContent?: string;
-              thumbnails?: { high?: { url?: string } };
-            };
-            contentDetails?: { duration?: string };
-            statistics?: { viewCount?: string };
-            status?: { embeddable?: boolean; privacyStatus?: string; publishAt?: string };
-            liveStreamingDetails?: {
-              scheduledStartTime?: string;
-              actualStartTime?: string;
-              actualEndTime?: string;
-            };
-          }>;
-        };
-        const v = data.items?.[0];
-        if (!v || !v.snippet) return null;
-        const check = isYouTubeVideoPlayable(v);
-        if (!check.playable) return null;
-
-        const classified = classifyShort(
-          v.snippet.channelId || '',
-          v.snippet.channelTitle || '',
-          v.snippet.title || '',
-          v.snippet.description || ''
-        );
-        if (!classified) return null;
-        return buildShortRecord({
-          id: v.id,
-          title: v.snippet.title || 'Vídeo Cristão',
-          description: v.snippet.description || '',
-          channelId: v.snippet.channelId || '',
-          channelTitle: v.snippet.channelTitle || '',
-          publishedAt: v.snippet.publishedAt || new Date().toISOString(),
-          thumbnailUrl: v.snippet.thumbnails?.high?.url,
-          category: classified.category,
-          doctrineScope: classified.doctrineScope,
-          durationSeconds: check.durationSeconds,
-          viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
-        });
+          snippet?: {
+            title?: string;
+            description?: string;
+            channelId?: string;
+            channelTitle?: string;
+            publishedAt?: string;
+            liveBroadcastContent?: string;
+            thumbnails?: { high?: { url?: string } };
+          };
+          contentDetails?: { duration?: string };
+          statistics?: { viewCount?: string };
+          status?: {
+            embeddable?: boolean;
+            privacyStatus?: string;
+            publishAt?: string;
+            uploadStatus?: string;
+          };
+          liveStreamingDetails?: {
+            scheduledStartTime?: string;
+            actualStartTime?: string;
+            actualEndTime?: string;
+          };
+        }>;
+      };
+      const v = data.items?.[0];
+      if (!v || !v.snippet) return null;
+      const check = isYouTubeVideoPlayable(v);
+      if (!check.playable) return null;
+      const pubAt = v.snippet.publishedAt || new Date().toISOString();
+      if (isUpcomingOrPremiereEntry(v.snippet.title || '', v.snippet.description || '', pubAt)) {
+        return null;
       }
+
+      const classified = classifyShort(
+        v.snippet.channelId || '',
+        v.snippet.channelTitle || '',
+        v.snippet.title || '',
+        v.snippet.description || ''
+      );
+      if (!classified) return null;
+      return buildShortRecord({
+        id: v.id,
+        title: v.snippet.title || 'Vídeo Cristão',
+        description: v.snippet.description || '',
+        channelId: v.snippet.channelId || '',
+        channelTitle: v.snippet.channelTitle || '',
+        publishedAt: pubAt,
+        thumbnailUrl: v.snippet.thumbnails?.high?.url,
+        category: classified.category,
+        doctrineScope: classified.doctrineScope,
+        durationSeconds: check.durationSeconds,
+        viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
+      });
+    }
+    return null;
     } catch {
-      // Fall through to oEmbed check
+      return null;
     }
   }
 
@@ -1402,6 +1523,7 @@ export async function lookupSingleShort(videoId: string): Promise<ChristianShort
     };
     const title = data.title || '';
     const author = data.author_name || '';
+    if (isUpcomingOrPremiereEntry(title, '', '')) return null;
     const classified = classifyShort('', author, title, '');
     if (!classified) return null;
 

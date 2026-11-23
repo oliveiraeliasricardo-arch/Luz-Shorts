@@ -940,7 +940,7 @@ function getTodaySaoPauloYmd(): string {
   }
 }
 
-function isUpcomingOrPremiereEntry(
+export function isUpcomingOrPremiereEntry(
   title: string,
   description: string,
   publishedAt: string
@@ -950,9 +950,10 @@ function isUpcomingOrPremiereEntry(
     return true;
   }
 
-  const text = `${title} ${description.slice(0, 240)}`;
+  const descHead = description.slice(0, 300);
+  const text = `${title} ${descHead}`;
   if (
-    /\b(aguardando estreia|estreia em breve|estreia hoje|estreia dia \d|assista [àa] estreia|come[cç]a em breve)\b/i.test(
+    /\b(aguardando estreia|estreia em breve|estreia hoje|estreia amanh[ãa]|estreia dia \d|estreia [àa]s \d|estr[eé]ia em|vai estrear|estrear[áa]|assista [àa] estreia|come[cç]a em breve|dispon[ií]vel em \d|dispon[ií]vel dia \d|lan[cç]amento dia \d|live especial .* neste (domingo|s[aá]bado|sexta)|premieres in|premiere at|upcoming premiere|scheduled for)\b/i.test(
       text
     )
   ) {
@@ -960,7 +961,7 @@ function isUpcomingOrPremiereEntry(
   }
 
   const todayYmd = getTodaySaoPauloYmd();
-  const dateMatches = title.matchAll(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/g);
+  const dateMatches = text.matchAll(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/g);
   for (const m of dateMatches) {
     const day = Number(m[1]);
     const month = Number(m[2]);
