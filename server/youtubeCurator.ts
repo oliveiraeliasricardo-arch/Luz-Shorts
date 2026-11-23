@@ -157,15 +157,31 @@ const NOVO_HINARIO_PLAYLISTS: string[] = [
 ];
 
 const ADORADORES_PLAYLISTS: string[] = [
-  'PLnjYWXTXSkDpfADeUa3LJkhdzzXwsqD_P', // Adoradores 5
-  'PLnjYWXTXSkDr-jo4daf3ZOkzccvMxsrb1', // Adoradores 5 Congregacional
+  'PLGd1LrnOTfcu_5cTv_hXG2NhMb1CfULoK', // Adoradores Novo Tempo - Coletânea Completa
+  'PLyTP3IYISkzDLs4oQg6GFBFpPa6HyByZb', // ADORADORES 1, 2, 3, 4 e 5
+  'PLpcvYkqB-HJFgYQEjkdxBPpzQ6Xk5s8nr', // Adoradores 1 | Gravadora Novo Tempo
+  'PLpcvYkqB-HJE78QiaOqlmjK4HH_AiL78j', // Adoradores 2 | Gravadora Novo Tempo
+  'PLyTP3IYISkzC-3rY1yHEZJttVW81XsgfT', // Adoradores 2 - Português (Congregacional)
+  'PLpcvYkqB-HJEcQ1SbmDoi8NQ5wnD-yQqz', // Adoradores 3 | Gravadora Novo Tempo
+  'PLyTP3IYISkzDFW5GQowKB2HPyBTlAmMDU', // Adoradores 3 - Português (Congregacional)
   'PLnjYWXTXSkDrri7WFuBCYB5Ljo9uhbOUG', // Adoradores 4 Ao Vivo
   'PLnjYWXTXSkDqUHHAprAtUaoj-u_cOO_iq', // Adoradores 4 Congregacional
+  'PLnjYWXTXSkDpfADeUa3LJkhdzzXwsqD_P', // Adoradores 5
+  'PLnjYWXTXSkDr-jo4daf3ZOkzccvMxsrb1', // Adoradores 5 Congregacional
 ];
 
 const CD_JOVEM_PLAYLISTS: string[] = [
   'PL4sNlZt4GK2gdDHuCLJo7zbBrAgrejKgZ', // CD Jovem 2025 - Venha o Teu Reino
+  'PLbVEebfqK46x3MZ9MSjtSy8Z7p8lUIblW', // Tema Jovem 2021-2026
+  'PLJL3zUYFtkP_UhdQDQ3qIqAeHQtahqbkP', // CD Jovem 2020
+  'PL-EHuXADFVigifAI3blR0zMp163K7GfIM', // CD Jovem 2018
+  'PLdKdSz4_lV0psVHoo6-hquHfyTKu7O-Gl', // Coletânea Jovem 2018 (Menos Um)
+  'PLcR_3qk8j1yxdV5q-zBcojO5MCUufzz7E', // CD Jovem 2016/2017
+  'PL4sNlZt4GK2hONK721JkhSvIBYSk1xO7z', // CD Jovem 2014 - A Única Esperança
+  'PL4sNlZt4GK2hrCEY0pAyXvLMnDpa9EOrK', // CD Jovem 2012 - A Grande Esperança
+  'PLMfYI5C08mSV9YpRRSsQexPUHAQnXRoti', // CD Jovem 2010
   'PL4sNlZt4GK2ieNVMyoEWFpJ1zftJXLcj-', // CD Jovem 2008 - Vivo Por Jesus
+  'PLMfYI5C08mSXbcjjZmVBHaJvVedK156l7', // CD Jovem 2006
   'PL4sNlZt4GK2jISkKyc2RdLSWqzMLkqk3C', // CD Jovem 2002 - Você Me Pertence
   'PL4sNlZt4GK2icCEOA5pAtNztbdP6ro_-6', // CD Jovem 2001 - Quase no Lar
   'PL4sNlZt4GK2jyMHUzZ3RJ2tf9suE3DKuZ', // CD Jovem 1999 - Rumo ao Porto Seguro
@@ -175,7 +191,6 @@ const CD_JOVEM_PLAYLISTS: string[] = [
   'PL4sNlZt4GK2jgaK_KX3BUMZaAzYhkuv7V', // Ministério Jovem - Creio
   'PLdKdSz4_lV0pHU80h21bq3uNR07-KaROd', // CD Jovem / CD JA (Menos Um)
   'PLdKdSz4_lV0rcBygal6Pb4CYL2YQDpNGK', // Ministério Jovem Novo (Menos Um)
-  'PLdKdSz4_lV0psVHoo6-hquHfyTKu7O-Gl', // Coletânea Jovem 2018 (Menos Um)
 ];
 
 interface CandidateVideo {
@@ -493,8 +508,8 @@ function isWithinCategoryDuration(
 ): boolean {
   if (durationSeconds == null) return true;
   if (searchMode) {
-    // Live search allows broader durations across all categories (including full Bible studies, sermons, albums & Feliz7Play series)
-    if (category === 'louvores') return durationSeconds >= 25 && durationSeconds <= 7200;
+    // Live search allows broader durations across all categories (including full albums & 3h worship sets)
+    if (category === 'louvores') return durationSeconds >= 20 && durationSeconds <= 14400;
     if (category === 'pregacoes') return durationSeconds >= 25 && durationSeconds <= 10800;
     if (category === 'biblia') return durationSeconds >= 15 && durationSeconds <= 10800;
     if (category === 'testemunhos') return durationSeconds >= 15 && durationSeconds <= 10800;
@@ -518,7 +533,7 @@ function isWithinCategoryDuration(
         title
       );
     const minSec = isHinarioOrYouth ? 30 : 75;
-    const maxSec = isColetanea ? 4500 : 1200;
+    const maxSec = isColetanea ? 7200 : 1200;
     return durationSeconds >= minSec && durationSeconds <= maxSec;
   }
   if (category === 'pregacoes') {
@@ -563,6 +578,7 @@ async function fetchFromYoutubeApi(
     playlistId: string;
     hintCategory: ContentCategory;
     pageToken: string | null;
+    maxResults?: number;
   }> = channels.map((spec) => {
     const suffix = spec.id.slice(2);
     const playlistId =
@@ -576,25 +592,25 @@ async function fetchFromYoutubeApi(
     const savedToken = persistentPlaylistTokens[playlistId] ?? null;
     const pageToken =
       savedToken && (advancePlaylists || Math.random() < 0.78) ? savedToken : null;
-    return { hintCategory: spec.defaultCategory, playlistId, pageToken };
+    return { hintCategory: spec.defaultCategory, playlistId, pageToken, maxResults: 25 };
   });
 
-  // Always guarantee generous representation of Novo Hinário Adventista (1-600),
-  // CD Jovem / Ministério Jovem, and Adoradores on every catalog build.
+  // Always guarantee rich representation of Novo Hinário Adventista (all 600 hymns),
+  // CD Jovem / Ministério Jovem (1996-2026), and Adoradores (1-5) on every catalog build.
   const specialBatch = [
-    ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 4),
-    ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 5),
-    ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 2),
+    ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, NOVO_HINARIO_PLAYLISTS.length),
+    ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 7),
+    ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 5),
   ];
   for (const playlistId of specialBatch) {
     const savedToken = persistentPlaylistTokens[playlistId] ?? null;
-    const pageToken = savedToken && (advancePlaylists || Math.random() < 0.75) ? savedToken : null;
-    requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken });
+    const pageToken = savedToken && (advancePlaylists || Math.random() < 0.78) ? savedToken : null;
+    requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken, maxResults: 45 });
   }
 
   const responses = await Promise.allSettled(
     requestMeta.map((m) =>
-      fetchChannelPlaylistPage(apiKey, m.playlistId, m.hintCategory, m.pageToken)
+      fetchChannelPlaylistPage(apiKey, m.playlistId, m.hintCategory, m.pageToken, m.maxResults ?? 25)
     )
   );
   const candidates = new Map<string, CandidateVideo>();
@@ -628,13 +644,14 @@ async function fetchChannelPlaylistPage(
   apiKey: string,
   playlistId: string,
   hintCategory: ContentCategory,
-  pageToken?: string | null
+  pageToken?: string | null,
+  maxResults = 25
 ): Promise<{ candidates: CandidateVideo[]; nextPageToken: string | null }> {
   const params = new URLSearchParams({
     key: apiKey,
     part: 'snippet,contentDetails',
     playlistId,
-    maxResults: '25',
+    maxResults: String(Math.min(50, Math.max(10, maxResults))),
   });
   if (pageToken) {
     params.set('pageToken', pageToken);
@@ -724,6 +741,31 @@ async function fetchYoutubeWebSearch(
     const match = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
     if (!match) return [];
 
+    type WebVideoRenderer = {
+      videoId?: string;
+      title?: { runs?: Array<{ text?: string }> };
+      ownerText?: {
+        runs?: Array<{
+          text?: string;
+          navigationEndpoint?: { browseEndpoint?: { browseId?: string } };
+        }>;
+      };
+      lengthText?: { simpleText?: string };
+      thumbnail?: { thumbnails?: Array<{ url?: string }> };
+      detailedMetadataSnippets?: Array<{
+        snippetText?: { runs?: Array<{ text?: string }> };
+      }>;
+      upcomingEventData?: unknown;
+      publishedTimeText?: { simpleText?: string };
+      badges?: Array<{ metadataBadgeRenderer?: { label?: string; style?: string } }>;
+      thumbnailOverlays?: Array<{
+        thumbnailOverlayTimeStatusRenderer?: {
+          style?: string;
+          text?: { simpleText?: string; runs?: Array<{ text?: string }> };
+        };
+      }>;
+    };
+
     const data = JSON.parse(match[1]) as {
       contents?: {
         twoColumnSearchResultsRenderer?: {
@@ -732,29 +774,12 @@ async function fetchYoutubeWebSearch(
               contents?: Array<{
                 itemSectionRenderer?: {
                   contents?: Array<{
-                    videoRenderer?: {
-                      videoId?: string;
-                      title?: { runs?: Array<{ text?: string }> };
-                      ownerText?: {
-                        runs?: Array<{
-                          text?: string;
-                          navigationEndpoint?: { browseEndpoint?: { browseId?: string } };
-                        }>;
+                    videoRenderer?: WebVideoRenderer;
+                    shelfRenderer?: {
+                      content?: {
+                        verticalListRenderer?: { items?: Array<{ videoRenderer?: WebVideoRenderer }> };
+                        horizontalListRenderer?: { items?: Array<{ videoRenderer?: WebVideoRenderer }> };
                       };
-                      lengthText?: { simpleText?: string };
-                      thumbnail?: { thumbnails?: Array<{ url?: string }> };
-                      detailedMetadataSnippets?: Array<{
-                        snippetText?: { runs?: Array<{ text?: string }> };
-                      }>;
-                      upcomingEventData?: unknown;
-                      publishedTimeText?: { simpleText?: string };
-                      badges?: Array<{ metadataBadgeRenderer?: { label?: string; style?: string } }>;
-                      thumbnailOverlays?: Array<{
-                        thumbnailOverlayTimeStatusRenderer?: {
-                          style?: string;
-                          text?: { simpleText?: string; runs?: Array<{ text?: string }> };
-                        };
-                      }>;
                     };
                   }>;
                 };
@@ -770,9 +795,21 @@ async function fetchYoutubeWebSearch(
         ?.contents ?? [];
     const candidates = new Map<string, CandidateVideo>();
 
+    const extractedRenderers: WebVideoRenderer[] = [];
     for (const sec of sections) {
       for (const item of sec.itemSectionRenderer?.contents ?? []) {
-        const vr = item.videoRenderer;
+        if (item.videoRenderer) extractedRenderers.push(item.videoRenderer);
+        const shelfItems = item.shelfRenderer?.content;
+        for (const sItem of shelfItems?.verticalListRenderer?.items ?? []) {
+          if (sItem.videoRenderer) extractedRenderers.push(sItem.videoRenderer);
+        }
+        for (const hItem of shelfItems?.horizontalListRenderer?.items ?? []) {
+          if (hItem.videoRenderer) extractedRenderers.push(hItem.videoRenderer);
+        }
+      }
+    }
+
+    for (const vr of extractedRenderers) {
         if (!vr?.videoId) continue;
         if (excludeIds?.has(vr.videoId)) continue;
         if (vr.upcomingEventData) continue;
@@ -855,7 +892,6 @@ async function fetchYoutubeWebSearch(
           hintCategory,
           durationSeconds,
         });
-      }
     }
 
     if (candidates.size === 0) return [];
@@ -1041,23 +1077,29 @@ async function fetchLiveYoutubeSearch(
     if (validCat === 'louvores') {
       webFanQueries.push({ q: cleanQuery, hint: 'louvores', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} louvor`, hint: 'louvores', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} oficial ao vivo`, hint: 'louvores', sortByDate: false });
     } else if (validCat === 'testemunhos') {
-      webFanQueries.push({ q: `${cleanQuery} testemunho`, hint: 'testemunhos', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} testemunho cristão`, hint: 'testemunhos', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} testemunho conversão`, hint: 'testemunhos', sortByDate: false });
       webFanQueries.push({ q: cleanQuery, hint: 'testemunhos', sortByDate: true });
     } else if (validCat === 'pregacoes') {
       webFanQueries.push({ q: `${cleanQuery} pregação adventista`, hint: 'pregacoes', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} sermão adventista`, hint: 'pregacoes', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} adventista`, hint: 'pregacoes', sortByDate: false });
     } else if (validCat === 'biblia') {
       webFanQueries.push({ q: `${cleanQuery} estudo bíblico adventista`, hint: 'biblia', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} bíblia adventista`, hint: 'biblia', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} rodrigo silva na mira`, hint: 'biblia', sortByDate: false });
     } else if (validCat === 'feliz7play') {
       webFanQueries.push({ q: `${cleanQuery} feliz7play`, hint: 'feliz7play', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} animação bíblica adventista`, hint: 'feliz7play', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} nt kids desenho bíblico`, hint: 'feliz7play', sortByDate: false });
     } else {
-      // "Todos": combine broad exact query + Christian worship/message/Bible/Feliz7Play reach
+      // "Todos": maximum breadth across exact query + Christian worship + Adventist + Testimonies
       webFanQueries.push({ q: cleanQuery, hint: undefined, sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} louvor gospel`, hint: 'louvores', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} adventista`, hint: undefined, sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} testemunho`, hint: 'testemunhos', sortByDate: false });
     }
   }
 
@@ -1477,13 +1519,14 @@ export async function getCuratedChristianShorts(options: {
     }
     const discoveryTargets = [...reopenDiscoveryCats];
 
+    const reopenAdditions: ChristianShort[] = [];
     const reopenPlaylistPromises: Array<Promise<CandidateVideo[]>> = [];
     if (apiKeyConfigured) {
       const rotateTargets: Array<{ pid: string; hint: ContentCategory; token: string }> = [];
       const rotateSpecial = [
-        ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
-        ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 2),
-        ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 1),
+        ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 3),
+        ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 4),
+        ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 3),
       ];
       for (const pid of rotateSpecial) {
         const tok = persistentPlaylistTokens[pid];
@@ -1521,7 +1564,7 @@ export async function getCuratedChristianShorts(options: {
 
       for (const t of rotateTargets) {
         reopenPlaylistPromises.push(
-          fetchChannelPlaylistPage(apiKey, t.pid, t.hint, t.token).then((r) => {
+          fetchChannelPlaylistPage(apiKey, t.pid, t.hint, t.token, 35).then((r) => {
             persistentPlaylistTokens[t.pid] = r.nextPageToken;
             seedPlaylistTokens[t.pid] = r.nextPageToken;
             return r.candidates;
@@ -1569,11 +1612,10 @@ export async function getCuratedChristianShorts(options: {
             ? await hydrateAndVerifyCandidates(apiKey, extraCandidates)
             : [];
 
-        const additions: ChristianShort[] = [];
         for (const item of hydratedPlaylists) {
           if (!existingIds.has(item.id)) {
             existingIds.add(item.id);
-            additions.push(item);
+            reopenAdditions.push(item);
           }
         }
         for (let i = 0; i < discoveryRes.length; i++) {
@@ -1583,13 +1625,13 @@ export async function getCuratedChristianShorts(options: {
           for (const item of r.value) {
             if (item.category === targetCat && !existingIds.has(item.id)) {
               existingIds.add(item.id);
-              additions.push(item);
+              reopenAdditions.push(item);
             }
           }
         }
 
-        if (additions.length > 0 && cachedCatalog) {
-          poolItems = [...additions, ...poolItems].slice(0, MAX_CACHED_CATALOG_ITEMS);
+        if (reopenAdditions.length > 0 && cachedCatalog) {
+          poolItems = [...reopenAdditions, ...poolItems].slice(0, MAX_CACHED_CATALOG_ITEMS);
           cachedCatalog.items = poolItems;
           cachedCatalog.playlistTokens = seedPlaylistTokens;
         }
@@ -1597,16 +1639,35 @@ export async function getCuratedChristianShorts(options: {
         // Keep existing pool on transient discovery errors
       }
     }
+
+    const freshIds = new Set(reopenAdditions.map((i) => i.id));
+    const freshUnseen = reopenAdditions.filter((item) => !clientExcludeSet.has(item.id));
+    const olderUnseen = poolItems.filter(
+      (item) => !clientExcludeSet.has(item.id) && !freshIds.has(item.id)
+    );
+    const seenPool = poolItems.filter((item) => clientExcludeSet.has(item.id));
+    poolItems = [
+      ...buildDiverseFeed(freshUnseen, true),
+      ...buildDiverseFeed(olderUnseen, true),
+      ...buildDiverseFeed(seenPool, true),
+    ];
   }
 
   // Always vary the opening order across categories and channels on every entry,
   // and place unseen videos ahead of anything the user already watched.
-  const unseenPool = poolItems.filter((item) => !clientExcludeSet.has(item.id));
-  const seenPool = poolItems.filter((item) => clientExcludeSet.has(item.id));
-  const baseItems = [
-    ...buildDiverseFeed(unseenPool, true),
-    ...buildDiverseFeed(seenPool, true),
-  ];
+  const baseItems =
+    !trimmedQuery && clientExcludeSet.size > 0
+      ? poolItems
+      : [
+          ...buildDiverseFeed(
+            poolItems.filter((item) => !clientExcludeSet.has(item.id)),
+            true
+          ),
+          ...buildDiverseFeed(
+            poolItems.filter((item) => clientExcludeSet.has(item.id)),
+            true
+          ),
+        ];
 
   // If user searches with a query, query YouTube live (API search.list + multi-angle web search)
   let searchToken: string | null = null;
@@ -1634,7 +1695,7 @@ export async function getCuratedChristianShorts(options: {
         ? liveCollected.filter((i) => i.category === validCat).length
         : liveCollected.length;
 
-      if (catHits < 8 && searchToken) {
+      if (catHits < 20 && searchToken) {
         const secondPage = await fetchLiveYoutubeSearch(
           apiKey,
           trimmedQuery,
@@ -1706,7 +1767,8 @@ export async function getCuratedChristianShorts(options: {
         ? (category as ContentCategory)
         : undefined;
     const orderedSearch = deduplicateShorts(
-      rankSearchResults([...mergedSearch.values()], trimmedQuery, validPrefCat)
+      rankSearchResults([...mergedSearch.values()], trimmedQuery, validPrefCat),
+      { allowSameSongVariants: true }
     );
     const counts: Record<ContentCategory, number> = {
       pregacoes: 0,
@@ -1808,7 +1870,10 @@ export async function getMoreChristianShorts(options: {
       return true;
     });
 
-    const orderedPage = deduplicateShorts(rankSearchResults(fresh, trimmedQuery, validCat));
+    const orderedPage = deduplicateShorts(
+      rankSearchResults(fresh, trimmedQuery, validCat),
+      { allowSameSongVariants: true }
+    );
     const counts: Record<ContentCategory, number> = {
       pregacoes: 0,
       biblia: 0,

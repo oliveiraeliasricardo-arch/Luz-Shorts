@@ -16,9 +16,31 @@ import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const SAVED_STORAGE_KEY = 'gracaplay_saved_ids_v1';
 const SEEN_STORAGE_KEY = 'gracaplay_seen_ids_v1';
+const LAST_SESSION_TOP_KEY = 'gracaplay_last_top_v1';
 const LEGACY_SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
 const MAX_SEEN_IDS = 5000;
+
+function extractSessionTopIds(items: ChristianShort[]): string[] {
+  const picked = new Set<string>();
+  for (const item of items.slice(0, 10)) {
+    picked.add(item.id);
+  }
+  const categories: ContentCategory[] = [
+    'pregacoes',
+    'biblia',
+    'louvores',
+    'testemunhos',
+    'feliz7play',
+  ];
+  for (const cat of categories) {
+    const topForCat = items.filter((item) => item.category === cat).slice(0, 6);
+    for (const item of topForCat) {
+      picked.add(item.id);
+    }
+  }
+  return Array.from(picked).slice(0, 45);
+}
 
 const MOBILE_FILTERS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'all', label: 'Todos' },
@@ -96,6 +118,8 @@ export function App() {
   const [remoteSearchShorts, setRemoteSearchShorts] = useState<ChristianShort[] | null>(null);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
   const [searchHasMore, setSearchHasMore] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchSubmitTick, setSearchSubmitTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ChristianShort | null>(null);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -104,12 +128,16 @@ export function App() {
   const seenIdsRef = useRef<string[]>(
     readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY)
   );
+  const lastSessionTopRef = useRef<string[]>(readStoredIdList(LAST_SESSION_TOP_KEY));
   const prevActiveIdRef = useRef<string | undefined>(undefined);
   const categoryCursorsRef = useRef<Record<string, string | null>>({});
   const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
   const emptyRetryCountRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
   const activeSearchTermRef = useRef('');
+  const remoteSearchQueryRef = useRef('');
+  const remoteSearchLoadedCatsRef = useRef<Set<string>>(new Set());
+  const lastSearchSubmitTickRef = useRef(0);
 
   const markShortSeen = useCallback((shortId: string | undefined) => {
     if (!shortId) return;
@@ -136,15 +164,21 @@ export function App() {
 
     try {
       let data: ShortsApiResponse | null = null;
+      let usedOfflineFallback = false;
       const nativeApp = isNativeCapacitorApp();
 
       if (!nativeApp || API_BASE_URL.length > 0) {
         try {
           const params = new URLSearchParams();
           if (forceRefresh) params.set('refresh', '1');
-          const recentSeen = seenIdsRef.current.slice(0, 650);
-          if (recentSeen.length > 0) {
-            params.set('exclude', recentSeen.join(','));
+          const excludeIds = Array.from(
+            new Set([
+              ...lastSessionTopRef.current.slice(0, 45),
+              ...seenIdsRef.current.slice(0, 600),
+            ])
+          ).slice(0, 645);
+          if (excludeIds.length > 0) {
+            params.set('exclude', excludeIds.join(','));
           }
           const res = await fetch(
             `${API_BASE_URL}/api/shorts${params.toString() ? `?${params.toString()}` : ''}`
@@ -162,16 +196,28 @@ export function App() {
 
       if (!data) {
         data = await fetchShortsOnNativeDevice(forceRefresh);
+        usedOfflineFallback = true;
       }
 
-      // Prioritize unseen videos in a fresh random spread on every entry
+      // Preserve the server's balanced bucket ordering (Hinário, CD Jovem, Adoradores, Gospel Geral
+      // and per-category balance), while demoting previously shown top items and watched items.
+      const orderedSource = usedOfflineFallback
+        ? spreadChannelOrder(shuffleArray(data.items))
+        : data.items;
+
       const seenSet = new Set(seenIdsRef.current);
-      const unseenItems = data.items.filter((item) => !seenSet.has(item.id));
-      const seenItems = data.items.filter((item) => seenSet.has(item.id));
+      const lastTopSet = new Set(lastSessionTopRef.current);
+      const unseenFresh = orderedSource.filter(
+        (item) => !seenSet.has(item.id) && !lastTopSet.has(item.id)
+      );
+      const unseenPrevTop = orderedSource.filter(
+        (item) => !seenSet.has(item.id) && lastTopSet.has(item.id)
+      );
+      const seenItems = orderedSource.filter((item) => seenSet.has(item.id));
 
       let items: ChristianShort[];
-      if (unseenItems.length === 0 && seenItems.length > 0) {
-        // Keep the most recent 250 seen IDs protected so recently watched louvores never jump back to the front
+      if (unseenFresh.length === 0 && unseenPrevTop.length === 0 && seenItems.length > 0) {
+        // Keep the most recent 250 seen IDs protected so recently watched videos stay at the end
         const recentOnly = seenIdsRef.current.slice(0, 250);
         seenIdsRef.current = recentOnly;
         try {
@@ -181,18 +227,20 @@ export function App() {
         }
         const recentSet = new Set(recentOnly);
         items = [
-          ...spreadChannelOrder(
-            shuffleArray(data.items.filter((item) => !recentSet.has(item.id)))
-          ),
-          ...spreadChannelOrder(
-            shuffleArray(data.items.filter((item) => recentSet.has(item.id)))
-          ),
+          ...orderedSource.filter((item) => !recentSet.has(item.id)),
+          ...orderedSource.filter((item) => recentSet.has(item.id)),
         ];
       } else {
-        items = [
-          ...spreadChannelOrder(shuffleArray(unseenItems)),
-          ...spreadChannelOrder(shuffleArray(seenItems)),
-        ];
+        items = [...unseenFresh, ...unseenPrevTop, ...seenItems];
+      }
+
+      // Record top items from this session so reopening immediately rotates them out
+      const nextSessionTop = extractSessionTopIds(items);
+      lastSessionTopRef.current = nextSessionTop;
+      try {
+        localStorage.setItem(LAST_SESSION_TOP_KEY, JSON.stringify(nextSessionTop));
+      } catch {
+        // Ignore storage quota errors
       }
 
       // Support direct shared video links (?v=VIDEO_ID) on initial load
@@ -258,37 +306,72 @@ export function App() {
     loadShorts(false);
   }, [loadShorts]);
 
-  // Debounced live YouTube search whenever user types a query (>= 2 chars)
+  // Debounced live YouTube search whenever user types a query (>= 2 chars) or submits Enter
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (trimmed.length < 2) {
       activeSearchTermRef.current = '';
+      remoteSearchQueryRef.current = '';
+      remoteSearchLoadedCatsRef.current.clear();
       setRemoteSearchShorts(null);
       setSearchCursor(null);
       setSearchHasMore(false);
+      setIsSearching(false);
       return;
     }
 
     const nativeApp = isNativeCapacitorApp();
     if (nativeApp && API_BASE_URL.length === 0) {
+      setIsSearching(false);
+      return;
+    }
+
+    const targetCategory = activeCategory === 'salvos' ? 'all' : activeCategory;
+    const isManualSubmit = searchSubmitTick !== lastSearchSubmitTickRef.current;
+    lastSearchSubmitTickRef.current = searchSubmitTick;
+
+    if (
+      !isManualSubmit &&
+      remoteSearchQueryRef.current === trimmed &&
+      remoteSearchLoadedCatsRef.current.has(targetCategory)
+    ) {
+      setIsSearching(false);
       return;
     }
 
     let cancelled = false;
+    setIsSearching(true);
+    const delayMs = isManualSubmit
+      ? 0
+      : remoteSearchQueryRef.current === trimmed
+        ? 120
+        : 380;
+
     const timer = window.setTimeout(async () => {
       try {
         const params = new URLSearchParams({
           q: trimmed,
-          category: activeCategory === 'salvos' ? 'all' : activeCategory,
+          category: targetCategory,
         });
         const res = await fetch(`${API_BASE_URL}/api/shorts?${params.toString()}`);
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as ShortsApiResponse;
         if (cancelled) return;
 
-        const isNewTerm = activeSearchTermRef.current !== trimmed;
+        const isNewTerm = remoteSearchQueryRef.current !== trimmed;
         activeSearchTermRef.current = trimmed;
-        setRemoteSearchShorts(data.items);
+        remoteSearchQueryRef.current = trimmed;
+        if (isNewTerm) {
+          remoteSearchLoadedCatsRef.current = new Set([targetCategory]);
+          setRemoteSearchShorts(data.items);
+        } else {
+          remoteSearchLoadedCatsRef.current.add(targetCategory);
+          setRemoteSearchShorts((prev) => {
+            const incomingIds = new Set(data.items.map((item) => item.id));
+            const kept = (prev ?? []).filter((item) => !incomingIds.has(item.id));
+            return [...data.items, ...kept];
+          });
+        }
         setSearchCursor(data.nextCursor ?? null);
         setSearchHasMore(Boolean(data.hasMore && data.nextCursor));
         if (isNewTerm) {
@@ -299,14 +382,18 @@ export function App() {
         }
       } catch {
         // Keep instant client-side filtered results on transient network failures
+      } finally {
+        if (!cancelled) {
+          setIsSearching(false);
+        }
       }
-    }, 450);
+    }, delayMs);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [searchQuery, activeCategory]);
+  }, [searchQuery, activeCategory, searchSubmitTick]);
 
   useEffect(() => {
     if (audioUnlocked) return;
@@ -332,17 +419,27 @@ export function App() {
   const savedSet = useMemo(() => new Set(savedIds), [savedIds]);
 
   const queryFiltered = useMemo(() => {
-    const q = searchQuery
-      .trim()
+    const rawTrimmed = searchQuery.trim();
+    const q = rawTrimmed
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
     if (!q) return allShorts;
-    if (remoteSearchShorts !== null) return remoteSearchShorts;
+    if (remoteSearchShorts !== null && remoteSearchQueryRef.current === rawTrimmed) {
+      return remoteSearchShorts;
+    }
     const fold = (s: string) =>
       s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const tokens = q.split(/\s+/).filter(Boolean);
-    return allShorts.filter((item) => {
+    const seenPoolIds = new Set<string>();
+    const combinedPool: ChristianShort[] = [];
+    for (const item of [...allShorts, ...(remoteSearchShorts ?? [])]) {
+      if (!seenPoolIds.has(item.id)) {
+        seenPoolIds.add(item.id);
+        combinedPool.push(item);
+      }
+    }
+    return combinedPool.filter((item) => {
       const haystack = fold(
         `${item.title} ${item.channelTitle} ${item.description} ${item.categoryLabel}`
       );
@@ -378,7 +475,10 @@ export function App() {
     }
 
     const trimmedQuery = searchQuery.trim();
-    const isLiveSearch = trimmedQuery.length >= 2 && remoteSearchShorts !== null;
+    const isLiveSearch =
+      trimmedQuery.length >= 2 &&
+      remoteSearchShorts !== null &&
+      remoteSearchQueryRef.current === trimmedQuery;
     const categoryHasMore = hasMoreByCategory[activeCategory] ?? true;
     if (isLiveSearch && (!searchHasMore || !searchCursor)) {
       return;
@@ -456,8 +556,8 @@ export function App() {
           const seenSet = new Set(seenIdsRef.current);
           const fresh = data!.items.filter((i) => !existing.has(i.id));
           if (fresh.length === 0) return prev;
-          const unseen = spreadChannelOrder(fresh.filter((i) => !seenSet.has(i.id)));
-          const seen = spreadChannelOrder(fresh.filter((i) => seenSet.has(i.id)));
+          const unseen = fresh.filter((i) => !seenSet.has(i.id));
+          const seen = fresh.filter((i) => seenSet.has(i.id));
           return [...prev, ...unseen, ...seen];
         });
         categoryCursorsRef.current[activeCategory] = data.nextCursor ?? null;
@@ -496,6 +596,7 @@ export function App() {
   useEffect(() => {
     if (loading || isRefreshing || activeCategory === 'salvos') return;
     const trimmed = searchQuery.trim();
+    if (trimmed.length >= 2 && isSearching) return;
     const seenSet = new Set(seenIdsRef.current);
     const unseenCount = visibleShorts.filter((item) => !seenSet.has(item.id)).length;
     const needsCategoryWarmup =
@@ -521,6 +622,7 @@ export function App() {
     searchQuery,
     loading,
     isRefreshing,
+    isSearching,
     paginationRetryTick,
     loadMoreShorts,
   ]);
@@ -676,12 +778,23 @@ export function App() {
       <div className="lg:hidden shrink-0 z-20 bg-black/95 backdrop-blur-md border-b border-zinc-900 px-3 h-11 flex items-center gap-2 safe-px">
         {mobileSearchOpen ? (
           <div className="flex items-center gap-2 w-full">
-            <Search className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" />
+            <Search
+              className={`w-4 h-4 shrink-0 transition-colors ${
+                isSearching ? 'text-white animate-pulse' : 'text-zinc-500'
+              }`}
+              aria-hidden="true"
+            />
             <input
               type="search"
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && searchQuery.trim().length >= 2) {
+                  e.preventDefault();
+                  setSearchSubmitTick((t) => t + 1);
+                }
+              }}
               placeholder="Buscar pregação, bíblia, louvor..."
               className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-zinc-100 placeholder:text-zinc-500"
             />
@@ -736,6 +849,12 @@ export function App() {
           activeCategory={activeCategory}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          onSearchSubmit={() => {
+            if (searchQuery.trim().length >= 2) {
+              setSearchSubmitTick((t) => t + 1);
+            }
+          }}
+          isSearching={isSearching}
           onSelectCategory={handleSelectCategory}
           categoryCounts={categoryCounts}
           totalCount={queryFiltered.length}
@@ -768,6 +887,13 @@ export function App() {
                 >
                   Tentar novamente
                 </button>
+              </div>
+            ) : visibleShorts.length === 0 && isSearching ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
+                <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
+                <p className="text-sm font-medium">
+                  Buscando vídeos no YouTube...
+                </p>
               </div>
             ) : visibleShorts.length === 0 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white px-8 text-center">

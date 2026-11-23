@@ -413,6 +413,13 @@ const BLOCKED_GENERAL_TERMS = [
   'jogos de azar',
   'igreja de deus todo-poderoso',
   'eastern lightning',
+  'free fire',
+  'minecraft',
+  'roblox',
+  'gta v',
+  'campeonato brasileiro',
+  'novela',
+  'tutorial de maquiagem',
 ];
 
 const BLOCKED_DOCTRINAL_CONFLICT_TERMS = [
@@ -531,6 +538,7 @@ const CHRISTIAN_RELEVANCE_PATTERNS = [
   /\bminist[eé]rio jovem\b/i,
   /\bfeliz7play\b/i,
   /\bdefensores da b[ií]blia\b/i,
+  /\b(mk music|todah music|musile records|onimusic|gra[cç]a music|central gospel|som livre gospel|universal music christian|sony music gospel|diante do trono|voz da verdade|aline barros|fernandinho|gabriela rocha|isadora pompeo|gabriel guedes|anderson freire|morada|fhop music|casa worship|thalles roberto|preto no branco|kleber lucas|bruna karla|cassiane|eli soares|sarah farias|julliany souza|theo rubia|paulo c[eé]sar baruk|leonardo gon[cç]alves|laura morena)\b/i,
 ];
 
 const NON_PORTUGUESE_PATTERNS = [
@@ -849,22 +857,28 @@ function hasChristianRelevance(
   title: string,
   description: string,
   channelTitle: string,
-  channelId: string
+  channelId: string,
+  searchMode = false
 ): boolean {
   if (CHANNEL_BY_ID.has(channelId)) return true;
   const combined = `${channelTitle} ${title} ${description}`;
-  return CHRISTIAN_RELEVANCE_PATTERNS.some((re) => re.test(combined));
+  if (CHRISTIAN_RELEVANCE_PATTERNS.some((re) => re.test(combined))) return true;
+  if (searchMode && WORSHIP_SONG_POSITIVE_PATTERNS.some((re) => re.test(title))) {
+    return true;
+  }
+  return false;
 }
 
 const STRICT_TALK_BLOCK_RE =
-  /\b(podcast|prega[cç][aã]o|serm[aã]o|devocional|medita[cç][aã]o|escola sabatina|li[cç][aã]o|fonte de alegria|sob suas asas|protagonistas|entrevista|bate-?papo|react|reagindo|como tocar|tutorial|aula de|v[ií]deo ?aula|cifra|making of|bastidores|not[ií]cia|reportagem|document[aá]rio)\b/i;
+  /\b(podcast|prega[cç][aã]o|serm[aã]o|devocional|medita[cç][aã]o|escola sabatina|li[cç][aã]o|fonte de alegria|sob suas asas|protagonistas|entrevista|bate-?papo|react|reagindo|como tocar|tutorial|aula de|v[ií]deo ?aula|cifra|making of|bastidores|not[ií]cia|reportagem|document[aá]rio|s[eé]ri[ae] b[ií]blica|crescimento espiritual|compartilheesperan[cç]a)\b/i;
 
 function looksLikeWorshipSong(
   title: string,
   description: string,
   isWorshipChannel: boolean,
   channelId = '',
-  searchMode = false
+  searchMode = false,
+  hintCategory?: ContentCategory
 ): boolean {
   if (STRICT_TALK_BLOCK_RE.test(title)) {
     return false;
@@ -903,12 +917,15 @@ function looksLikeWorshipSong(
   if (/\b(letra,\s*m[uú]sica e arranjo|letra e m[uú]sica:|arranjo musical:)\b/i.test(description)) {
     return true;
   }
-  if (isWorshipChannel || searchMode) {
+  const allowLooseHyphenStructure =
+    isWorshipChannel ||
+    (searchMode && (hintCategory === undefined || hintCategory === 'louvores'));
+  if (allowLooseHyphenStructure) {
     // Require song/music title structure ("Artist - Song" / "Song | Tag" / music keywords)
     // or explicit songwriting/composition credits in the description (avoiding generic social footer text)
     if (
       /[^|–-]+\s[-–|]\s[^|–-]+/.test(title) &&
-      !/\b(vlog|tour|agenda|convite|aviso|homenagem|anivers[aá]rio|15 anos|fatos|curiosidades|reencontro|together)\b/i.test(
+      !/\b(vlog|tour|agenda|convite|aviso|homenagem|anivers[aá]rio|15 anos|fatos|curiosidades|reencontro|together|estudo|b[ií]bli|prega[cç][aã]o|serm[aã]o|culto|testemunh|epis[oó]dio|temporada)\b/i.test(
         title
       )
     ) {
@@ -983,10 +1000,10 @@ export function classifyShort(
   const adventist = isAdventistVerified(channelId, channelTitle, title, description);
 
   if (
-    !hasChristianRelevance(title, description, channelTitle, channelId) &&
+    !hasChristianRelevance(title, description, channelTitle, channelId, searchMode) &&
     !(
       searchMode &&
-      (hintCategory === 'louvores' || hintCategory === 'testemunhos') &&
+      (hintCategory === 'louvores' || hintCategory === 'testemunhos' || hintCategory === undefined) &&
       /[^|–-]+\s[-–|]\s[^|–-]+/.test(title)
     )
   ) {
@@ -1005,20 +1022,12 @@ export function classifyShort(
   const isBiblicalAnimation =
     !isWorshipChannel &&
     !NON_BIBLICAL_KIDS_NOISE_RE.test(title) &&
-    !/\bkaraok[eê]\b/i.test(title) &&
+    !/\bkaraok[eê](?![a-záéíóúâêôãõç])/i.test(title) &&
     ANIMATION_MEDIUM_RE.test(titleAndChannel) &&
     BIBLICAL_ANIMATION_TOPIC_RE.test(`${title} ${description.slice(0, 220)}`);
 
-  const isSong = looksLikeWorshipSong(
-    title,
-    description,
-    isWorshipChannel,
-    channelId,
-    searchMode
-  );
-  const isExplicitTestimony =
-    !isSong &&
-    !/\b(podcast|trailer|teaser|inscri[cç][oõ]es|convite|agenda|prega[cç][aã]o completa|ao vivo agora|verso da semana|vers[ií]culo do dia|filme completo|filme crist[aã]o|clipe|playback|karaok[eê]|lyric)\b/i.test(
+  const hasExplicitTestimonySignals =
+    !/\b(podcast|trailer|teaser|inscri[cç][oõ]es|convite|agenda|prega[cç][aã]o completa|ao vivo agora|verso da semana|vers[ií]culo do dia|filme completo|filme crist[aã]o|clipe|playback|karaok[eê]|lyric)(?![a-záéíóúâêôãõç])/i.test(
       title
     ) &&
     !/\b(music|records|worship)\b/i.test(channelTitle) &&
@@ -1033,17 +1042,33 @@ export function classifyShort(
     /\b(estudo b[ií]blico|escola sabatina|na mira da verdade|arqueologia b[ií]blica|vers[ií]culo|apocalipse|profecia|evangelho|palavra de deus|b[ií]blia sagrada|li[cç][aã]o da b[ií]blia|santu[aá]rio|mandamentos|s[aá]bado)\b/i.test(
       description.slice(0, 320)
     );
+  const isSongRaw = looksLikeWorshipSong(
+    title,
+    description,
+    isWorshipChannel,
+    channelId,
+    searchMode,
+    hintCategory
+  );
+  const hasStrongMusicTag =
+    isWorshipChannel ||
+    (WORSHIP_SONG_POSITIVE_PATTERNS.some((re) => re.test(title)) && !STRICT_TALK_BLOCK_RE.test(title));
   const isStrictSermon =
+    !hasStrongMusicTag &&
     !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
     !NON_SERMON_PATTERNS.some((re) => re.test(description.slice(0, 220))) &&
     (STRICT_SERMON_TITLE_PATTERNS.some((re) => re.test(title)) ||
       (searchMode &&
         adventist &&
-        !isSong &&
+        !hasStrongMusicTag &&
         !isBibleTitle &&
         /\b(prega[cç][aã]o|serm[aã]o|culto|mensagem|estudo|palavra|ora[cç][aã]o|cristo|jesus|deus|esperan[cç]a|f[eé])\b/i.test(
           fullContext
         )));
+  const isExplicitTestimony = hasExplicitTestimonySignals && !hasStrongMusicTag;
+  const isSong =
+    isSongRaw &&
+    (!searchMode || hasStrongMusicTag || (!isExplicitTestimony && !isBibleTitle && !isStrictSermon && !isBiblicalAnimation));
 
   let detectedCategory: ContentCategory | null = null;
 
@@ -1052,7 +1077,7 @@ export function classifyShort(
   } else if (isAdventistAnimationChannel) {
     if (
       !NON_BIBLICAL_KIDS_NOISE_RE.test(title) &&
-      !/\bkaraok[eê]\b/i.test(title) &&
+      !/\bkaraok[eê](?![a-záéíóúâêôãõç])/i.test(title) &&
       (BIBLICAL_ANIMATION_TOPIC_RE.test(combined) || isBiblicalAnimation)
     ) {
       detectedCategory = 'feliz7play';
@@ -1079,12 +1104,12 @@ export function classifyShort(
     }
   } else if (isExplicitTestimony) {
     detectedCategory = 'testemunhos';
-  } else if (isSong) {
-    detectedCategory = 'louvores';
   } else if (isBibleTitle || isBibleChannel) {
     detectedCategory = 'biblia';
   } else if (isStrictSermon) {
     detectedCategory = 'pregacoes';
+  } else if (isSong) {
+    detectedCategory = 'louvores';
   } else if (
     (hintCategory === 'biblia' || searchMode) &&
     !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
@@ -1492,7 +1517,11 @@ function normalizeSongKey(title: string): string {
   return `${hymnPrefix}${cleaned}`.trim();
 }
 
-export function deduplicateShorts(items: ChristianShort[]): ChristianShort[] {
+export function deduplicateShorts(
+  items: ChristianShort[],
+  options?: { allowSameSongVariants?: boolean }
+): ChristianShort[] {
+  const allowSameSongVariants = Boolean(options?.allowSameSongVariants);
   const seenIds = new Set<string>();
   const seenGlobalTitles = new Set<string>();
   const seenChannelTitles = new Set<string>();
@@ -1508,7 +1537,7 @@ export function deduplicateShorts(items: ChristianShort[]): ChristianShort[] {
     if (titleKey.length >= 14 && seenGlobalTitles.has(titleKey)) continue;
     if (titleKey.length >= 6 && seenChannelTitles.has(channelTitleKey)) continue;
 
-    if (item.category === 'louvores') {
+    if (!allowSameSongVariants && item.category === 'louvores') {
       const songKey = normalizeSongKey(item.title);
       if (songKey.length >= 6 && seenLouvorSongs.has(songKey)) continue;
       if (songKey.length >= 6) seenLouvorSongs.add(songKey);

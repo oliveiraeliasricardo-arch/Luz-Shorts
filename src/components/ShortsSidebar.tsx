@@ -6,6 +6,8 @@ interface ShortsSidebarProps {
   activeCategory: ShortCategory;
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  onSearchSubmit?: () => void;
+  isSearching?: boolean;
   onSelectCategory: (category: ShortCategory) => void;
   categoryCounts: Record<ContentCategory, number>;
   totalCount: number;
@@ -68,6 +70,8 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
   activeCategory,
   searchQuery,
   onSearchChange,
+  onSearchSubmit,
+  isSearching = false,
   onSelectCategory,
   categoryCounts,
   totalCount,
@@ -86,13 +90,21 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
       {/* Search input */}
       <div className="relative">
         <Search
-          className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+          className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
+            isSearching ? 'text-white animate-pulse' : 'text-zinc-500'
+          }`}
           aria-hidden="true"
         />
         <input
           type="search"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && onSearchSubmit) {
+              e.preventDefault();
+              onSearchSubmit();
+            }
+          }}
           placeholder="Buscar louvor, hino, pregação, bíblia ou testemunho"
           aria-label="Buscar vídeos cristãos"
           className="w-full h-11 pl-10 pr-9 text-sm text-zinc-100 placeholder:text-zinc-500 bg-zinc-950 border border-zinc-800/90 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-zinc-600 transition-shadow"
