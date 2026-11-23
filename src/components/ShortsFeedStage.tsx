@@ -901,11 +901,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                     onToggleSave(short.id);
                   }}
                   aria-label={isSaved ? 'Remover dos salvos' : 'Salvar vídeo'}
-                  className={`w-11 h-11 rounded-full active:scale-95 backdrop-blur-md flex items-center justify-center border transition-all duration-150 cursor-pointer ${
-                    isSaved
-                      ? 'bg-white text-black border-white'
-                      : 'bg-black/70 hover:bg-zinc-900 text-white border-white/15'
-                  }`}
+                  className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
                 >
                   <Bookmark
                     className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`}
@@ -921,7 +917,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                     onShare(short);
                   }}
                   aria-label="Compartilhar este vídeo"
-                  className="w-11 h-11 rounded-full bg-black/70 hover:bg-zinc-900 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150 cursor-pointer"
+                  className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
                 >
                   <Share2 className="w-5 h-5" aria-hidden="true" />
                 </button>
@@ -936,7 +932,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   aria-label="Abrir vídeo no YouTube"
-                  className="w-11 h-11 rounded-full bg-black/70 hover:bg-zinc-900 active:scale-95 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-all duration-150"
+                  className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150"
                 >
                   <ExternalLink className="w-4 h-4" aria-hidden="true" />
                 </a>
