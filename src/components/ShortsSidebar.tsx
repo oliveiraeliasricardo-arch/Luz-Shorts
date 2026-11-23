@@ -47,7 +47,7 @@ const CATEGORIES: Array<{
   {
     id: 'testemunhos',
     label: 'Testemunhos',
-    subtitle: 'Todas as denominações',
+    subtitle: 'Todas as congregações',
     Icon: HeartHandshake,
   },
   {
@@ -160,8 +160,8 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
           dentro da doutrina Adventista do Sétimo Dia.
         </p>
         <p className="text-xs text-zinc-400 leading-relaxed">
-          Louvores e testemunhos abrangem expressões cristãs de diversas
-          denominações.
+          Louvores e testemunhos abrangem expressões cristãs de todas as
+          congregações e denominações.
         </p>
         <div className="pt-2 border-t border-zinc-900 text-[11px] text-zinc-500">
           {sourceMode === 'youtube_api'

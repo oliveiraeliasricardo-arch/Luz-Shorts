@@ -103,20 +103,22 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
   ],
   testemunhos: [
     'testemunho cristão conversão',
+    'testemunho evangélico forte conversão',
     'meu testemunho jesus mudou minha vida',
-    'testemunho de milagre cristão',
+    'testemunho igreja batista conversão',
+    'testemunho igreja presbiteriana conversão',
+    'testemunho assembleia de deus conversão',
+    'testemunho congregação cristã ccb fé',
+    'testemunho católico conversão jesus',
+    'testemunho de milagre e cura cristão',
+    'testemunho ex ateu conheci jesus',
+    'testemunho libertação drogas jesus',
+    'testemunho de fé e batismo igreja cristã',
+    'depoimento cristão milagre de deus',
+    'como conheci jesus meu testemunho',
+    'história real de conversão cristã',
     'testemunho adventista conversão',
-    'como conheci jesus testemunho',
-    'depoimento cristão fé conversão',
-    'história de conversão evangélica',
-    'testemunho novo tempo conversão',
-    'deus salvou minha vida testemunho',
-    'testemunho ex ateu cristão',
-    'testemunho de fé superação cristão',
-    'jesus transformou minha vida testemunho',
-    'história de fé e batismo adventista',
-    'eu era viciado jesus me libertou testemunho',
-    'milagre de deus meu testemunho real',
+    'deus salvou minha vida testemunho real',
     'como deus mudou minha família testemunho',
   ],
 };
@@ -453,7 +455,7 @@ function isWithinCategoryDuration(
     return durationSeconds >= 45;
   }
   if (category === 'testemunhos') {
-    return durationSeconds >= 15 && durationSeconds <= 600;
+    return durationSeconds >= 15 && durationSeconds <= 3600;
   }
   if (category === 'biblia') {
     return durationSeconds <= 185;
@@ -982,7 +984,7 @@ async function fetchCategoryDiscoveryPage(
       order: orderMode,
       q: query,
     });
-    if (targetCategory === 'biblia' || targetCategory === 'testemunhos') {
+    if (targetCategory === 'biblia') {
       params.set('videoDuration', 'short');
     }
     if (cursorEntry.pageToken) {
@@ -1074,20 +1076,31 @@ async function fetchInitialDiscoveryExtras(
     allCycleIdx: 0,
   };
 
-  const results = await Promise.allSettled(
-    categories.map((cat) => {
-      const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+  const discoveryJobs: Array<{ cat: ContentCategory; query: string; sortByDate: boolean }> = [];
+  for (const cat of categories) {
+    const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+    const extraCount = cat === 'testemunhos' ? 3 : 1;
+    for (let k = 0; k < extraCount; k++) {
       const idx = globalDiscoveryOffsets[cat] % queries.length;
       globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
-      const query = queries[idx];
-      return fetchYoutubeWebSearch(apiKey, query, cat, idx % 2 === 0, tempState.seenIds);
-    })
+      discoveryJobs.push({
+        cat,
+        query: queries[idx],
+        sortByDate: idx % 2 === 0,
+      });
+    }
+  }
+
+  const results = await Promise.allSettled(
+    discoveryJobs.map((job) =>
+      fetchYoutubeWebSearch(apiKey, job.query, job.cat, job.sortByDate, tempState.seenIds)
+    )
   );
 
   const discovered: ChristianShort[] = [];
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
-    const targetCat = categories[i];
+    const targetCat = discoveryJobs[i].cat;
     if (r.status !== 'fulfilled') continue;
     for (const item of r.value) {
       if (item.category === targetCat) {
@@ -1499,7 +1512,6 @@ export async function getMoreChristianShorts(options: {
       const hint = validCat || ch.defaultCategory;
       if (hint === 'pregacoes') return `UULF${suffix}`;
       if (hint === 'biblia' && ch.defaultCategory === 'biblia') return `UUSH${suffix}`;
-      if (hint === 'testemunhos') return `UUSH${suffix}`;
       return `UU${suffix}`;
     };
 

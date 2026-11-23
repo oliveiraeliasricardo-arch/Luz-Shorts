@@ -311,6 +311,34 @@ export const CHRISTIAN_GENERAL_CHANNELS: CuratedChannelSpec[] = [
     defaultCategory: 'louvores',
     allowInCategories: ['louvores', 'testemunhos'],
   },
+  {
+    id: 'UCHChf-4C1TocXXa__lffjpw',
+    title: 'Igreja Presbiteriana do Brasil',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'testemunhos',
+    allowInCategories: ['testemunhos'],
+  },
+  {
+    id: 'UCKEM87jzVqdIfAdTr0xNBfA',
+    title: 'Pastor Antônio Júnior',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'testemunhos',
+    allowInCategories: ['testemunhos'],
+  },
+  {
+    id: 'UCu3fo1sp7UN3M6pEXltEb3g',
+    title: 'TV Evangélica Brasileira',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'testemunhos',
+    allowInCategories: ['testemunhos'],
+  },
+  {
+    id: 'UCm_nEAH7DCfjmXUbNkN6JFw',
+    title: 'Instituto Hesed',
+    doctrineScope: 'cristao_geral',
+    defaultCategory: 'testemunhos',
+    allowInCategories: ['testemunhos'],
+  },
 ];
 
 export const ALL_CURATED_CHANNELS = [...ADVENTIST_CHANNELS, ...CHRISTIAN_GENERAL_CHANNELS];
@@ -354,6 +382,8 @@ const BLOCKED_GENERAL_TERMS = [
   'escândalo',
   'escandalo',
   'jogos de azar',
+  'igreja de deus todo-poderoso',
+  'eastern lightning',
 ];
 
 const BLOCKED_DOCTRINAL_CONFLICT_TERMS = [
@@ -567,12 +597,14 @@ const STRICT_TESTIMONY_TITLE_PATTERNS = [
   /\bdepoimento\b/i,
   /\bconvers[aã]o\b/i,
   /\bmudou (a )?minha vida\b/i,
-  /\bdeus me (salvou|curou|resgatou|livrou|transformou)\b/i,
+  /\bdeus (me|nos|a|o) (salvou|curou|resgatou|livrou|transformou|libertou)\b/i,
+  /\bjesus (me|nos) (salvou|curou|resgatou|livrou|transformou|libertou)\b/i,
   /\bsalvou (a )?minha vida\b/i,
-  /\bhist[oó]ria (real|de f[eé]|de vida|de supera[cç][aã]o)\b/i,
-  /\bcomo (conheci|encontrei) (a )?(deus|jesus|igreja|verdade)\b/i,
-  /\bpor que (me tornei|voltei|aceitei)\b/i,
-  /\bex-?\s*(traficante|ateu|atriz|cantor|usu[aá]rio|l[ií]der)\b/i,
+  /\bhist[oó]ria (real|de f[eé]|de vida|de supera[cç][aã]o|de convers[aã]o)\b/i,
+  /\bcomo (conheci|encontrei) (a )?(deus|jesus|cristo|igreja|verdade)\b/i,
+  /\bpor que (me tornei|voltei|aceitei|sa[ií])\b/i,
+  /\bex-?\s*(traficante|ateu|atriz|cantor|usu[aá]rio|l[ií]der|brux[oa]|bandido|viciado|ocultista|macumbeir[oa])\b/i,
+  /\btestemunho de (liberta[cç][aã]o|cura|milagre|f[eé]|convers[aã]o|vida)\b/i,
   /\b(salvou|salva) dezenas de pessoas\b/i,
   /\bconheci .* aos \d+ anos\b/i,
   /\bmeu vizinho nem sabia que eu era pastor\b/i,
@@ -840,6 +872,7 @@ export function classifyShort(
   }
 
   const isWorshipChannel = channelSpec?.defaultCategory === 'louvores';
+  const isTestimonyChannel = channelSpec?.defaultCategory === 'testemunhos';
   const isBibleChannel =
     channelSpec?.defaultCategory === 'biblia' &&
     channelId !== 'UC03Y0ieYROxw1FxCoDaSF9g' &&
@@ -848,9 +881,10 @@ export function classifyShort(
   const isSong = looksLikeWorshipSong(title, description, isWorshipChannel);
   const isExplicitTestimony =
     !isSong &&
-    !/\b(podcast|trailer|teaser|inscri[cç][oõ]es|convite|agenda|prega[cç][aã]o completa|ao vivo agora|verso da semana|vers[ií]culo do dia)\b/i.test(
+    !/\b(podcast|trailer|teaser|inscri[cç][oõ]es|convite|agenda|prega[cç][aã]o completa|ao vivo agora|verso da semana|vers[ií]culo do dia|filme completo|filme crist[aã]o|clipe|playback|karaok[eê]|lyric)\b/i.test(
       title
     ) &&
+    !/\b(music|records|worship)\b/i.test(channelTitle) &&
     (STRICT_TESTIMONY_TITLE_PATTERNS.some((re) => re.test(title)) ||
       STRICT_TESTIMONY_DESC_PATTERNS.some((re) => re.test(description.slice(0, 260))));
   const isBibleTitle = STRICT_BIBLE_TITLE_PATTERNS.some((re) => re.test(title));
@@ -870,6 +904,13 @@ export function classifyShort(
     if (isSong) {
       detectedCategory = 'louvores';
     } else if (isExplicitTestimony) {
+      detectedCategory = 'testemunhos';
+    } else {
+      return null;
+    }
+  } else if (isTestimonyChannel) {
+    // Multi-congregation testimony channels only enter 'testemunhos' when the video is an explicit testimony
+    if (isExplicitTestimony) {
       detectedCategory = 'testemunhos';
     } else {
       return null;
