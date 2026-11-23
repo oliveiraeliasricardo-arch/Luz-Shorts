@@ -87,7 +87,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
           type="search"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Buscar tema, bíblia ou canal"
+          placeholder="Buscar louvor, hino, pregação, bíblia ou testemunho"
           aria-label="Buscar vídeos cristãos"
           className="w-full h-11 pl-10 pr-9 text-sm text-zinc-100 placeholder:text-zinc-500 bg-zinc-950 border border-zinc-800/90 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-zinc-600 transition-shadow"
         />

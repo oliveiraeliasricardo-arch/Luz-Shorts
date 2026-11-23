@@ -10,6 +10,7 @@ import {
   buildShortRecord,
   classifyShort,
   decodeXmlEntities,
+  deduplicateShorts,
   fetchCuratedRssWithAdapter,
   formatFilteredResponse,
   isUpcomingOrPremiereEntry,
@@ -68,12 +69,22 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
   louvores: [
     'novo hinário adventista oficial',
     'novo hinário adventista hino letra',
+    'novo hinário adventista hinos 1 a 600',
+    'hinário adventista cantado com letra',
     'coletânea adoradores novo tempo',
     'adoradores 5 gravadora novo tempo',
     'adoradores 4 gravadora novo tempo',
     'cd jovem adventista ministério jovem',
     'cd jovem menos um adventista',
     'cd jovem 2025 venha o teu reino ministério jovem',
+    'cd jovem 2024 ministério jovem adventista',
+    'cd jovem 2022 ministério jovem adventista',
+    'cd jovem 2020 ministério jovem adventista',
+    'cd jovem 2018 ministério jovem adventista',
+    'cd jovem 2015 ministério jovem adventista',
+    'cd jovem 2012 ministério jovem adventista',
+    'cd jovem 2010 ministério jovem adventista',
+    'cd jovem 2005 ministério jovem adventista',
     'cd jovem coletânea adventista anos 2000',
     'adoradores 3 gravadora novo tempo',
     'adoradores 2 gravadora novo tempo',
@@ -95,7 +106,6 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'morada música gospel ao vivo',
     'laura souguellis louvor ao vivo',
     'ministério mergulhar adoração ao vivo',
-    'hinário adventista cantado louvor',
     'coral jovens adventistas música oficial',
     'art trio louvor adventista oficial',
     'theo rubia música gospel ao vivo',
@@ -123,17 +133,23 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
   ],
 };
 
-const SPECIAL_LOUVORES_PLAYLISTS: string[] = [
+const NOVO_HINARIO_PLAYLISTS: string[] = [
   'PLAPpcKnpMfeO9Fydpl1tTKC9CRRnIMMSK', // Novo Hinário Adventista 1-100
   'PLAPpcKnpMfeOsWzlaY0bXm1Q5pnQQxn_y', // Novo Hinário Adventista 101-200
   'PLAPpcKnpMfeMnCMuGcdWKVkgpi2P_sRkE', // Novo Hinário Adventista 201-300
   'PLAPpcKnpMfeNIrE1nk3w2OkcUdxuY6y1l', // Novo Hinário Adventista 301-400
   'PLAPpcKnpMfePvD6DLI-Y5TR-RVVo62s6Z', // Novo Hinário Adventista 401-500
   'PLAPpcKnpMfePWEOuIu4B4F3PVljyD8DoO', // Novo Hinário Adventista 501-600
+];
+
+const ADORADORES_PLAYLISTS: string[] = [
   'PLnjYWXTXSkDpfADeUa3LJkhdzzXwsqD_P', // Adoradores 5
   'PLnjYWXTXSkDr-jo4daf3ZOkzccvMxsrb1', // Adoradores 5 Congregacional
   'PLnjYWXTXSkDrri7WFuBCYB5Ljo9uhbOUG', // Adoradores 4 Ao Vivo
   'PLnjYWXTXSkDqUHHAprAtUaoj-u_cOO_iq', // Adoradores 4 Congregacional
+];
+
+const CD_JOVEM_PLAYLISTS: string[] = [
   'PL4sNlZt4GK2gdDHuCLJo7zbBrAgrejKgZ', // CD Jovem 2025 - Venha o Teu Reino
   'PL4sNlZt4GK2ieNVMyoEWFpJ1zftJXLcj-', // CD Jovem 2008 - Vivo Por Jesus
   'PL4sNlZt4GK2jISkKyc2RdLSWqzMLkqk3C', // CD Jovem 2002 - Você Me Pertence
@@ -323,9 +339,11 @@ function isYouTubeVideoPlayable(v: {
 
 async function hydrateAndVerifyCandidates(
   apiKey: string,
-  candidates: Map<string, CandidateVideo>
+  candidates: Map<string, CandidateVideo>,
+  options?: { searchMode?: boolean }
 ): Promise<ChristianShort[]> {
   if (candidates.size === 0) return [];
+  const searchMode = Boolean(options?.searchMode);
 
   const candidateIds = [...candidates.keys()];
   const videoMeta = new Map<
@@ -408,11 +426,20 @@ async function hydrateAndVerifyCandidates(
       c.channelTitle,
       c.title,
       fullDesc,
-      c.hintCategory
+      c.hintCategory,
+      { searchMode }
     );
     if (!classified) continue;
 
-    if (!isWithinCategoryDuration(classified.category, meta?.durationSeconds ?? null, c.title)) {
+    if (
+      !isWithinCategoryDuration(
+        classified.category,
+        meta?.durationSeconds ?? null,
+        c.title,
+        c.channelId,
+        searchMode
+      )
+    ) {
       continue;
     }
 
@@ -439,15 +466,33 @@ async function hydrateAndVerifyCandidates(
 function isWithinCategoryDuration(
   category: ContentCategory,
   durationSeconds: number | null | undefined,
-  title: string
+  title: string,
+  channelId = '',
+  searchMode = false
 ): boolean {
   if (durationSeconds == null) return true;
+  if (searchMode) {
+    // Live search allows broader durations across all categories (including full Bible studies, sermons & albums)
+    if (category === 'louvores') return durationSeconds >= 25 && durationSeconds <= 7200;
+    if (category === 'pregacoes') return durationSeconds >= 25 && durationSeconds <= 10800;
+    if (category === 'biblia') return durationSeconds >= 15 && durationSeconds <= 10800;
+    if (category === 'testemunhos') return durationSeconds >= 15 && durationSeconds <= 10800;
+    return true;
+  }
   if (category === 'louvores') {
-    const isHinario = /\b(n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|hino\s*\d+)\b/i.test(title);
-    const isColetanea = /\b(adoradores|colet[aâ]nea|n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|cd\s*jovem|minist[eé]rio jovem|1\s*hora\s+de)\b/i.test(
-      title
-    );
-    const minSec = isHinario ? 35 : 75;
+    const isHinarioOrYouth =
+      channelId === 'UCQhkLOO40bmTMeLcbspKW8A' ||
+      channelId === 'UCIvT_5iKmxPksHRqv4g_GZQ' ||
+      channelId === 'UCFTFFVStluyIusWi71Yc0sA' ||
+      /\b(n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|hino\s*\d+|cd\s*jovem|minist[eé]rio jovem)\b/i.test(
+        title
+      );
+    const isColetanea =
+      channelId === 'UCQhkLOO40bmTMeLcbspKW8A' ||
+      /\b(adoradores|colet[aâ]nea|n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|cd\s*jovem|minist[eé]rio jovem|1\s*hora\s+de)\b/i.test(
+        title
+      );
+    const minSec = isHinarioOrYouth ? 30 : 75;
     const maxSec = isColetanea ? 4500 : 1200;
     return durationSeconds >= minSec && durationSeconds <= maxSec;
   }
@@ -463,6 +508,15 @@ function isWithinCategoryDuration(
   return true;
 }
 
+function pickRotatedPlaylists(list: string[], count: number): string[] {
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, count);
+}
+
 async function fetchFromYoutubeApi(
   apiKey: string,
   advancePlaylists = false
@@ -472,8 +526,8 @@ async function fetchFromYoutubeApi(
   playlistTokens: Record<string, string | null>;
 }> {
   // Fetch initial catalog using playlistItems.list (1 quota unit per call)
-  // across all curated verified channels + rotating Novo Hinário / Adoradores playlists,
-  // advancing saved page tokens on refresh so new boots discover deeper history.
+  // across all curated verified channels + guaranteed Novo Hinário, CD Jovem, and Adoradores playlists,
+  // rotating saved page tokens so reopening/refreshing continuously discovers deeper songs & hymns.
   const channels = [...ALL_CURATED_CHANNELS];
   for (let i = channels.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -494,18 +548,24 @@ async function fetchFromYoutubeApi(
         : spec.defaultCategory === 'pregacoes'
         ? `UULF${suffix}`
         : `UU${suffix}`;
-    const pageToken = advancePlaylists ? persistentPlaylistTokens[playlistId] ?? null : null;
+    const savedToken = persistentPlaylistTokens[playlistId] ?? null;
+    const pageToken =
+      advancePlaylists || (spec.defaultCategory === 'louvores' && savedToken && Math.random() < 0.7)
+        ? savedToken
+        : null;
     return { hintCategory: spec.defaultCategory, playlistId, pageToken };
   });
 
-  // Always mix in rotating playlists from Novo Hinário Adventista (1-600), Adoradores & CD Jovem albums
-  const shuffledSpecial = [...SPECIAL_LOUVORES_PLAYLISTS];
-  for (let i = shuffledSpecial.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffledSpecial[i], shuffledSpecial[j]] = [shuffledSpecial[j], shuffledSpecial[i]];
-  }
-  for (const playlistId of shuffledSpecial.slice(0, 6)) {
-    const pageToken = advancePlaylists ? persistentPlaylistTokens[playlistId] ?? null : null;
+  // Always guarantee generous representation of Novo Hinário Adventista (1-600),
+  // CD Jovem / Ministério Jovem, and Adoradores on every catalog build.
+  const specialBatch = [
+    ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 4),
+    ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 5),
+    ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 2),
+  ];
+  for (const playlistId of specialBatch) {
+    const savedToken = persistentPlaylistTokens[playlistId] ?? null;
+    const pageToken = savedToken && (advancePlaylists || Math.random() < 0.75) ? savedToken : null;
     requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken });
   }
 
@@ -622,7 +682,8 @@ async function fetchYoutubeWebSearch(
   query: string,
   hintCategory?: ContentCategory,
   sortByDate = false,
-  excludeIds?: Set<string>
+  excludeIds?: Set<string>,
+  searchMode = false
 ): Promise<ChristianShort[]> {
   try {
     const spParam = sortByDate ? '&sp=CAISAhAB' : '';
@@ -776,7 +837,7 @@ async function fetchYoutubeWebSearch(
 
     if (candidates.size === 0) return [];
     if (apiKey) {
-      return hydrateAndVerifyCandidates(apiKey, candidates);
+      return hydrateAndVerifyCandidates(apiKey, candidates, { searchMode });
     }
 
     const fallback: ChristianShort[] = [];
@@ -786,10 +847,19 @@ async function fetchYoutubeWebSearch(
         c.channelTitle,
         c.title,
         c.description,
-        c.hintCategory
+        c.hintCategory,
+        { searchMode }
       );
       if (!classified) continue;
-      if (!isWithinCategoryDuration(classified.category, c.durationSeconds, c.title)) {
+      if (
+        !isWithinCategoryDuration(
+          classified.category,
+          c.durationSeconds,
+          c.title,
+          c.channelId,
+          searchMode
+        )
+      ) {
         continue;
       }
       fallback.push(
@@ -813,11 +883,80 @@ async function fetchYoutubeWebSearch(
   }
 }
 
+function foldSearchText(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function rankSearchResults(
+  items: ChristianShort[],
+  rawQuery: string,
+  preferredCategory?: ContentCategory
+): ChristianShort[] {
+  const foldedQuery = foldSearchText(rawQuery.trim());
+  const tokens = foldedQuery.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return items;
+
+  const scored = items.map((item, idx) => {
+    const fTitle = foldSearchText(item.title);
+    const fChannel = foldSearchText(item.channelTitle);
+    const fDesc = foldSearchText(item.description);
+    let score = 0;
+
+    if (fTitle.includes(foldedQuery)) score += 140;
+    if (fChannel.includes(foldedQuery)) score += 95;
+    if (fDesc.includes(foldedQuery)) score += 35;
+
+    let titleTokenHits = 0;
+    let totalTokenHits = 0;
+    for (const tok of tokens) {
+      if (fTitle.includes(tok)) {
+        titleTokenHits += 1;
+        totalTokenHits += 1;
+        score += 32;
+      } else if (fChannel.includes(tok)) {
+        totalTokenHits += 1;
+        score += 24;
+      } else if (fDesc.includes(tok)) {
+        totalTokenHits += 1;
+        score += 10;
+      }
+    }
+    if (titleTokenHits === tokens.length) score += 70;
+    else if (totalTokenHits === tokens.length) score += 35;
+
+    if (preferredCategory && item.category === preferredCategory) score += 30;
+    if (ALL_CURATED_CHANNELS.some((ch) => ch.id === item.channelId)) score += 25;
+    // Slight preference for direct YouTube hits early in list when scores tie
+    score -= idx * 0.05;
+    return { item, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((entry) => entry.item);
+}
+
+const WEB_SEARCH_EXPANSIONS = [
+  '',
+  'completo',
+  'oficial',
+  'ao vivo',
+  'letra',
+  'estudo',
+  'culto',
+  'novo',
+  'adventista',
+  'testemunho',
+];
+
 async function fetchLiveYoutubeSearch(
   apiKey: string,
   rawQuery: string,
   rawCategory?: string,
-  pageToken?: string | null
+  pageToken?: string | null,
+  excludeIds?: Set<string>
 ): Promise<{ items: ChristianShort[]; nextPageToken: string | null }> {
   const cleanQuery = rawQuery.trim();
   if (!cleanQuery) return { items: [], nextPageToken: null };
@@ -832,18 +971,11 @@ async function fetchLiveYoutubeSearch(
 
   let effectiveQuery = cleanQuery;
   if (validCat === 'pregacoes') {
-    const hasSermonWord = /\b(prega[cç][aã]o|pregando|serm[aã]o|culto|mensagem)\b/i.test(
+    const hasAdvWord = /\b(adventista|iasd|novo tempo|arilton|bullon|ivan saraiva|odailson|rafael rossi|stanley arco|gilson brito|rodrigo silva)\b/i.test(
       cleanQuery
     );
-    const hasAdvWord = /\b(adventista|iasd|novo tempo|arilton|bullon|ivan saraiva|odailson|rafael rossi|stanley arco|gilson brito)\b/i.test(
-      cleanQuery
-    );
-    if (!hasSermonWord && !hasAdvWord) {
-      effectiveQuery = `${cleanQuery} pregação adventista`;
-    } else if (!hasAdvWord) {
+    if (!hasAdvWord) {
       effectiveQuery = `${cleanQuery} adventista`;
-    } else if (!hasSermonWord) {
-      effectiveQuery = `${cleanQuery} pregação`;
     }
   } else if (
     validCat === 'biblia' &&
@@ -852,103 +984,141 @@ async function fetchLiveYoutubeSearch(
     )
   ) {
     effectiveQuery = `${cleanQuery} adventista`;
-  } else if (
-    validCat === 'louvores' &&
-    !/\b(louvor|adora[cç][aã]o|gospel|hino|m[uú]sica|clipe)\b/i.test(cleanQuery)
-  ) {
-    effectiveQuery = `${cleanQuery} louvor gospel`;
-  } else if (
-    validCat === 'testemunhos' &&
-    !/\b(testemunho|convers[aã]o)\b/i.test(cleanQuery)
-  ) {
-    effectiveQuery = `${cleanQuery} testemunho cristão`;
   }
 
-  // Handle web search continuation tokens when search.list is unavailable or fallback mode
+  // Handle web search continuation tokens for deep multi-page reach
   if (pageToken && pageToken.startsWith('web:')) {
     const step = Number(pageToken.slice(4)) || 1;
-    const subQuery =
-      step === 3
-        ? `${effectiveQuery} completo`
-        : step === 4
-        ? `${effectiveQuery} novo`
-        : step === 5
-        ? `${effectiveQuery} ao vivo`
-        : effectiveQuery;
-    const items = await fetchYoutubeWebSearch(apiKey, subQuery, validCat, step % 2 === 0);
-    const nextWebToken = step < 5 ? `web:${step + 1}` : null;
-    return { items, nextPageToken: nextWebToken };
-  }
-
-  if (apiKey) {
-    const params = new URLSearchParams({
-      key: apiKey,
-      part: 'snippet',
-      type: 'video',
-      videoEmbeddable: 'true',
-      safeSearch: 'strict',
-      relevanceLanguage: 'pt',
-      regionCode: 'BR',
-      maxResults: '30',
-      q: effectiveQuery,
-    });
-    if (pageToken) {
-      params.set('pageToken', pageToken);
-    }
-
-    const res = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
-      { signal: AbortSignal.timeout(9000) }
+    const modifier = WEB_SEARCH_EXPANSIONS[(step - 1) % WEB_SEARCH_EXPANSIONS.length];
+    const subQuery = modifier ? `${effectiveQuery} ${modifier}` : effectiveQuery;
+    const items = await fetchYoutubeWebSearch(
+      apiKey,
+      subQuery,
+      validCat,
+      step % 3 === 0,
+      excludeIds,
+      true
     );
-    if (res.ok) {
-      const data = (await res.json()) as {
-        nextPageToken?: string;
-        items?: Array<{
-          id?: { videoId?: string };
-          snippet?: {
-            title?: string;
-            description?: string;
-            channelId?: string;
-            channelTitle?: string;
-            publishedAt?: string;
-            liveBroadcastContent?: string;
-            thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
-          };
-        }>;
-      };
+    const nextWebToken = step < WEB_SEARCH_EXPANSIONS.length ? `web:${step + 1}` : null;
+    return { items: rankSearchResults(items, cleanQuery, validCat), nextPageToken: nextWebToken };
+  }
 
-      const candidates = new Map<string, CandidateVideo>();
-      for (const item of data.items ?? []) {
-        const id = item.id?.videoId;
-        const s = item.snippet;
-        if (!id || !s || s.liveBroadcastContent === 'live' || s.liveBroadcastContent === 'upcoming') {
-          continue;
-        }
-        candidates.set(id, {
-          id,
-          title: decodeXmlEntities(s.title || ''),
-          description: decodeXmlEntities(s.description || ''),
-          channelId: s.channelId || '',
-          channelTitle: decodeXmlEntities(s.channelTitle || ''),
-          publishedAt: s.publishedAt || new Date().toISOString(),
-          thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
-          hintCategory: validCat,
-        });
-      }
-
-      const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
-      return {
-        items: verified,
-        nextPageToken: data.nextPageToken || null,
-      };
+  // Page 1 (or API continuation): run API search.list AND complementary zero-quota web searches
+  // in parallel so search results have maximum reach across YouTube.
+  const webFanQueries: Array<{ q: string; hint?: ContentCategory; sortByDate: boolean }> = [];
+  if (!pageToken) {
+    if (validCat === 'louvores') {
+      webFanQueries.push({ q: cleanQuery, hint: 'louvores', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} louvor`, hint: 'louvores', sortByDate: false });
+    } else if (validCat === 'testemunhos') {
+      webFanQueries.push({ q: `${cleanQuery} testemunho`, hint: 'testemunhos', sortByDate: false });
+      webFanQueries.push({ q: cleanQuery, hint: 'testemunhos', sortByDate: true });
+    } else if (validCat === 'pregacoes') {
+      webFanQueries.push({ q: `${cleanQuery} pregação adventista`, hint: 'pregacoes', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} adventista`, hint: 'pregacoes', sortByDate: false });
+    } else if (validCat === 'biblia') {
+      webFanQueries.push({ q: `${cleanQuery} estudo bíblico adventista`, hint: 'biblia', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} bíblia adventista`, hint: 'biblia', sortByDate: false });
+    } else {
+      // "Todos": combine broad exact query + Christian worship/message/Bible reach
+      webFanQueries.push({ q: cleanQuery, hint: undefined, sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} louvor gospel`, hint: 'louvores', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} adventista`, hint: undefined, sortByDate: false });
     }
   }
 
-  // Automatic zero-quota YouTube web search fallback when search.list fails or key is absent
-  const webItems = await fetchYoutubeWebSearch(apiKey, effectiveQuery, validCat, false);
+  const apiPromise = apiKey
+    ? (async () => {
+        const params = new URLSearchParams({
+          key: apiKey,
+          part: 'snippet',
+          type: 'video',
+          videoEmbeddable: 'true',
+          safeSearch: 'strict',
+          relevanceLanguage: 'pt',
+          regionCode: 'BR',
+          maxResults: '50',
+          q: effectiveQuery,
+        });
+        if (pageToken) {
+          params.set('pageToken', pageToken);
+        }
+        const res = await fetch(
+          `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
+          { signal: AbortSignal.timeout(9000) }
+        );
+        if (!res.ok) return null;
+        return (await res.json()) as {
+          nextPageToken?: string;
+          items?: Array<{
+            id?: { videoId?: string };
+            snippet?: {
+              title?: string;
+              description?: string;
+              channelId?: string;
+              channelTitle?: string;
+              publishedAt?: string;
+              liveBroadcastContent?: string;
+              thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
+            };
+          }>;
+        };
+      })().catch(() => null)
+    : Promise.resolve(null);
+
+  const webPromises = Promise.allSettled(
+    webFanQueries.map((wf) =>
+      fetchYoutubeWebSearch(apiKey, wf.q, wf.hint, wf.sortByDate, excludeIds, true)
+    )
+  );
+
+  const [apiData, webResults] = await Promise.all([apiPromise, webPromises]);
+  const apiCandidates = new Map<string, CandidateVideo>();
+
+  if (apiData) {
+    for (const item of apiData.items ?? []) {
+      const id = item.id?.videoId;
+      const s = item.snippet;
+      if (
+        !id ||
+        !s ||
+        excludeIds?.has(id) ||
+        s.liveBroadcastContent === 'live' ||
+        s.liveBroadcastContent === 'upcoming'
+      ) {
+        continue;
+      }
+      apiCandidates.set(id, {
+        id,
+        title: decodeXmlEntities(s.title || ''),
+        description: decodeXmlEntities(s.description || ''),
+        channelId: s.channelId || '',
+        channelTitle: decodeXmlEntities(s.channelTitle || ''),
+        publishedAt: s.publishedAt || new Date().toISOString(),
+        thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
+        hintCategory: validCat,
+      });
+    }
+  }
+
+  const verifiedApi =
+    apiCandidates.size > 0
+      ? await hydrateAndVerifyCandidates(apiKey, apiCandidates, { searchMode: true })
+      : [];
+
+  const merged = new Map<string, ChristianShort>();
+  for (const item of verifiedApi) merged.set(item.id, item);
+  for (const r of webResults) {
+    if (r.status !== 'fulfilled') continue;
+    for (const item of r.value) {
+      if (!merged.has(item.id)) merged.set(item.id, item);
+    }
+  }
+
+  const nextToken = apiData?.nextPageToken || (merged.size > 0 ? 'web:2' : null);
   return {
-    items: webItems,
-    nextPageToken: webItems.length > 0 ? 'web:2' : null,
+    items: rankSearchResults([...merged.values()], cleanQuery, validCat),
+    nextPageToken: nextToken,
   };
 }
 
@@ -1244,33 +1414,85 @@ export async function getCuratedChristianShorts(options: {
     };
   }
 
-  // If the client has already seen most of a category, pull a fresh YouTube discovery batch
-  // right away so re-entering the app always puts brand-new unseen videos at the top.
+  // On app reopen (especially with seen history) or when any category has low unseen stock,
+  // pull deeper playlist pages (Novo Hinário, CD Jovem, Adoradores) & discovery batches
+  // so reopening the app always brings brand-new unseen louvores and fresh content at the top.
   if (!trimmedQuery && clientExcludeSet.size > 0) {
     const cats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
-    const lowUnseenCats = cats.filter(
-      (c) => poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < 18
-    );
-    if (lowUnseenCats.length > 0) {
+    const lowUnseenCats = cats.filter((c) => {
+      const minNeeded = c === 'louvores' ? 45 : 22;
+      return poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < minNeeded;
+    });
+
+    const reopenPlaylistPromises: Array<Promise<CandidateVideo[]>> = [];
+    if (apiKeyConfigured) {
+      const rotateSpecial = [
+        ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
+        ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 2),
+        ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 1),
+      ];
+      for (const pid of rotateSpecial) {
+        const nextTok = persistentPlaylistTokens[pid] ?? null;
+        if (nextTok) {
+          reopenPlaylistPromises.push(
+            fetchChannelPlaylistPage(apiKey, pid, 'louvores', nextTok).then((r) => {
+              persistentPlaylistTokens[pid] = r.nextPageToken;
+              seedPlaylistTokens[pid] = r.nextPageToken;
+              return r.candidates;
+            })
+          );
+        }
+      }
+    }
+
+    if (lowUnseenCats.length > 0 || reopenPlaylistPromises.length > 0) {
       try {
-        const extraBatches = await Promise.allSettled(
-          lowUnseenCats.map((cat) => {
-            const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-            const idx = globalDiscoveryOffsets[cat] % queries.length;
-            globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
-            return fetchYoutubeWebSearch(
-              apiKey,
-              queries[idx],
-              cat,
-              idx % 2 === 0,
-              new Set([...clientExcludeSet, ...poolItems.map((i) => i.id)])
-            );
-          })
-        );
+        const [playlistRes, discoveryRes] = await Promise.all([
+          reopenPlaylistPromises.length > 0
+            ? Promise.allSettled(reopenPlaylistPromises)
+            : Promise.resolve([]),
+          lowUnseenCats.length > 0
+            ? Promise.allSettled(
+                lowUnseenCats.map((cat) => {
+                  const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+                  const idx = globalDiscoveryOffsets[cat] % queries.length;
+                  globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
+                  return fetchYoutubeWebSearch(
+                    apiKey,
+                    queries[idx],
+                    cat,
+                    idx % 2 === 0,
+                    new Set([...clientExcludeSet, ...poolItems.map((i) => i.id)])
+                  );
+                })
+              )
+            : Promise.resolve([]),
+        ]);
+
+        const extraCandidates = new Map<string, CandidateVideo>();
         const existingIds = new Set(poolItems.map((i) => i.id));
+        for (const r of playlistRes) {
+          if (r.status !== 'fulfilled') continue;
+          for (const c of r.value) {
+            if (!existingIds.has(c.id) && !clientExcludeSet.has(c.id) && !extraCandidates.has(c.id)) {
+              extraCandidates.set(c.id, c);
+            }
+          }
+        }
+        const hydratedPlaylists =
+          apiKeyConfigured && extraCandidates.size > 0
+            ? await hydrateAndVerifyCandidates(apiKey, extraCandidates)
+            : [];
+
         const additions: ChristianShort[] = [];
-        for (let i = 0; i < extraBatches.length; i++) {
-          const r = extraBatches[i];
+        for (const item of hydratedPlaylists) {
+          if (!existingIds.has(item.id)) {
+            existingIds.add(item.id);
+            additions.push(item);
+          }
+        }
+        for (let i = 0; i < discoveryRes.length; i++) {
+          const r = discoveryRes[i];
           const targetCat = lowUnseenCats[i];
           if (r.status !== 'fulfilled') continue;
           for (const item of r.value) {
@@ -1280,9 +1502,11 @@ export async function getCuratedChristianShorts(options: {
             }
           }
         }
+
         if (additions.length > 0 && cachedCatalog) {
           poolItems = [...additions, ...poolItems].slice(0, MAX_CACHED_CATALOG_ITEMS);
           cachedCatalog.items = poolItems;
+          cachedCatalog.playlistTokens = seedPlaylistTokens;
         }
       } catch {
         // Keep existing pool on transient discovery errors
@@ -1299,12 +1523,18 @@ export async function getCuratedChristianShorts(options: {
     ...buildDiverseFeed(seenPool, true),
   ];
 
-  // If user searches with a query, query YouTube live (API search.list with automatic zero-quota web search fallback)
+  // If user searches with a query, query YouTube live (API search.list + multi-angle web search)
   let searchToken: string | null = null;
   let combinedItems = baseItems;
   if (trimmedQuery.length >= 2) {
     try {
-      const liveSearch = await fetchLiveYoutubeSearch(apiKey, trimmedQuery, options.category);
+      const liveSearch = await fetchLiveYoutubeSearch(
+        apiKey,
+        trimmedQuery,
+        options.category,
+        null,
+        clientExcludeSet
+      );
       searchToken = liveSearch.nextPageToken;
       const liveCollected = [...liveSearch.items];
       const validCat =
@@ -1318,12 +1548,13 @@ export async function getCuratedChristianShorts(options: {
         ? liveCollected.filter((i) => i.category === validCat).length
         : liveCollected.length;
 
-      if (catHits < 4 && searchToken) {
+      if (catHits < 8 && searchToken) {
         const secondPage = await fetchLiveYoutubeSearch(
           apiKey,
           trimmedQuery,
           options.category,
-          searchToken
+          searchToken,
+          clientExcludeSet
         );
         searchToken = secondPage.nextPageToken;
         liveCollected.push(...secondPage.items);
@@ -1348,31 +1579,41 @@ export async function getCuratedChristianShorts(options: {
     seedPlaylistTokens
   );
 
-  // When searching live on YouTube, merge live YouTube hits + accent-folded local matches
+  // When searching live on YouTube, merge live YouTube hits + accent-folded token catalog matches,
+  // ranked by direct relevance to the user's query (not scrambled by channel publish date).
   if (trimmedQuery.length >= 2) {
-    const fold = (s: string) =>
-      s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const validCategories = new Set(['all', 'pregacoes', 'biblia', 'louvores', 'testemunhos']);
     const category =
       options.category && validCategories.has(options.category) ? options.category : 'all';
-    const foldedQ = fold(trimmedQuery);
-    const matchedCached = baseItems.filter(
-      (item) =>
-        fold(item.title).includes(foldedQ) ||
-        fold(item.channelTitle).includes(foldedQ) ||
-        fold(item.description).includes(foldedQ) ||
-        fold(item.categoryLabel).includes(foldedQ)
-    );
+    const queryTokens = foldSearchText(trimmedQuery).split(/\s+/).filter(Boolean);
+    const matchedCached = baseItems.filter((item) => {
+      const haystack = foldSearchText(
+        `${item.title} ${item.channelTitle} ${item.description} ${item.categoryLabel}`
+      );
+      return queryTokens.every((tok) => haystack.includes(tok));
+    });
+
+    const baseIdSet = new Set(baseItems.map((b) => b.id));
     const mergedSearch = new Map<string, ChristianShort>();
     for (const item of combinedItems) {
-      if (!baseItems.some((b) => b.id === item.id)) {
+      if (!baseIdSet.has(item.id)) {
         mergedSearch.set(item.id, item);
       }
     }
     for (const item of matchedCached) {
       if (!mergedSearch.has(item.id)) mergedSearch.set(item.id, item);
     }
-    const orderedSearch = buildDiverseFeed([...mergedSearch.values()], false);
+
+    const validPrefCat =
+      category === 'pregacoes' ||
+      category === 'biblia' ||
+      category === 'louvores' ||
+      category === 'testemunhos'
+        ? (category as ContentCategory)
+        : undefined;
+    const orderedSearch = deduplicateShorts(
+      rankSearchResults([...mergedSearch.values()], trimmedQuery, validPrefCat)
+    );
     const counts: Record<ContentCategory, number> = {
       pregacoes: 0,
       biblia: 0,
@@ -1459,7 +1700,8 @@ export async function getMoreChristianShorts(options: {
       apiKey,
       trimmedQuery,
       options.category,
-      state.searchToken
+      state.searchToken,
+      state.seenIds
     );
     state.searchToken = page.nextPageToken;
 
@@ -1470,22 +1712,22 @@ export async function getMoreChristianShorts(options: {
       return true;
     });
 
-    const diverse = buildDiverseFeed(fresh, false);
+    const orderedPage = deduplicateShorts(rankSearchResults(fresh, trimmedQuery, validCat));
     const counts: Record<ContentCategory, number> = {
       pregacoes: 0,
       biblia: 0,
       louvores: 0,
       testemunhos: 0,
     };
-    for (const item of diverse) counts[item.category] += 1;
+    for (const item of orderedPage) counts[item.category] += 1;
 
     return {
-      items: diverse,
+      items: orderedPage,
       sourceMode: apiKeyConfigured ? 'youtube_api' : 'curated_rss',
       apiKeyConfigured,
       fetchedAt,
       category: options.category || 'all',
-      totalBeforeCategoryFilter: diverse.length,
+      totalBeforeCategoryFilter: orderedPage.length,
       categoryCounts: counts,
       hasMore: Boolean(state.searchToken),
       nextCursor: state.searchToken ? cursor : null,
@@ -1515,15 +1757,31 @@ export async function getMoreChristianShorts(options: {
       return `UU${suffix}`;
     };
 
-    const playlistPool: Array<{ playlistId: string; hintCategory: ContentCategory }> =
-      eligibleChannels.map((ch) => ({
+    const playlistPool: Array<{ playlistId: string; hintCategory: ContentCategory }> = [];
+    if (!validCat || validCat === 'louvores') {
+      // Interleave Novo Hinário, CD Jovem, Adoradores & general channels in playlistPool
+      const maxSpecial = Math.max(
+        NOVO_HINARIO_PLAYLISTS.length,
+        CD_JOVEM_PLAYLISTS.length,
+        ADORADORES_PLAYLISTS.length
+      );
+      for (let i = 0; i < maxSpecial; i++) {
+        if (i < NOVO_HINARIO_PLAYLISTS.length) {
+          playlistPool.push({ playlistId: NOVO_HINARIO_PLAYLISTS[i], hintCategory: 'louvores' });
+        }
+        if (i < CD_JOVEM_PLAYLISTS.length) {
+          playlistPool.push({ playlistId: CD_JOVEM_PLAYLISTS[i], hintCategory: 'louvores' });
+        }
+        if (i < ADORADORES_PLAYLISTS.length) {
+          playlistPool.push({ playlistId: ADORADORES_PLAYLISTS[i], hintCategory: 'louvores' });
+        }
+      }
+    }
+    for (const ch of eligibleChannels) {
+      playlistPool.push({
         playlistId: getPlaylistIdForChannel(ch),
         hintCategory: validCat || ch.defaultCategory,
-      }));
-    if (!validCat || validCat === 'louvores') {
-      for (const specialPid of SPECIAL_LOUVORES_PLAYLISTS) {
-        playlistPool.push({ playlistId: specialPid, hintCategory: 'louvores' });
-      }
+      });
     }
 
     const collected: ChristianShort[] = [];

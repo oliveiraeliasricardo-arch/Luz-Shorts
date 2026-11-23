@@ -98,6 +98,7 @@ export function App() {
 
   const feedRef = useRef<HTMLDivElement | null>(null);
   const seenIdsRef = useRef<string[]>(readStoredIdList(SEEN_STORAGE_KEY));
+  const prevActiveIdRef = useRef<string | undefined>(undefined);
   const categoryCursorsRef = useRef<Record<string, string | null>>({});
   const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
   const emptyRetryCountRef = useRef(0);
@@ -135,7 +136,7 @@ export function App() {
         try {
           const params = new URLSearchParams();
           if (forceRefresh) params.set('refresh', '1');
-          const recentSeen = seenIdsRef.current.slice(0, 150);
+          const recentSeen = seenIdsRef.current.slice(0, 400);
           if (recentSeen.length > 0) {
             params.set('exclude', recentSeen.join(','));
           }
@@ -164,8 +165,8 @@ export function App() {
 
       let items: ChristianShort[];
       if (unseenItems.length === 0 && seenItems.length > 0) {
-        // User cycled through the entire catalog: retain only the most recent 10 as seen
-        const recentOnly = seenIdsRef.current.slice(0, 10);
+        // Keep the most recent 250 seen IDs protected so recently watched louvores never jump back to the front
+        const recentOnly = seenIdsRef.current.slice(0, 250);
         seenIdsRef.current = recentOnly;
         try {
           localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(recentOnly));
@@ -333,13 +334,13 @@ export function App() {
     if (remoteSearchShorts !== null) return remoteSearchShorts;
     const fold = (s: string) =>
       s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    return allShorts.filter(
-      (item) =>
-        fold(item.title).includes(q) ||
-        fold(item.channelTitle).includes(q) ||
-        fold(item.description).includes(q) ||
-        fold(item.categoryLabel).includes(q)
-    );
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return allShorts.filter((item) => {
+      const haystack = fold(
+        `${item.title} ${item.channelTitle} ${item.description} ${item.categoryLabel}`
+      );
+      return tokens.every((tok) => haystack.includes(tok));
+    });
   }, [allShorts, searchQuery, remoteSearchShorts]);
 
   const categoryCounts = useMemo(() => {
@@ -398,8 +399,14 @@ export function App() {
           : activeCategory === 'all'
           ? allShorts
           : allShorts.filter((i) => i.category === activeCategory);
-        const recentIds = activePool.slice(-180).map((i) => i.id);
-        if (recentIds.length > 0) params.set('exclude', recentIds.join(','));
+        const combinedExclude = Array.from(
+          new Set([
+            ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 260)),
+            ...activePool.slice(0, 120).map((i) => i.id),
+            ...activePool.slice(-120).map((i) => i.id),
+          ])
+        ).slice(0, 450);
+        if (combinedExclude.length > 0) params.set('exclude', combinedExclude.join(','));
 
         const res = await fetch(`${API_BASE_URL}/api/shorts/more?${params.toString()}`);
         const contentType = res.headers.get('content-type') || '';
@@ -476,16 +483,18 @@ export function App() {
     allShorts,
   ]);
 
-  // Automatically load more videos from YouTube as the user approaches the end of any category feed,
+  // Automatically load more videos from YouTube as unseen videos run low or the user approaches the end of any feed,
   // and fetch a fresh YouTube batch once whenever switching into a specific category.
   useEffect(() => {
     if (loading || isRefreshing || activeCategory === 'salvos') return;
     const trimmed = searchQuery.trim();
+    const seenSet = new Set(seenIdsRef.current);
+    const unseenCount = visibleShorts.filter((item) => !seenSet.has(item.id)).length;
     const needsCategoryWarmup =
       !trimmed &&
       activeCategory !== 'all' &&
       !fetchedCategoryBatchRef.current.has(activeCategory);
-    const lowStockInCategory = !trimmed && visibleShorts.length < 15;
+    const lowStockInCategory = !trimmed && unseenCount < 25;
     if (
       visibleShorts.length === 0 ||
       needsCategoryWarmup ||
@@ -499,7 +508,7 @@ export function App() {
     }
   }, [
     activeIndex,
-    visibleShorts.length,
+    visibleShorts,
     activeCategory,
     searchQuery,
     loading,
@@ -580,23 +589,34 @@ export function App() {
     setAudioUnlocked(true);
   }, []);
 
-  // Track watched Shorts quickly (400ms) and when leaving the app so next entry starts fresh
+  // Track watched Shorts immediately on swipe/navigation, after 150ms dwell, and when closing/backgrounding
   useEffect(() => {
     const activeId = visibleShorts[activeIndex]?.id;
+    const previousId = prevActiveIdRef.current;
+    if (previousId && previousId !== activeId) {
+      markShortSeen(previousId);
+    }
+    prevActiveIdRef.current = activeId;
     if (!activeId) return;
+
     const timer = window.setTimeout(() => {
       markShortSeen(activeId);
-    }, 400);
+    }, 150);
     const handleVisibilityOrHide = () => {
       if (document.visibilityState === 'hidden') {
         markShortSeen(activeId);
       }
     };
+    const handleBeforeUnload = () => {
+      markShortSeen(activeId);
+    };
     window.addEventListener('pagehide', handleVisibilityOrHide);
+    window.addEventListener('beforeunload', handleBeforeUnload);
     document.addEventListener('visibilitychange', handleVisibilityOrHide);
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener('pagehide', handleVisibilityOrHide);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityOrHide);
     };
   }, [activeIndex, visibleShorts, markShortSeen]);
