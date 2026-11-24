@@ -106,7 +106,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
       />
 
       {/* Category Filter Buttons */}
-      <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-2 space-y-1">
+      <nav aria-label="Categorias do feed" className="bg-transparent space-y-0.5">
         {CATEGORIES.map(({ id, label, subtitle, Icon }) => {
           const isActive = activeCategory === id;
           const count = getCount(id);
@@ -115,20 +115,26 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
               key={id}
               type="button"
               onClick={() => onSelectCategory(id)}
-              className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-left transition-colors cursor-pointer min-h-[48px] ${
+              className={`relative w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-left transition-colors cursor-pointer min-h-[46px] ${
                 isActive
-                  ? 'bg-zinc-900 text-white border border-zinc-700/80'
-                  : 'text-zinc-300 border border-transparent hover:bg-zinc-900/60 hover:text-white'
+                  ? 'bg-white/[0.06] text-white'
+                  : 'bg-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-100'
               }`}
             >
+              {isActive && (
+                <span
+                  aria-hidden="true"
+                  className="absolute left-0 top-2.5 bottom-2.5 w-0.5 bg-white rounded-full"
+                />
+              )}
               <div className="flex items-center gap-3 min-w-0">
                 <Icon
-                  className={`w-4 h-4 shrink-0 ${
+                  className={`w-4 h-4 shrink-0 transition-colors ${
                     isActive ? 'text-white' : 'text-zinc-500'
                   }`}
                 />
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold leading-tight truncate">
+                  <div className={`text-sm leading-tight truncate ${isActive ? 'font-semibold text-white' : 'font-medium'}`}>
                     {label}
                   </div>
                   <div
@@ -142,7 +148,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
               </div>
               <span
                 className={`text-xs font-mono tabular-nums shrink-0 ${
-                  isActive ? 'text-zinc-200' : 'text-zinc-500'
+                  isActive ? 'text-zinc-200' : 'text-zinc-600'
                 }`}
               >
                 {id !== 'salvos' && !searchQuery.trim() && count > 0 ? `${count}+` : count}
@@ -150,10 +156,10 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
             </button>
           );
         })}
-      </div>
+      </nav>
 
       {/* Editorial & Doctrinal Curatorship Summary */}
-      <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-4 space-y-2.5">
+      <div className="bg-transparent border border-white/[0.07] rounded-2xl p-4 space-y-2.5">
         <h2 className="text-sm font-display font-bold text-zinc-100">
           Critério de Curadoria
         </h2>
@@ -165,7 +171,7 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
           Louvores e testemunhos abrangem expressões cristãs de todas as
           congregações e denominações.
         </p>
-        <div className="pt-2 border-t border-zinc-900 text-[11px] text-zinc-500">
+        <div className="pt-2 border-t border-white/[0.06] text-[11px] text-zinc-500">
           {sourceMode === 'youtube_api'
             ? 'Fonte ativa: YouTube Data API v3'
             : apiKeyConfigured

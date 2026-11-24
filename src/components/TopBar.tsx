@@ -22,7 +22,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(({
   const [tapPopKey, setTapPopKey] = React.useState(0);
 
   return (
-    <header className="shrink-0 sticky top-0 z-30 bg-black/95 backdrop-blur-md border-b border-zinc-900 safe-pt safe-px">
+    <header className="shrink-0 sticky top-0 z-30 bg-black/70 backdrop-blur-md border-b border-white/[0.06] safe-pt safe-px">
       <div className="max-w-[1360px] mx-auto px-3 sm:px-6 flex flex-col items-center">
         {/* Centered Animated Brand Wordmark at the top */}
         <div className="w-full h-12 lg:h-[52px] flex items-center justify-center">
@@ -60,7 +60,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(({
         {/* Desktop Single-Line Centered Category Navigation */}
         <nav
           aria-label="Categorias principais"
-          className="hidden md:flex items-center justify-center gap-6 h-10 w-full border-t border-zinc-900/70"
+          className="hidden md:flex items-center justify-center gap-6 h-10 w-full border-t border-white/[0.05]"
         >
           {NAV_ITEMS.map((item) => {
             const isActive = activeCategory === item.id;

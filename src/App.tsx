@@ -1130,7 +1130,7 @@ export function App() {
 
       {/* Mobile compact single-line category / search bar (stays well below 15% sticky height cap) */}
       {!isNativePipMode && (
-        <div className="lg:hidden shrink-0 z-30 bg-black/95 backdrop-blur-md border-b border-zinc-900 px-3 h-11 flex items-center gap-2 safe-px">
+        <div className="lg:hidden shrink-0 z-30 bg-black/65 backdrop-blur-md border-b border-white/[0.06] px-3 h-11 flex items-center gap-2 safe-px">
         {mobileSearchOpen ? (
           <div className="flex items-center gap-1.5 w-full">
             <button
@@ -1162,7 +1162,7 @@ export function App() {
               type="button"
               onClick={handleOpenMobileSearch}
               aria-label="Pesquisar vídeos"
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:bg-zinc-900 shrink-0"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/[0.06] shrink-0 transition-colors"
             >
               <Search className="w-4 h-4" aria-hidden="true" />
             </button>
@@ -1171,7 +1171,7 @@ export function App() {
                 <button
                   type="button"
                   onClick={handleShowSearchResultsView}
-                  className="flex items-center gap-1.5 min-w-0 text-xs font-semibold text-white bg-zinc-900 border border-zinc-800 px-2.5 py-1.5 rounded-lg"
+                  className="flex items-center gap-1.5 min-w-0 text-xs font-semibold text-white bg-white/[0.06] border border-white/[0.08] px-2.5 py-1.5 rounded-lg"
                 >
                   <ArrowLeft className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span className="truncate">Resultados: “{submittedSearchQuery}”</span>
@@ -1186,7 +1186,7 @@ export function App() {
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 flex-1 min-w-0">
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1 min-w-0 h-full">
                 {MOBILE_FILTERS.map((cat) => {
                   const isActive = activeCategory === cat.id;
                   return (
@@ -1194,13 +1194,19 @@ export function App() {
                       key={cat.id}
                       type="button"
                       onClick={() => handleSelectCategory(cat.id)}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap shrink-0 transition-colors ${
+                      className={`relative h-full px-2.5 flex items-center text-xs bg-transparent whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                         isActive
-                          ? 'bg-white text-black'
-                          : 'bg-zinc-950 border border-zinc-800/80 text-zinc-300'
+                          ? 'text-white font-semibold'
+                          : 'text-zinc-400 font-medium hover:text-zinc-100'
                       }`}
                     >
-                      {cat.label}
+                      <span>{cat.label}</span>
+                      {isActive && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute left-2 right-2 bottom-0 h-0.5 bg-white rounded-full"
+                        />
+                      )}
                     </button>
                   );
                 })}

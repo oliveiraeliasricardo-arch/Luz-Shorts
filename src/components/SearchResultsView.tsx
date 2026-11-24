@@ -60,13 +60,13 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = React.memo(({
   return (
     <div className="flex-1 min-w-0 h-full lg:h-auto flex flex-col bg-black text-zinc-100">
       {/* Top Bar of Search Results */}
-      <div className="shrink-0 bg-black/95 border-b border-zinc-900 px-3 sm:px-5 py-3 space-y-3">
+      <div className="shrink-0 bg-black/70 backdrop-blur-md border-b border-white/[0.06] px-3 sm:px-5 pt-3 space-y-2">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
               onClick={onExitSearch}
-              className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-semibold text-zinc-200 hover:bg-zinc-900 hover:text-white transition-colors shrink-0 cursor-pointer"
+              className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-xs font-semibold text-zinc-200 hover:bg-white/[0.1] hover:text-white transition-colors shrink-0 cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Feed</span>
@@ -86,8 +86,8 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = React.memo(({
           </div>
         </div>
 
-        {/* YouTube-style category filter bar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        {/* Clean transparent category filter bar */}
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
           {FILTER_TABS.map((tab) => {
             const isActive = activeCategory === tab.id;
             const count = getTabCount(tab.id);
@@ -96,14 +96,24 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = React.memo(({
                 key={tab.id}
                 type="button"
                 onClick={() => onSelectCategory(tab.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                className={`relative px-2.5 py-2 text-xs bg-transparent whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                   isActive
-                    ? 'bg-white text-black'
-                    : 'bg-zinc-950 border border-zinc-800/80 text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                    ? 'text-white font-semibold'
+                    : 'text-zinc-400 font-medium hover:text-zinc-100'
                 }`}
               >
-                {tab.label}
-                {count > 0 ? ` (${count})` : ''}
+                <span>{tab.label}</span>
+                {count > 0 && (
+                  <span className="ml-1 text-[11px] opacity-65 tabular-nums">
+                    {count}
+                  </span>
+                )}
+                {isActive && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-2 right-2 bottom-0 h-0.5 bg-white rounded-full"
+                  />
+                )}
               </button>
             );
           })}
