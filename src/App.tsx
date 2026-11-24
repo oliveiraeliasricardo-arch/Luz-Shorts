@@ -1,13 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowLeft, Bookmark, RefreshCw, Search, X } from 'lucide-react';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { RightQueuePanel } from './components/RightQueuePanel';
 import { SearchBoxWithSuggestions } from './components/SearchBoxWithSuggestions';
-import { SearchResultsView } from './components/SearchResultsView';
 import { ShareModal } from './components/ShareModal';
 import { ShortsFeedStage } from './components/ShortsFeedStage';
 import { ShortsSidebar } from './components/ShortsSidebar';
 import { TopBar } from './components/TopBar';
+
+const RightQueuePanel = lazy(() =>
+  import('./components/RightQueuePanel').then((mod) => ({
+    default: mod.RightQueuePanel,
+  }))
+);
+
+const SearchResultsView = lazy(() =>
+  import('./components/SearchResultsView').then((mod) => ({
+    default: mod.SearchResultsView,
+  }))
+);
 import { loadYouTubeIframeApi } from './utils/youtubePlayerApi';
 import {
   fetchShortsOnNativeDevice,
@@ -1136,20 +1146,29 @@ export function App() {
         )}
 
         {showingSearchResults && !isNativePipMode ? (
-          <SearchResultsView
-            query={submittedSearchQuery}
-            items={visibleShorts}
-            activeCategory={activeCategory}
-            categoryCounts={categoryCounts}
-            todosCount={todosFeedCount}
-            isSearching={isSearching}
-            isLoadingMore={isLoadingMore}
-            hasMore={searchHasMore}
-            onSelectCategory={handleSelectCategory}
-            onSelectVideo={handleSelectSearchVideo}
-            onLoadMore={loadMoreShorts}
-            onExitSearch={handleClearSearch}
-          />
+          <Suspense
+            fallback={
+              <div className="flex-1 w-full min-h-[260px] flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
+                <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
+                <p className="text-sm font-medium">Carregando resultados...</p>
+              </div>
+            }
+          >
+            <SearchResultsView
+              query={submittedSearchQuery}
+              items={visibleShorts}
+              activeCategory={activeCategory}
+              categoryCounts={categoryCounts}
+              todosCount={todosFeedCount}
+              isSearching={isSearching}
+              isLoadingMore={isLoadingMore}
+              hasMore={searchHasMore}
+              onSelectCategory={handleSelectCategory}
+              onSelectVideo={handleSelectSearchVideo}
+              onLoadMore={loadMoreShorts}
+              onExitSearch={handleClearSearch}
+            />
+          </Suspense>
         ) : (
           <>
             {/* Center Vertical Shorts Stage */}
@@ -1254,18 +1273,27 @@ export function App() {
             </section>
 
             {!isNativePipMode && (
-              <RightQueuePanel
-                items={visibleShorts}
-                activeIndex={activeIndex}
-                autoAdvance={autoAdvance}
-                isRefreshing={isRefreshing}
-                onToggleAutoAdvance={() => setAutoAdvance((prev) => !prev)}
-                onPrev={() => scrollToIndex(activeIndex - 1)}
-                onNext={() => scrollToIndex(activeIndex + 1)}
-                onSelectIndex={scrollToIndex}
-                onShare={setShareTarget}
-                onRefresh={handleRefreshFeed}
-              />
+              <Suspense
+                fallback={
+                  <aside
+                    aria-hidden="true"
+                    className="hidden xl:block w-72 shrink-0 h-[calc(100vh-8.75rem)] max-h-[760px]"
+                  />
+                }
+              >
+                <RightQueuePanel
+                  items={visibleShorts}
+                  activeIndex={activeIndex}
+                  autoAdvance={autoAdvance}
+                  isRefreshing={isRefreshing}
+                  onToggleAutoAdvance={() => setAutoAdvance((prev) => !prev)}
+                  onPrev={() => scrollToIndex(activeIndex - 1)}
+                  onNext={() => scrollToIndex(activeIndex + 1)}
+                  onSelectIndex={scrollToIndex}
+                  onShare={setShareTarget}
+                  onRefresh={handleRefreshFeed}
+                />
+              </Suspense>
             )}
           </>
         )}
