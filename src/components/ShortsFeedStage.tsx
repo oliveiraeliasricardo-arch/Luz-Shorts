@@ -56,7 +56,7 @@ function formatPlaybackTime(totalSeconds: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
-export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
+export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   items,
   activeIndex,
   audioUnlocked,
@@ -1457,5 +1457,5 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       )}
     </div>
   );
-};
+});
 

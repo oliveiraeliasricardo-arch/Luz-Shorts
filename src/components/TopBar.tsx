@@ -15,7 +15,7 @@ const NAV_ITEMS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'feliz7play', label: 'Feliz7Play' },
 ];
 
-export const TopBar: React.FC<TopBarProps> = ({
+export const TopBar: React.FC<TopBarProps> = React.memo(({
   activeCategory,
   onSelectCategory,
 }) => {
@@ -89,5 +89,5 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
     </header>
   );
-};
+});
 

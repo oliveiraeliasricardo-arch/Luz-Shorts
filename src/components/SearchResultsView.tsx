@@ -37,7 +37,7 @@ function formatCompactViews(views: number | null): string | null {
   return `${views} visualizações`;
 }
 
-export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
+export const SearchResultsView: React.FC<SearchResultsViewProps> = React.memo(({
   query,
   items,
   activeCategory,
@@ -226,4 +226,4 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
       </div>
     </div>
   );
-};
+});

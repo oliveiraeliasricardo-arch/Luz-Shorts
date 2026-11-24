@@ -135,6 +135,13 @@ function readStoredIdList(key: string, legacyKey?: string): string[] {
   }
 }
 
+function foldSearchText(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 export function App() {
   const [allShorts, setAllShorts] = useState<ChristianShort[]>([]);
   const [sourceMode, setSourceMode] = useState<'youtube_api' | 'curated_rss'>('curated_rss');
@@ -183,8 +190,12 @@ export function App() {
   const seenIdsRef = useRef<string[]>(
     readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY)
   );
+  const seenIdsSetRef = useRef<Set<string>>(new Set(seenIdsRef.current));
   const lastSessionTopRef = useRef<string[]>(readStoredIdList(LAST_SESSION_TOP_KEY));
   const allShortsRef = useRef<ChristianShort[]>([]);
+  const visibleShortsRef = useRef<ChristianShort[]>([]);
+  const activeIndexRef = useRef<number>(activeIndex);
+  const hasMoreByCategoryRef = useRef<Record<string, boolean>>(hasMoreByCategory);
   const prevActiveIdRef = useRef<string | undefined>(undefined);
   const categoryCursorsRef = useRef<Record<string, string | null>>({});
   const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
@@ -196,6 +207,9 @@ export function App() {
   const remoteSearchLoadedCatsRef = useRef<Set<string>>(new Set());
   const lastSearchSubmitTickRef = useRef(0);
   const hiddenAtRef = useRef<number | null>(null);
+
+  activeIndexRef.current = activeIndex;
+  hasMoreByCategoryRef.current = hasMoreByCategory;
 
   useEffect(() => {
     allShortsRef.current = allShorts;
@@ -248,6 +262,7 @@ export function App() {
       MAX_SEEN_IDS
     );
     seenIdsRef.current = next;
+    seenIdsSetRef.current = new Set(next);
     try {
       localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(next));
     } catch {
@@ -351,12 +366,13 @@ export function App() {
         // Keep the most recent 250 seen IDs protected so recently watched videos stay at the end
         const recentOnly = seenIdsRef.current.slice(0, 250);
         seenIdsRef.current = recentOnly;
+        seenIdsSetRef.current = new Set(recentOnly);
         try {
           localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(recentOnly));
         } catch {
           // Ignore storage quota errors
         }
-        const recentSet = new Set(recentOnly);
+        const recentSet = seenIdsSetRef.current;
         items = [
           ...buildDiverseFeed(orderedSource.filter((item) => !recentSet.has(item.id)), true),
           ...buildDiverseFeed(orderedSource.filter((item) => recentSet.has(item.id)), true),
@@ -542,36 +558,54 @@ export function App() {
 
   const savedSet = useMemo(() => new Set(savedIds), [savedIds]);
 
+  const trimmedSubmittedSearch = useMemo(
+    () => submittedSearchQuery.trim(),
+    [submittedSearchQuery]
+  );
+
+  const allowFelizInSearch = useMemo(
+    () =>
+      trimmedSubmittedSearch.length >= 2 &&
+      /\b(feliz7|defensores|camelo|nt kids)\b/i.test(trimmedSubmittedSearch),
+    [trimmedSubmittedSearch]
+  );
+
   const queryFiltered = useMemo(() => {
-    const rawTrimmed = submittedSearchQuery.trim();
-    const q = rawTrimmed
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
+    const q = foldSearchText(trimmedSubmittedSearch);
     if (!q) return allShorts;
-    if (remoteSearchShorts !== null && remoteSearchQueryRef.current === rawTrimmed) {
+    if (
+      remoteSearchShorts !== null &&
+      remoteSearchQueryRef.current === trimmedSubmittedSearch
+    ) {
       return remoteSearchShorts;
     }
-    const fold = (s: string) =>
-      s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const tokens = q.split(/\s+/).filter(Boolean);
     const seenPoolIds = new Set<string>();
     const combinedPool: ChristianShort[] = [];
-    for (const item of [...allShorts, ...(remoteSearchShorts ?? [])]) {
+    for (const item of allShorts) {
       if (!seenPoolIds.has(item.id)) {
         seenPoolIds.add(item.id);
         combinedPool.push(item);
       }
     }
+    if (remoteSearchShorts) {
+      for (const item of remoteSearchShorts) {
+        if (!seenPoolIds.has(item.id)) {
+          seenPoolIds.add(item.id);
+          combinedPool.push(item);
+        }
+      }
+    }
     return combinedPool.filter((item) => {
-      const haystack = fold(
+      const haystack = foldSearchText(
         `${item.title} ${item.channelTitle} ${item.description} ${item.categoryLabel}`
       );
       return tokens.every((tok) => haystack.includes(tok));
     });
-  }, [allShorts, submittedSearchQuery, remoteSearchShorts]);
+  }, [allShorts, trimmedSubmittedSearch, remoteSearchShorts]);
 
-  const categoryCounts = useMemo(() => {
+  // Single-pass memoized partitioning for category counts, Todos feed, saved list, and per-category lists
+  const filteredCatalog = useMemo(() => {
     const counts: Record<ContentCategory, number> = {
       pregacoes: 0,
       biblia: 0,
@@ -579,37 +613,50 @@ export function App() {
       testemunhos: 0,
       feliz7play: 0,
     };
+    const byCategory: Record<ContentCategory, ChristianShort[]> = {
+      pregacoes: [],
+      biblia: [],
+      louvores: [],
+      testemunhos: [],
+      feliz7play: [],
+    };
+    const todosItems: ChristianShort[] = [];
+    const savedItems: ChristianShort[] = [];
+
     for (const item of queryFiltered) {
       counts[item.category] += 1;
+      byCategory[item.category].push(item);
+      if (allowFelizInSearch || item.category !== 'feliz7play') {
+        todosItems.push(item);
+      }
+      if (savedSet.has(item.id)) {
+        savedItems.push(item);
+      }
     }
-    return counts;
-  }, [queryFiltered]);
 
-  const todosFeedCount = useMemo(() => {
-    const trimmed = submittedSearchQuery.trim();
-    const allowFelizInSearch =
-      trimmed.length >= 2 &&
-      /\b(feliz7|defensores|camelo|nt kids)\b/i.test(trimmed);
-    return allowFelizInSearch
-      ? queryFiltered.length
-      : queryFiltered.filter((item) => item.category !== 'feliz7play').length;
-  }, [queryFiltered, submittedSearchQuery]);
+    return {
+      counts,
+      byCategory,
+      todosItems: allowFelizInSearch ? queryFiltered : todosItems,
+      todosFeedCount: allowFelizInSearch ? queryFiltered.length : todosItems.length,
+      savedItems,
+    };
+  }, [queryFiltered, allowFelizInSearch, savedSet]);
+
+  const categoryCounts = filteredCatalog.counts;
+  const todosFeedCount = filteredCatalog.todosFeedCount;
 
   const visibleShorts = useMemo(() => {
     if (activeCategory === 'all') {
-      const trimmed = submittedSearchQuery.trim();
-      const allowFelizInSearch =
-        trimmed.length >= 2 &&
-        /\b(feliz7|defensores|camelo|nt kids)\b/i.test(trimmed);
-      return allowFelizInSearch
-        ? queryFiltered
-        : queryFiltered.filter((item) => item.category !== 'feliz7play');
+      return filteredCatalog.todosItems;
     }
     if (activeCategory === 'salvos') {
-      return queryFiltered.filter((item) => savedSet.has(item.id));
+      return filteredCatalog.savedItems;
     }
-    return queryFiltered.filter((item) => item.category === activeCategory);
-  }, [queryFiltered, activeCategory, savedSet, submittedSearchQuery]);
+    return filteredCatalog.byCategory[activeCategory];
+  }, [activeCategory, filteredCatalog]);
+
+  visibleShortsRef.current = visibleShorts;
 
   const loadMoreShorts = useCallback(async () => {
     if (isLoadingMoreRef.current || loading || isRefreshing || activeCategory === 'salvos') {
@@ -698,10 +745,15 @@ export function App() {
       } else {
         const existingAll = new Set(allShorts.map((i) => i.id));
         const freshCount = data.items.filter((i) => !existingAll.has(i.id)).length;
-        const anchorId = visibleShorts[Math.min(activeIndex + 1, Math.max(0, visibleShorts.length - 1))]?.id;
+        const currentVisible = visibleShortsRef.current;
+        const currentIdx = activeIndexRef.current;
+        const anchorId =
+          currentVisible[
+            Math.min(currentIdx + 1, Math.max(0, currentVisible.length - 1))
+          ]?.id;
         setAllShorts((prev) => {
           const existing = new Set(prev.map((i) => i.id));
-          const seenSet = new Set(seenIdsRef.current);
+          const seenSet = seenIdsSetRef.current;
           const fresh = data!.items.filter((i) => !existing.has(i.id));
           if (fresh.length === 0) return prev;
 
@@ -743,9 +795,7 @@ export function App() {
     loading,
     isRefreshing,
     activeCategory,
-    activeIndex,
-    visibleShorts,
-    submittedSearchQuery,
+    trimmedSubmittedSearch,
     remoteSearchShorts,
     searchHasMore,
     searchCursor,
@@ -753,33 +803,53 @@ export function App() {
     allShorts,
   ]);
 
+  const unseenStockSummary = useMemo(() => {
+    const seenSet = seenIdsSetRef.current;
+    let unseenCount = 0;
+    const perMainCat: Record<ContentCategory, number> = {
+      pregacoes: 0,
+      biblia: 0,
+      louvores: 0,
+      testemunhos: 0,
+      feliz7play: 0,
+    };
+
+    for (const item of visibleShorts) {
+      if (!seenSet.has(item.id)) {
+        unseenCount += 1;
+        perMainCat[item.category] += 1;
+      }
+    }
+
+    let minMainUnseen = Infinity;
+    if (activeCategory === 'all') {
+      for (const cat of MAIN_ALL_CATEGORIES) {
+        if (perMainCat[cat] < minMainUnseen) {
+          minMainUnseen = perMainCat[cat];
+        }
+      }
+    }
+
+    return { unseenCount, minMainUnseen };
+  }, [visibleShorts, activeCategory]);
+
   // Automatically load more videos from YouTube as unseen videos run low or the user approaches the end of any feed,
   // and fetch a fresh YouTube batch once whenever switching into a specific category.
   useEffect(() => {
     if (loading || isRefreshing || activeCategory === 'salvos') return;
-    const trimmed = submittedSearchQuery.trim();
-    if (trimmed.length >= 2) return;
-    const seenSet = new Set(seenIdsRef.current);
-    const unseenCount = visibleShorts.filter((item) => !seenSet.has(item.id)).length;
+    if (trimmedSubmittedSearch.length >= 2) return;
     const needsCategoryWarmup =
-      !trimmed &&
+      !trimmedSubmittedSearch &&
       activeCategory !== 'all' &&
       !fetchedCategoryBatchRef.current.has(activeCategory);
-    const minMainUnseen =
-      !trimmed && activeCategory === 'all'
-        ? Math.min(
-            ...MAIN_ALL_CATEGORIES.map(
-              (cat) =>
-                visibleShorts.filter((item) => item.category === cat && !seenSet.has(item.id)).length
-            )
-          )
-        : Infinity;
     const needsAllDiversification =
-      !trimmed &&
+      !trimmedSubmittedSearch &&
       activeCategory === 'all' &&
-      minMainUnseen < 8 &&
+      unseenStockSummary.minMainUnseen < 8 &&
       allBalanceRetryCountRef.current < 3;
-    const lowStockInCategory = !trimmed && (unseenCount < 25 || needsAllDiversification);
+    const lowStockInCategory =
+      !trimmedSubmittedSearch &&
+      (unseenStockSummary.unseenCount < 25 || needsAllDiversification);
     if (
       visibleShorts.length === 0 ||
       needsCategoryWarmup ||
@@ -796,9 +866,10 @@ export function App() {
     }
   }, [
     activeIndex,
-    visibleShorts,
+    visibleShorts.length,
+    unseenStockSummary,
     activeCategory,
-    submittedSearchQuery,
+    trimmedSubmittedSearch,
     loading,
     isRefreshing,
     paginationRetryTick,
@@ -807,11 +878,11 @@ export function App() {
 
   const handleSelectCategory = useCallback(
     (cat: ShortCategory) => {
-      const currentId = visibleShorts[activeIndex]?.id;
+      const currentId = visibleShortsRef.current[activeIndexRef.current]?.id;
       if (currentId) {
         markShortSeen(currentId);
       }
-      if (!submittedSearchQuery.trim() && cat !== 'salvos') {
+      if (!trimmedSubmittedSearch && cat !== 'salvos') {
         reshuffleUnseenFeed(cat);
       }
       emptyRetryCountRef.current = 0;
@@ -822,7 +893,7 @@ export function App() {
         feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
       }
     },
-    [activeIndex, visibleShorts, submittedSearchQuery, markShortSeen, reshuffleUnseenFeed]
+    [trimmedSubmittedSearch, markShortSeen, reshuffleUnseenFeed]
   );
 
   // Automatically re-prioritize and shuffle unseen videos when returning via browser history (pageshow)
@@ -862,17 +933,23 @@ export function App() {
     };
   }, [activeCategory, activeIndex, submittedSearchQuery, reshuffleUnseenFeed]);
 
-  const scrollToIndex = useCallback(
-    (targetIdx: number) => {
-      if (visibleShorts.length === 0) return;
-      const clamped = Math.max(0, Math.min(visibleShorts.length - 1, targetIdx));
-      if (feedRef.current && feedRef.current.scrollTop !== 0) {
-        feedRef.current.scrollTop = 0;
-      }
-      setActiveIndex(clamped);
-    },
-    [visibleShorts.length]
-  );
+  const scrollToIndex = useCallback((targetIdx: number) => {
+    const total = visibleShortsRef.current.length;
+    if (total === 0) return;
+    const clamped = Math.max(0, Math.min(total - 1, targetIdx));
+    if (feedRef.current && feedRef.current.scrollTop !== 0) {
+      feedRef.current.scrollTop = 0;
+    }
+    setActiveIndex(clamped);
+  }, []);
+
+  const handlePrevShort = useCallback(() => {
+    scrollToIndex(activeIndexRef.current - 1);
+  }, [scrollToIndex]);
+
+  const handleNextShort = useCallback(() => {
+    scrollToIndex(activeIndexRef.current + 1);
+  }, [scrollToIndex]);
 
   // Keyboard navigation (ArrowDown / ArrowUp / J / K)
   useEffect(() => {
@@ -886,16 +963,16 @@ export function App() {
       if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'J') {
         e.preventDefault();
         setAudioUnlocked(true);
-        scrollToIndex(activeIndex + 1);
+        scrollToIndex(activeIndexRef.current + 1);
       } else if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'K') {
         e.preventDefault();
         setAudioUnlocked(true);
-        scrollToIndex(activeIndex - 1);
+        scrollToIndex(activeIndexRef.current - 1);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeIndex, scrollToIndex, shareTarget]);
+  }, [scrollToIndex, shareTarget]);
 
   const handleToggleSave = useCallback((shortId: string) => {
     setSavedIds((prev) =>
@@ -940,12 +1017,12 @@ export function App() {
   }, [activeIndex, visibleShorts, markShortSeen]);
 
   const handleRefreshFeed = useCallback(() => {
-    const currentId = visibleShorts[activeIndex]?.id;
+    const currentId = visibleShortsRef.current[activeIndexRef.current]?.id;
     if (currentId) {
       markShortSeen(currentId);
     }
     loadShorts(true);
-  }, [activeIndex, visibleShorts, markShortSeen, loadShorts]);
+  }, [markShortSeen, loadShorts]);
 
   // Prefetch next 2 thumbnails so swiping feels instantaneous without keeping extra video iframes open
   useEffect(() => {
@@ -958,22 +1035,17 @@ export function App() {
   }, [activeIndex, visibleShorts]);
 
   const handleVideoEnded = useCallback(() => {
-    const canLoadMore = hasMoreByCategory[activeCategory] ?? true;
-    if (activeIndex < visibleShorts.length - 1) {
-      scrollToIndex(activeIndex + 1);
+    const canLoadMore = hasMoreByCategoryRef.current[activeCategory] ?? true;
+    const currentIdx = activeIndexRef.current;
+    const total = visibleShortsRef.current.length;
+    if (currentIdx < total - 1) {
+      scrollToIndex(currentIdx + 1);
     } else if (canLoadMore && activeCategory !== 'salvos') {
       loadMoreShorts();
     } else {
       scrollToIndex(0);
     }
-  }, [
-    activeIndex,
-    visibleShorts.length,
-    scrollToIndex,
-    hasMoreByCategory,
-    activeCategory,
-    loadMoreShorts,
-  ]);
+  }, [scrollToIndex, activeCategory, loadMoreShorts]);
 
   const handleSubmitSearch = useCallback((rawTerm: string) => {
     const clean = rawTerm.trim();
@@ -985,7 +1057,7 @@ export function App() {
   }, []);
 
   const handleClearSearch = useCallback(() => {
-    const hadSubmitted = submittedSearchQuery.trim().length > 0;
+    const hadSubmitted = trimmedSubmittedSearch.length > 0;
     setSearchQuery('');
     setSubmittedSearchQuery('');
     setSearchViewMode('player');
@@ -997,22 +1069,48 @@ export function App() {
     if (feedRef.current) {
       feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
     }
-  }, [submittedSearchQuery, activeCategory, reshuffleUnseenFeed]);
+  }, [trimmedSubmittedSearch, activeCategory, reshuffleUnseenFeed]);
 
-  const handleSelectSearchVideo = useCallback(
-    (index: number) => {
-      setAudioUnlocked(true);
-      setSearchViewMode('player');
-      setMobileSearchOpen(false);
-      if (feedRef.current && feedRef.current.scrollTop !== 0) {
-        feedRef.current.scrollTop = 0;
-      }
-      setActiveIndex(index);
-    },
-    []
-  );
+  const handleSelectSearchVideo = useCallback((index: number) => {
+    setAudioUnlocked(true);
+    setSearchViewMode('player');
+    setMobileSearchOpen(false);
+    if (feedRef.current && feedRef.current.scrollTop !== 0) {
+      feedRef.current.scrollTop = 0;
+    }
+    setActiveIndex(index);
+  }, []);
 
-  const isSearchActive = submittedSearchQuery.trim().length >= 2;
+  const handleToggleAutoAdvance = useCallback(() => {
+    setAutoAdvance((prev) => !prev);
+  }, []);
+
+  const handleOpenShareModal = useCallback((short: ChristianShort) => {
+    setShareTarget(short);
+  }, []);
+
+  const handleCloseShareModal = useCallback(() => {
+    setShareTarget(null);
+  }, []);
+
+  const handleOpenMobileSearch = useCallback(() => {
+    setMobileSearchOpen(true);
+  }, []);
+
+  const handleCloseMobileSearch = useCallback(() => {
+    setMobileSearchOpen(false);
+  }, []);
+
+  const handleShowSearchResultsView = useCallback(() => {
+    setSearchViewMode('results');
+  }, []);
+
+  const handleResetToAllVideos = useCallback(() => {
+    handleClearSearch();
+    handleSelectCategory('all');
+  }, [handleClearSearch, handleSelectCategory]);
+
+  const isSearchActive = trimmedSubmittedSearch.length >= 2;
   const showingSearchResults = isSearchActive && searchViewMode === 'results';
 
   return (
@@ -1026,12 +1124,7 @@ export function App() {
       {!isNativePipMode && (
         <TopBar
           activeCategory={activeCategory}
-          onSelectCategory={(cat) => {
-            if (isSearchActive && searchViewMode === 'player') {
-              setSearchViewMode('player');
-            }
-            handleSelectCategory(cat);
-          }}
+          onSelectCategory={handleSelectCategory}
         />
       )}
 
@@ -1042,7 +1135,7 @@ export function App() {
           <div className="flex items-center gap-1.5 w-full">
             <button
               type="button"
-              onClick={() => setMobileSearchOpen(false)}
+              onClick={handleCloseMobileSearch}
               aria-label="Voltar às categorias"
               className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white shrink-0"
             >
@@ -1067,7 +1160,7 @@ export function App() {
           <>
             <button
               type="button"
-              onClick={() => setMobileSearchOpen(true)}
+              onClick={handleOpenMobileSearch}
               aria-label="Pesquisar vídeos"
               className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:bg-zinc-900 shrink-0"
             >
@@ -1077,7 +1170,7 @@ export function App() {
               <div className="flex items-center justify-between gap-2 flex-1 min-w-0">
                 <button
                   type="button"
-                  onClick={() => setSearchViewMode('results')}
+                  onClick={handleShowSearchResultsView}
                   className="flex items-center gap-1.5 min-w-0 text-xs font-semibold text-white bg-zinc-900 border border-zinc-800 px-2.5 py-1.5 rounded-lg"
                 >
                   <ArrowLeft className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
@@ -1180,7 +1273,7 @@ export function App() {
                 <div className="hidden lg:flex w-full max-w-[438px] items-center justify-between gap-2 px-1">
                   <button
                     type="button"
-                    onClick={() => setSearchViewMode('results')}
+                    onClick={handleShowSearchResultsView}
                     className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-200 hover:text-white bg-zinc-950 border border-zinc-800 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
@@ -1219,7 +1312,7 @@ export function App() {
                     <p className="text-sm text-zinc-300">{error}</p>
                     <button
                       type="button"
-                      onClick={() => loadShorts(true)}
+                      onClick={handleRefreshFeed}
                       className="px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
                     >
                       Tentar novamente
@@ -1242,10 +1335,7 @@ export function App() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => {
-                        handleClearSearch();
-                        handleSelectCategory('all');
-                      }}
+                      onClick={handleResetToAllVideos}
                       className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
                     >
                       Ver todos os vídeos
@@ -1264,7 +1354,7 @@ export function App() {
                     onActiveIndexChange={setActiveIndex}
                     onAudioUnlocked={handleUnlockAudio}
                     onToggleSave={handleToggleSave}
-                    onShare={setShareTarget}
+                    onShare={handleOpenShareModal}
                     onRefresh={handleRefreshFeed}
                     onEnded={handleVideoEnded}
                   />
@@ -1286,11 +1376,11 @@ export function App() {
                   activeIndex={activeIndex}
                   autoAdvance={autoAdvance}
                   isRefreshing={isRefreshing}
-                  onToggleAutoAdvance={() => setAutoAdvance((prev) => !prev)}
-                  onPrev={() => scrollToIndex(activeIndex - 1)}
-                  onNext={() => scrollToIndex(activeIndex + 1)}
+                  onToggleAutoAdvance={handleToggleAutoAdvance}
+                  onPrev={handlePrevShort}
+                  onNext={handleNextShort}
                   onSelectIndex={scrollToIndex}
-                  onShare={setShareTarget}
+                  onShare={handleOpenShareModal}
                   onRefresh={handleRefreshFeed}
                 />
               </Suspense>
@@ -1304,7 +1394,7 @@ export function App() {
           <ShareModal
             short={shareTarget}
             isOpen={Boolean(shareTarget)}
-            onClose={() => setShareTarget(null)}
+            onClose={handleCloseShareModal}
           />
 
           <OfflineIndicator />

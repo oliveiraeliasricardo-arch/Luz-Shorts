@@ -70,7 +70,7 @@ const CATEGORIES: Array<{
   },
 ];
 
-export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
+export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
   activeCategory,
   searchQuery,
   onSearchChange,
@@ -175,4 +175,4 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = ({
       </div>
     </aside>
   );
-};
+});

@@ -21,7 +21,7 @@ interface RightQueuePanelProps {
   onRefresh: () => void;
 }
 
-export const RightQueuePanel: React.FC<RightQueuePanelProps> = ({
+export const RightQueuePanel: React.FC<RightQueuePanelProps> = React.memo(({
   items,
   activeIndex,
   autoAdvance,
@@ -192,4 +192,4 @@ export const RightQueuePanel: React.FC<RightQueuePanelProps> = ({
       )}
     </aside>
   );
-};
+});
