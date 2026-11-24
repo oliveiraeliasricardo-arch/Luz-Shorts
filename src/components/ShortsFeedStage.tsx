@@ -69,9 +69,17 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   const autoplayCheckTimerRef = useRef<number | null>(null);
   const wheelLockUntilRef = useRef<number>(0);
   const touchStartYRef = useRef<number | null>(null);
-  const touchConsumedRef = useRef<boolean>(false);
+  const lastTouchYRef = useRef<number>(0);
+  const lastTouchTimeRef = useRef<number>(0);
+  const velocityYRef = useRef<number>(0);
+  const dragOffsetPxRef = useRef<number>(0);
   const touchDraggedRef = useRef<boolean>(false);
   const pullDistanceRef = useRef<number>(0);
+  const lastWheelTimeRef = useRef<number>(0);
+  const lastWheelAbsDeltaRef = useRef<number>(0);
+  const slideTimerRef = useRef<number | null>(null);
+  const renderedIndexRef = useRef<number>(activeIndex);
+  const prevFirstItemIdRef = useRef<string | null>(items[0]?.id ?? null);
   const isScrubbingRef = useRef<boolean>(false);
   const seekGraceRef = useRef<{ target: number; until: number } | null>(null);
 
@@ -82,6 +90,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   const [duration, setDuration] = useState(0);
   const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
+  const [dragOffsetPx, setDragOffsetPx] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isSliding, setIsSliding] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [feedbackState, setFeedbackState] = useState<'play' | 'pause' | null>(null);
 
@@ -95,6 +106,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
 
   const activeVideoIdRef = useRef<string | null>(activeVideoId);
   const activeIndexRef = useRef(activeIndex);
+  const itemsLengthRef = useRef(items.length);
   const audioUnlockedRef = useRef(audioUnlocked);
   const autoAdvanceRef = useRef(autoAdvance);
   const isRefreshingRef = useRef(isRefreshing);
@@ -108,6 +120,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
 
   activeVideoIdRef.current = activeVideoId;
   activeIndexRef.current = activeIndex;
+  itemsLengthRef.current = items.length;
   audioUnlockedRef.current = audioUnlocked;
   autoAdvanceRef.current = autoAdvance;
   isRefreshingRef.current = isRefreshing;
@@ -118,6 +131,36 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   onRefreshRef.current = onRefresh;
   onAudioUnlockedRef.current = onAudioUnlocked;
   onActiveIndexChangeRef.current = onActiveIndexChange;
+
+  const currentFirstItemId = items[0]?.id ?? null;
+  const indexDeltaFromLastRender = activeIndex - renderedIndexRef.current;
+  const isListReset =
+    currentFirstItemId !== prevFirstItemIdRef.current &&
+    indexDeltaFromLastRender !== 0;
+  const isBigNonAdjacentJump =
+    indexDeltaFromLastRender !== 0 &&
+    (Math.abs(indexDeltaFromLastRender) > 1 || isListReset);
+
+  const triggerSlideWindow = useCallback((durationMs = 360) => {
+    if (slideTimerRef.current) {
+      window.clearTimeout(slideTimerRef.current);
+      slideTimerRef.current = null;
+    }
+    setIsSliding(true);
+    slideTimerRef.current = window.setTimeout(() => {
+      slideTimerRef.current = null;
+      setIsSliding(false);
+    }, durationMs);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (slideTimerRef.current) {
+        window.clearTimeout(slideTimerRef.current);
+        slideTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const resetPlaybackClock = useCallback((nextFallbackDuration = 0) => {
     isScrubbingRef.current = false;
@@ -150,20 +193,32 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       const clamped = Math.max(0, Math.min(items.length - 1, nextIndex));
       if (clamped === activeIndexRef.current) return;
 
+      const isAdjacent = Math.abs(clamped - activeIndexRef.current) === 1;
       silenceCurrentVideoImmediately();
       onAudioUnlockedRef.current();
 
-      const container = feedRef.current;
-      if (container && container.clientHeight > 0) {
-        container.scrollTo({
-          top: clamped * container.clientHeight,
-          behavior: 'auto',
-        });
+      if (isAdjacent) {
+        triggerSlideWindow(360);
       }
       onActiveIndexChangeRef.current(clamped);
     },
-    [feedRef, items.length, silenceCurrentVideoImmediately]
+    [items.length, silenceCurrentVideoImmediately, triggerSlideWindow]
   );
+
+  // Sync rendered index ref & animate adjacent slide changes triggered externally (keyboard, queue, auto-advance)
+  useEffect(() => {
+    const prevIdx = renderedIndexRef.current;
+    const prevFirst = prevFirstItemIdRef.current;
+    const delta = activeIndex - prevIdx;
+    const listChanged = currentFirstItemId !== prevFirst && delta !== 0;
+
+    renderedIndexRef.current = activeIndex;
+    prevFirstItemIdRef.current = currentFirstItemId;
+
+    if (delta !== 0 && Math.abs(delta) === 1 && !listChanged) {
+      triggerSlideWindow(360);
+    }
+  }, [activeIndex, currentFirstItemId, triggerSlideWindow]);
 
   const startPlaybackOnPlayer = useCallback(
     (
@@ -391,34 +446,36 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     }
   }, [activeVideoId, playerReady, startPlaybackOnPlayer]);
 
-  // Keep container strictly aligned to activeIndex (and on resize) so no partial frame ever shows
+  // Keep native container scrollTop at 0 since vertical slides are animated via CSS translate3d
   useEffect(() => {
-    const syncAlignment = () => {
-      const container = feedRef.current;
-      if (!container || container.clientHeight <= 0) return;
-      container.scrollTo({
-        top: activeIndex * container.clientHeight,
-        behavior: 'auto',
-      });
-    };
-    syncAlignment();
-    window.addEventListener('resize', syncAlignment);
-    return () => window.removeEventListener('resize', syncAlignment);
+    const container = feedRef.current;
+    if (container && container.scrollTop !== 0) {
+      container.scrollTop = 0;
+    }
   }, [activeIndex, items.length, feedRef]);
 
-  // Instant discrete wheel and touch swipe transitions:
-  // As soon as scrolling starts, show 100% of the next video immediately with zero half-cut frames.
+  // Smooth TikTok-style wheel + real-time 1:1 finger drag swipe & velocity flick navigation
   useEffect(() => {
     const container = feedRef.current;
     if (!container) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) < 6) return;
+      const absDelta = Math.abs(e.deltaY);
+      if (absDelta < 8) return;
       e.preventDefault();
 
       const now = Date.now();
-      if (now < wheelLockUntilRef.current) return;
-      wheelLockUntilRef.current = now + 260;
+      const timeSinceLastWheel = now - lastWheelTimeRef.current;
+      const isDeceleratingTail =
+        timeSinceLastWheel < 85 && absDelta <= lastWheelAbsDeltaRef.current * 1.05;
+
+      lastWheelTimeRef.current = now;
+      lastWheelAbsDeltaRef.current = absDelta;
+
+      if (now < wheelLockUntilRef.current || (isDeceleratingTail && now < wheelLockUntilRef.current + 180)) {
+        return;
+      }
+      wheelLockUntilRef.current = now + 400;
 
       if (e.deltaY > 0) {
         jumpToSlide(activeIndexRef.current + 1);
@@ -429,64 +486,105 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      touchStartYRef.current = e.touches[0].clientY;
-      touchConsumedRef.current = false;
+      const y = e.touches[0].clientY;
+      touchStartYRef.current = y;
+      lastTouchYRef.current = y;
+      lastTouchTimeRef.current = performance.now();
+      velocityYRef.current = 0;
+      dragOffsetPxRef.current = 0;
       touchDraggedRef.current = false;
       pullDistanceRef.current = 0;
       setPullDistance(0);
+      setDragOffsetPx(0);
+      setIsDragging(true);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (touchStartYRef.current === null || touchConsumedRef.current) return;
+      if (touchStartYRef.current === null || e.touches.length !== 1) return;
       const currentY = e.touches[0].clientY;
-      const deltaUp = touchStartYRef.current - currentY;
+      const now = performance.now();
+      const dt = Math.max(1, now - lastTouchTimeRef.current);
+      const instantVelocity = (currentY - lastTouchYRef.current) / dt;
+      velocityYRef.current = velocityYRef.current * 0.35 + instantVelocity * 0.65;
+      lastTouchYRef.current = currentY;
+      lastTouchTimeRef.current = now;
 
-      if (Math.abs(deltaUp) > 8) {
+      const deltaY = currentY - touchStartYRef.current; // negative = swiping up (next), positive = swiping down (prev/refresh)
+      if (Math.abs(deltaY) > 7) {
         touchDraggedRef.current = true;
+        e.preventDefault();
       }
 
-      // Sliding finger UP: advance immediately so 100% of next video image appears right away
-      if (deltaUp >= 24) {
-        e.preventDefault();
-        touchConsumedRef.current = true;
-        pullDistanceRef.current = 0;
-        setPullDistance(0);
-        jumpToSlide(activeIndexRef.current + 1);
+      const idx = activeIndexRef.current;
+      const total = itemsLengthRef.current;
+
+      // Top of feed + dragging down: pull-to-refresh + gentle rubber-band slide
+      if (idx === 0 && deltaY > 0) {
+        const dampedPull = Math.min(180, Math.round(deltaY * 0.78));
+        const rubberOffset = Math.min(76, Math.round(deltaY * 0.26));
+        pullDistanceRef.current = dampedPull;
+        dragOffsetPxRef.current = rubberOffset;
+        setPullDistance(dampedPull);
+        setDragOffsetPx(rubberOffset);
         return;
       }
 
-      // Sliding finger DOWN: track pull distance; long pull refreshes, short pull goes back one slide
-      if (deltaUp < 0) {
-        const rawDown = -deltaUp;
-        if (rawDown > 8) {
-          e.preventDefault();
-        }
-        const damped = Math.min(180, Math.round(rawDown * 0.78));
-        pullDistanceRef.current = damped;
-        setPullDistance(damped);
-      } else if (pullDistanceRef.current > 0) {
+      if (pullDistanceRef.current > 0) {
         pullDistanceRef.current = 0;
         setPullDistance(0);
       }
+
+      // Bottom of feed + dragging up: rubber-band resistance
+      if (idx >= total - 1 && deltaY < 0) {
+        const rubberBottom = Math.max(-72, Math.round(deltaY * 0.28));
+        dragOffsetPxRef.current = rubberBottom;
+        setDragOffsetPx(rubberBottom);
+        return;
+      }
+
+      // 1:1 TikTok vertical finger tracking
+      dragOffsetPxRef.current = Math.round(deltaY);
+      setDragOffsetPx(Math.round(deltaY));
     };
 
     const handleTouchEnd = () => {
-      const pulled = pullDistanceRef.current;
-      const threshold = activeIndexRef.current === 0 ? 92 : 132;
+      if (touchStartYRef.current === null) return;
 
-      if (!touchConsumedRef.current && pulled > 0) {
-        if (!isRefreshingRef.current && pulled >= threshold) {
+      const currentOffset = dragOffsetPxRef.current;
+      const pulled = pullDistanceRef.current;
+      const velocityY = velocityYRef.current;
+      const idx = activeIndexRef.current;
+      const total = itemsLengthRef.current;
+      const containerHeight = container.clientHeight || 640;
+      const distThreshold = Math.max(56, containerHeight * 0.16);
+      const hasUpFlick = velocityY < -0.35 && currentOffset < -22;
+      const hasDownFlick = velocityY > 0.35 && currentOffset > 22;
+
+      setIsDragging(false);
+      dragOffsetPxRef.current = 0;
+      setDragOffsetPx(0);
+
+      if (idx === 0 && pulled > 0) {
+        if (!isRefreshingRef.current && pulled >= 92) {
           onAudioUnlockedRef.current();
           onRefreshRef.current();
-        } else if (activeIndexRef.current > 0 && pulled >= 22) {
-          jumpToSlide(activeIndexRef.current - 1);
         }
+        if (Math.abs(currentOffset) > 2) {
+          triggerSlideWindow(280);
+        }
+      } else if ((currentOffset <= -distThreshold || hasUpFlick) && idx < total - 1) {
+        jumpToSlide(idx + 1);
+      } else if ((currentOffset >= distThreshold || hasDownFlick) && idx > 0) {
+        jumpToSlide(idx - 1);
+      } else if (Math.abs(currentOffset) > 2) {
+        // Cancelled drag: keep poster visible while springing back to 0px
+        triggerSlideWindow(280);
       }
 
       pullDistanceRef.current = 0;
       setPullDistance(0);
       touchStartYRef.current = null;
-      touchConsumedRef.current = false;
+      velocityYRef.current = 0;
       window.setTimeout(() => {
         touchDraggedRef.current = false;
       }, 60);
@@ -505,7 +603,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, [feedRef, jumpToSlide]);
+  }, [feedRef, jumpToSlide, triggerSlideWindow]);
 
   // Unmute automatically on first user gesture anywhere
   useEffect(() => {
@@ -712,11 +810,18 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       ? Math.min(100, Math.max(0, (displayedTime / effectiveDuration) * 100))
       : 0;
 
-  const pullThreshold = activeIndex === 0 ? 92 : 132;
+  const pullThreshold = 92;
   const showPullIndicator = isRefreshing || pullDistance > 16;
   const readyToRefresh = pullDistance >= pullThreshold;
   const pullProgress = Math.min(1, pullDistance / pullThreshold);
   const pullTranslateY = isRefreshing ? 14 : Math.min(64, Math.round(pullDistance * 0.45)) - 6;
+
+  // Hide the stationary YouTube iframe layer while finger-dragging or mid-slide so outgoing & incoming posters glide together like TikTok
+  const isActivelyDisplaced = isDragging && Math.abs(dragOffsetPx) > 2;
+  const isScrollingMotion =
+    isActivelyDisplaced || isSliding || indexDeltaFromLastRender !== 0;
+  const shouldAnimateTrack = !isDragging && !isBigNonAdjacentJump;
+  const showLivePlayer = isVideoVisible && !hasError && !isScrollingMotion;
 
   return (
     <div className="relative w-full h-full bg-black overflow-hidden select-none overscroll-none">
@@ -751,33 +856,42 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
               ? 'Atualizando vídeos...'
               : readyToRefresh
               ? 'Solte para atualizar o feed'
-              : activeIndex === 0
-              ? 'Deslize mais para atualizar'
-              : 'Continue deslizando para atualizar'}
+              : 'Deslize mais para atualizar'}
           </span>
         </div>
       </div>
 
       {/* Persistent Single YouTube Player Layer */}
       <div
-        className={`absolute inset-0 z-10 pointer-events-none ${
-          isVideoVisible && !hasError ? 'opacity-100' : 'opacity-0'
+        className={`absolute inset-0 z-10 pointer-events-none transition-opacity duration-200 ${
+          showLivePlayer ? 'opacity-100' : 'opacity-0'
         }`}
       >
         <div ref={playerHostRef} className="w-full h-full" />
       </div>
 
-      {/* Discrete Full-Frame Slide Viewport (overflow-hidden prevents half-scrolled frames) */}
+      {/* TikTok-style GPU-Accelerated Vertical Slide Viewport */}
       <div
         ref={feedRef}
         className="relative z-20 w-full h-full overflow-hidden touch-none overscroll-none"
       >
+        <div
+          className={`w-full h-full flex flex-col will-change-transform ${
+            shouldAnimateTrack
+              ? 'transition-transform duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)]'
+              : 'transition-none'
+          }`}
+          style={{
+            transform: `translate3d(0, calc(${-activeIndex * 100}% + ${dragOffsetPx}px), 0)`,
+          }}
+        >
         {items.map((short, idx) => {
           const isCurrent = idx === activeIndex;
           const isNearActive = Math.abs(idx - activeIndex) <= 4;
           const isSaved = savedSet.has(short.id);
           const viewsLabel = formatViews(short.viewCount);
-          const hidePosterForVideo = isCurrent && isVideoVisible && !hasError;
+          const hidePosterForVideo =
+            isCurrent && isVideoVisible && !hasError && !isScrollingMotion;
 
           if (!isNearActive) {
             return (
@@ -785,7 +899,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                 key={short.id}
                 data-short-id={short.id}
                 aria-hidden="true"
-                className="relative w-full h-full overflow-hidden"
+                className="relative w-full h-full shrink-0 overflow-hidden"
               />
             );
           }
@@ -794,11 +908,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
             <article
               key={short.id}
               data-short-id={short.id}
-              className="relative w-full h-full flex items-center justify-center overflow-hidden"
+              className="relative w-full h-full shrink-0 flex items-center justify-center overflow-hidden"
             >
               {/* Full-Frame Thumbnail Poster */}
               <div
-                className={`absolute inset-0 bg-gradient-to-br from-black via-zinc-950 to-zinc-900 ${
+                className={`absolute inset-0 bg-gradient-to-br from-black via-zinc-950 to-zinc-900 transition-opacity duration-200 ${
                   hidePosterForVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
                 }`}
               >
@@ -944,6 +1058,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
             </article>
           );
         })}
+        </div>
       </div>
 
       {/* Interactive playback progress & seek bar (isolated from swipe gestures at z-40) */}

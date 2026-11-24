@@ -847,14 +847,11 @@ export function App() {
 
   const scrollToIndex = useCallback(
     (targetIdx: number) => {
-      const container = feedRef.current;
-      if (!container || visibleShorts.length === 0) return;
+      if (visibleShorts.length === 0) return;
       const clamped = Math.max(0, Math.min(visibleShorts.length - 1, targetIdx));
-      const slideHeight = container.clientHeight;
-      container.scrollTo({
-        top: clamped * slideHeight,
-        behavior: 'auto',
-      });
+      if (feedRef.current && feedRef.current.scrollTop !== 0) {
+        feedRef.current.scrollTop = 0;
+      }
       setActiveIndex(clamped);
     },
     [visibleShorts.length]
@@ -990,16 +987,10 @@ export function App() {
       setAudioUnlocked(true);
       setSearchViewMode('player');
       setMobileSearchOpen(false);
+      if (feedRef.current && feedRef.current.scrollTop !== 0) {
+        feedRef.current.scrollTop = 0;
+      }
       setActiveIndex(index);
-      window.requestAnimationFrame(() => {
-        const container = feedRef.current;
-        if (container) {
-          container.scrollTo({
-            top: index * container.clientHeight,
-            behavior: 'auto',
-          });
-        }
-      });
     },
     []
   );
