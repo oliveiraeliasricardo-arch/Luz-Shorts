@@ -3,8 +3,6 @@ import {
   AlertCircle,
   ArrowLeft,
   Bookmark,
-  RectangleHorizontal,
-  RectangleVertical,
   RefreshCw,
   Search,
   X,
@@ -32,11 +30,7 @@ import {
   fetchShortsOnNativeDevice,
   isNativeCapacitorApp,
 } from './utils/nativeShortsFallback';
-import {
-  getViewportOrientationState,
-  releaseLandscapeOrientation,
-  requestLandscapeOrientation,
-} from './utils/screenOrientation';
+import { getViewportOrientationState } from './utils/screenOrientation';
 import { buildDiverseFeed, buildTieredDiverseFeed } from './shared/curatorCore';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
@@ -196,9 +190,6 @@ export function App() {
   const [isNarrowScreen, setIsNarrowScreen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 1024 : false
   );
-  const [stageOrientationOverride, setStageOrientationOverride] = useState<
-    'auto' | 'horizontal' | 'vertical'
-  >('auto');
   const [isNativePipMode, setIsNativePipMode] = useState(() => {
     if (typeof document !== 'undefined' && document.documentElement.dataset.pipMode === 'true') {
       return true;
@@ -267,15 +258,9 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    let prevLandscape = getViewportOrientationState().isLandscapeViewport;
     const syncOrientation = () => {
-      const next = getViewportOrientationState();
-      setViewportOrientation(next);
+      setViewportOrientation(getViewportOrientationState());
       setIsNarrowScreen(window.innerWidth < 1024);
-      if (next.isLandscapeViewport !== prevLandscape) {
-        prevLandscape = next.isLandscapeViewport;
-        setStageOrientationOverride('auto');
-      }
     };
 
     window.addEventListener('resize', syncOrientation);
@@ -1158,20 +1143,8 @@ export function App() {
 
   const isCompactLandscape = viewportOrientation.isCompactLandscape;
   const isHorizontalMode =
-    stageOrientationOverride === 'horizontal' ||
-    (stageOrientationOverride === 'auto' && isCompactLandscape);
-
-  const handleToggleHorizontalMode = useCallback(() => {
-    if (isHorizontalMode) {
-      setStageOrientationOverride(
-        viewportOrientation.isLandscapeViewport ? 'vertical' : 'auto'
-      );
-      void releaseLandscapeOrientation(viewportOrientation.isLandscapeViewport);
-    } else {
-      setStageOrientationOverride('horizontal');
-      void requestLandscapeOrientation();
-    }
-  }, [isHorizontalMode, viewportOrientation.isLandscapeViewport]);
+    isCompactLandscape ||
+    (viewportOrientation.isLandscapeViewport && viewportOrientation.isTouchDevice);
 
   const isSearchActive = trimmedSubmittedSearch.length >= 2;
   const showingSearchResults = isSearchActive && searchViewMode === 'results';
@@ -1299,21 +1272,6 @@ export function App() {
                   );
                 })}
               </div>
-            )}
-            {isCompactLandscape && (
-              <button
-                type="button"
-                onClick={handleToggleHorizontalMode}
-                aria-label={isHorizontalMode ? 'Voltar ao modo vertical' : 'Modo horizontal'}
-                title={isHorizontalMode ? 'Modo vertical' : 'Modo horizontal'}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/[0.06] shrink-0 transition-colors cursor-pointer"
-              >
-                {isHorizontalMode ? (
-                  <RectangleVertical className="w-4 h-4" aria-hidden="true" />
-                ) : (
-                  <RectangleHorizontal className="w-4 h-4" aria-hidden="true" />
-                )}
-              </button>
             )}
           </>
         )}
@@ -1484,7 +1442,6 @@ export function App() {
                     onShare={handleOpenShareModal}
                     onRefresh={handleRefreshFeed}
                     onEnded={handleVideoEnded}
-                    onToggleHorizontalMode={handleToggleHorizontalMode}
                   />
                 )}
               </div>

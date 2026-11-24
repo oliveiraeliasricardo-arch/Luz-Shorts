@@ -248,6 +248,14 @@ public class MainActivity extends BridgeActivity {
   @Override
   public void onConfigurationChanged(@NonNull Configuration newConfig) {
     super.onConfigurationChanged(newConfig);
+    if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+      pipAspectWidth = 16;
+      pipAspectHeight = 9;
+    } else if (newConfig.orientation == Configuration.ORIENTATION_PORTRAIT) {
+      pipAspectWidth = 9;
+      pipAspectHeight = 16;
+    }
+    syncAutoEnterPipParams();
     keepWebViewActive();
   }
 
@@ -261,15 +269,48 @@ public class MainActivity extends BridgeActivity {
   }
 
   @Override
+  public void onStop() {
+    super.onStop();
+    boolean inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode();
+    if (!inPip && !isChangingConfigurations()) {
+      if (getBridge() != null && getBridge().getWebView() != null) {
+        WebView webView = getBridge().getWebView();
+        webView.post(() ->
+          webView.evaluateJavascript(
+            "try{window.dispatchEvent(new CustomEvent('gracaplay-app-stopped'));}catch(e){}",
+            null
+          )
+        );
+      }
+    }
+  }
+
+  @Override
   public void onPictureInPictureModeChanged(
     boolean isInPictureInPictureMode,
     @NonNull Configuration newConfig
   ) {
     super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+    if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+      pipAspectWidth = 16;
+      pipAspectHeight = 9;
+    } else if (newConfig.orientation == Configuration.ORIENTATION_PORTRAIT) {
+      pipAspectWidth = 9;
+      pipAspectHeight = 16;
+    }
     notifyWebPipState(isInPictureInPictureMode);
     if (isInPictureInPictureMode) {
       keepWebViewActive();
-      mainHandler.postDelayed(this::keepWebViewActive, 120);
+      mainHandler.postDelayed(this::keepWebViewActive, 90);
+      mainHandler.postDelayed(() -> {
+        keepWebViewActive();
+        if (getBridge() != null && getBridge().getWebView() != null) {
+          getBridge().getWebView().evaluateJavascript(
+            "try{window.dispatchEvent(new CustomEvent('gracaplay-pip-resume'));}catch(e){}",
+            null
+          );
+        }
+      }, 220);
     }
   }
 

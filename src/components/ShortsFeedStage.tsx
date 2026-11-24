@@ -5,8 +5,6 @@ import {
   Pause,
   PictureInPicture2,
   Play,
-  RectangleHorizontal,
-  RectangleVertical,
   RefreshCw,
   RotateCcw,
   RotateCw,
@@ -17,8 +15,6 @@ import { loadYouTubeIframeApi, type YTPlayer } from '../utils/youtubePlayerApi';
 import {
   type DocumentPictureInPictureWindow,
   isDocumentPipAvailable,
-  isNativeAndroidPipAvailable,
-  requestNativeAndroidPip,
   syncNativePipPlaybackState,
 } from '../utils/pictureInPicture';
 
@@ -39,7 +35,6 @@ interface ShortsFeedStageProps {
   onShare: (short: ChristianShort) => void;
   onRefresh: () => void;
   onEnded: () => void;
-  onToggleHorizontalMode?: () => void;
 }
 
 function formatViews(views: number | null): string | null {
@@ -78,7 +73,6 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   onShare,
   onRefresh,
   onEnded,
-  onToggleHorizontalMode,
 }) => {
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
   const playerHostElRef = useRef<HTMLDivElement | null>(null);
@@ -996,21 +990,6 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
     showPipInfoNotice,
   ]);
 
-  const handleTogglePictureInPicture = useCallback(() => {
-    onAudioUnlocked();
-    if (isNativeAndroidPipAvailable()) {
-      requestNativeAndroidPip();
-      return;
-    }
-    if (isDocumentPipAvailable()) {
-      void openDocumentPip();
-      return;
-    }
-    showPipInfoNotice(
-      'No app Android (APK) a janela flutuante abre ao minimizar. No navegador, use Chrome ou Edge no computador.'
-    );
-  }, [onAudioUnlocked, openDocumentPip, showPipInfoNotice]);
-
   // Keep Document PiP title & play/pause label synced as videos change or pause
   useEffect(() => {
     if (!isDocPipActive) return;
@@ -1025,36 +1004,121 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
     }
   }, [isDocPipActive, activeShort, isPlaying]);
 
-  // Register Media Session handler for browsers that support auto-PiP on tab switch
+  // Sync Media Session metadata, playback controls & auto-PiP with the phone OS / browser
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
-    if (!isDocumentPipAvailable()) return;
+
+    const mediaSession = navigator.mediaSession as MediaSession & {
+      setActionHandler?: (action: string, handler: (() => void) | null) => void;
+    };
 
     try {
-      (
-        navigator.mediaSession as MediaSession & {
-          setActionHandler: (action: string, handler: (() => void) | null) => void;
-        }
-      ).setActionHandler('enterpictureinpicture', () => {
+      if (typeof MediaMetadata !== 'undefined' && activeShort) {
+        mediaSession.metadata = new MediaMetadata({
+          title: activeShort.title,
+          artist: activeShort.channelTitle,
+          album: 'GraçaPlay',
+          artwork: [
+            {
+              src: activeShort.thumbnailUrl,
+              sizes: '480x360',
+              type: 'image/jpeg',
+            },
+          ],
+        });
+      }
+      mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch {
+      // Ignore MediaMetadata errors on older browsers
+    }
+
+    const safeSetHandler = (action: string, handler: (() => void) | null) => {
+      try {
+        mediaSession.setActionHandler?.(action, handler);
+      } catch {
+        // Ignore unsupported mediaSession action
+      }
+    };
+
+    safeSetHandler('play', () => {
+      const player = playerRef.current;
+      if (!player) return;
+      try {
+        player.unMute();
+        player.playVideo();
+      } catch {
+        // Ignore
+      }
+    });
+    safeSetHandler('pause', () => {
+      try {
+        playerRef.current?.pauseVideo();
+      } catch {
+        // Ignore
+      }
+    });
+    safeSetHandler('previoustrack', () => {
+      jumpToSlideRef.current(activeIndexRef.current - 1);
+    });
+    safeSetHandler('nexttrack', () => {
+      jumpToSlideRef.current(activeIndexRef.current + 1);
+    });
+    if (isDocumentPipAvailable()) {
+      safeSetHandler('enterpictureinpicture', () => {
         if (!pipWindowRef.current) {
           void openDocumentPip();
         }
       });
-      return () => {
-        try {
-          (
-            navigator.mediaSession as MediaSession & {
-              setActionHandler: (action: string, handler: (() => void) | null) => void;
-            }
-          ).setActionHandler('enterpictureinpicture', null);
-        } catch {
-          // Ignore
-        }
-      };
-    } catch {
-      return undefined;
     }
-  }, [openDocumentPip]);
+
+    return () => {
+      safeSetHandler('play', null);
+      safeSetHandler('pause', null);
+      safeSetHandler('previoustrack', null);
+      safeSetHandler('nexttrack', null);
+      safeSetHandler('enterpictureinpicture', null);
+    };
+  }, [activeShort, isPlaying, openDocumentPip]);
+
+  // Follow native Android PiP transitions: keep video playing on PiP entry & pause cleanly if PiP is dismissed
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+
+  useEffect(() => {
+    const handlePipResume = () => {
+      const player = playerRef.current;
+      if (!player || hasErrorRef.current) return;
+      try {
+        const state = player.getPlayerState();
+        if (state !== 1 && state !== 3) {
+          player.unMute();
+          player.setVolume(100);
+          player.playVideo();
+        }
+      } catch {
+        // Ignore
+      }
+    };
+
+    const handleAppStopped = () => {
+      const player = playerRef.current;
+      if (!player) return;
+      try {
+        if (isPlayingRef.current) {
+          player.pauseVideo();
+        }
+      } catch {
+        // Ignore
+      }
+    };
+
+    window.addEventListener('gracaplay-pip-resume', handlePipResume);
+    window.addEventListener('gracaplay-app-stopped', handleAppStopped);
+    return () => {
+      window.removeEventListener('gracaplay-pip-resume', handlePipResume);
+      window.removeEventListener('gracaplay-app-stopped', handleAppStopped);
+    };
+  }, []);
 
   const isScrubbing = scrubSeconds !== null;
   const displayedTime =
@@ -1285,7 +1349,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                   <div
                     className={`absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end pointer-events-none ${
                       isCompactLandscape
-                        ? 'px-3.5 pt-2 pb-[56px] pr-[224px]'
+                        ? 'px-3.5 pt-2 pb-[56px] pr-[152px]'
                         : 'px-4 pt-4 pb-[84px] pr-16 sm:px-5 sm:pt-5 sm:pb-[90px] sm:pr-20'
                     }`}
                   >
@@ -1328,61 +1392,14 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                     </div>
                   </div>
 
-                  {/* Right-side thumb-zone actions (horizontal row in compact landscape so nothing overflows vertically) */}
+                  {/* Right-side thumb-zone actions */}
                   <div
                     className={`absolute z-30 flex items-center ${
                       isCompactLandscape
                         ? 'right-2.5 bottom-[54px] flex-row gap-1'
-                        : 'right-2.5 bottom-[86px] sm:bottom-[92px] flex-col gap-2.5'
+                        : 'right-2.5 bottom-[86px] sm:bottom-[92px] flex-col gap-3'
                     }`}
                   >
-                    {onToggleHorizontalMode && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAudioUnlocked();
-                          onToggleHorizontalMode();
-                        }}
-                        aria-label={
-                          isHorizontalMode
-                            ? 'Voltar ao modo vertical'
-                            : 'Assistir na horizontal'
-                        }
-                        title={
-                          isHorizontalMode ? 'Modo vertical' : 'Modo horizontal'
-                        }
-                        className={`${
-                          isCompactLandscape ? 'w-10 h-10' : 'w-11 h-11'
-                        } rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer`}
-                      >
-                        {isHorizontalMode ? (
-                          <RectangleVertical className="w-5 h-5" aria-hidden="true" />
-                        ) : (
-                          <RectangleHorizontal className="w-5 h-5" aria-hidden="true" />
-                        )}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTogglePictureInPicture();
-                      }}
-                      aria-label={
-                        isDocPipActive
-                          ? 'Fechar janela flutuante'
-                          : 'Abrir em janela flutuante (PiP)'
-                      }
-                      title="Janela flutuante (PiP)"
-                      className={`${
-                        isCompactLandscape ? 'w-10 h-10' : 'w-11 h-11'
-                      } rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer`}
-                    >
-                      <PictureInPicture2 className="w-5 h-5" aria-hidden="true" />
-                    </button>
-
                     <button
                       type="button"
                       onClick={(e) => {

@@ -12,17 +12,30 @@ declare global {
 export interface ViewportOrientationState {
   isLandscapeViewport: boolean;
   isCompactLandscape: boolean;
+  isTouchDevice: boolean;
 }
 
 export function getViewportOrientationState(): ViewportOrientationState {
   if (typeof window === 'undefined') {
-    return { isLandscapeViewport: false, isCompactLandscape: false };
+    return {
+      isLandscapeViewport: false,
+      isCompactLandscape: false,
+      isTouchDevice: false,
+    };
   }
   const width = window.innerWidth || 0;
   const height = window.innerHeight || 0;
   const isLandscapeViewport = width > height;
   const isCompactLandscape = isLandscapeViewport && height > 0 && height <= 620;
-  return { isLandscapeViewport, isCompactLandscape };
+  const hasCoarsePointer =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches;
+  const isTouchDevice =
+    hasCoarsePointer ||
+    (typeof navigator !== 'undefined' &&
+      navigator.maxTouchPoints > 0 &&
+      width <= 1280);
+  return { isLandscapeViewport, isCompactLandscape, isTouchDevice };
 }
 
 export function isNativeAndroidOrientationAvailable(): boolean {
