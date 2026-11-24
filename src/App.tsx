@@ -1,5 +1,14 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowLeft, Bookmark, RefreshCw, Search, X } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Bookmark,
+  RectangleHorizontal,
+  RectangleVertical,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { SearchBoxWithSuggestions } from './components/SearchBoxWithSuggestions';
 import { ShareModal } from './components/ShareModal';
@@ -23,6 +32,11 @@ import {
   fetchShortsOnNativeDevice,
   isNativeCapacitorApp,
 } from './utils/nativeShortsFallback';
+import {
+  getViewportOrientationState,
+  releaseLandscapeOrientation,
+  requestLandscapeOrientation,
+} from './utils/screenOrientation';
 import { buildDiverseFeed, buildTieredDiverseFeed } from './shared/curatorCore';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
@@ -176,6 +190,15 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ChristianShort | null>(null);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [viewportOrientation, setViewportOrientation] = useState(() =>
+    getViewportOrientationState()
+  );
+  const [isNarrowScreen, setIsNarrowScreen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 1024 : false
+  );
+  const [stageOrientationOverride, setStageOrientationOverride] = useState<
+    'auto' | 'horizontal' | 'vertical'
+  >('auto');
   const [isNativePipMode, setIsNativePipMode] = useState(() => {
     if (typeof document !== 'undefined' && document.documentElement.dataset.pipMode === 'true') {
       return true;
@@ -240,6 +263,29 @@ export function App() {
       if (mediaQuery) {
         mediaQuery.removeEventListener('change', handleMediaChange);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    let prevLandscape = getViewportOrientationState().isLandscapeViewport;
+    const syncOrientation = () => {
+      const next = getViewportOrientationState();
+      setViewportOrientation(next);
+      setIsNarrowScreen(window.innerWidth < 1024);
+      if (next.isLandscapeViewport !== prevLandscape) {
+        prevLandscape = next.isLandscapeViewport;
+        setStageOrientationOverride('auto');
+      }
+    };
+
+    window.addEventListener('resize', syncOrientation);
+    window.addEventListener('orientationchange', syncOrientation);
+    document.addEventListener('fullscreenchange', syncOrientation);
+
+    return () => {
+      window.removeEventListener('resize', syncOrientation);
+      window.removeEventListener('orientationchange', syncOrientation);
+      document.removeEventListener('fullscreenchange', syncOrientation);
     };
   }, []);
 
@@ -1110,27 +1156,52 @@ export function App() {
     handleSelectCategory('all');
   }, [handleClearSearch, handleSelectCategory]);
 
+  const isCompactLandscape = viewportOrientation.isCompactLandscape;
+  const isHorizontalMode =
+    stageOrientationOverride === 'horizontal' ||
+    (stageOrientationOverride === 'auto' && isCompactLandscape);
+
+  const handleToggleHorizontalMode = useCallback(() => {
+    if (isHorizontalMode) {
+      setStageOrientationOverride(
+        viewportOrientation.isLandscapeViewport ? 'vertical' : 'auto'
+      );
+      void releaseLandscapeOrientation(viewportOrientation.isLandscapeViewport);
+    } else {
+      setStageOrientationOverride('horizontal');
+      void requestLandscapeOrientation();
+    }
+  }, [isHorizontalMode, viewportOrientation.isLandscapeViewport]);
+
   const isSearchActive = trimmedSubmittedSearch.length >= 2;
   const showingSearchResults = isSearchActive && searchViewMode === 'results';
+  const useCompactStageHud =
+    isCompactLandscape || (isHorizontalMode && isNarrowScreen);
 
   return (
     <div
       className={
         isNativePipMode
           ? 'h-[100dvh] w-screen bg-black text-zinc-100 overflow-hidden'
+          : isCompactLandscape
+          ? 'h-[100dvh] max-h-[100dvh] flex flex-col bg-black text-zinc-100 overflow-hidden safe-pb w-full max-w-full'
           : 'h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-black text-zinc-100 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full'
       }
     >
-      {!isNativePipMode && (
+      {!isNativePipMode && !isCompactLandscape && (
         <TopBar
           activeCategory={activeCategory}
           onSelectCategory={handleSelectCategory}
         />
       )}
 
-      {/* Mobile compact single-line category / search bar (stays well below 15% sticky height cap) */}
+      {/* Unified compact single-line bar for mobile portrait & compact landscape (stays <= 15% sticky height cap) */}
       {!isNativePipMode && (
-        <div className="lg:hidden shrink-0 z-30 bg-black/65 backdrop-blur-md border-b border-white/[0.06] px-3 h-11 flex items-center gap-2 safe-px">
+        <div
+          className={`${
+            isCompactLandscape ? 'flex h-10' : 'lg:hidden flex h-11'
+          } shrink-0 z-30 bg-black/65 backdrop-blur-md border-b border-white/[0.06] px-3 items-center gap-2 safe-px`}
+        >
         {mobileSearchOpen ? (
           <div className="flex items-center gap-1.5 w-full">
             <button
@@ -1158,6 +1229,23 @@ export function App() {
           </div>
         ) : (
           <>
+            {isCompactLandscape && (
+              <a
+                href="/"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSelectCategory('all');
+                }}
+                className="flex items-center gap-1.5 text-sm font-display font-bold tracking-tight text-white whitespace-nowrap shrink-0 pr-1"
+              >
+                <span className="w-6 h-6 rounded-md bg-zinc-900 border border-zinc-700/90 text-white flex items-center justify-center shrink-0">
+                  <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current translate-x-[0.5px]" aria-hidden="true">
+                    <path d="M8 5.5v13l10-6.5-10-6.5z" />
+                  </svg>
+                </span>
+                <span className="gracaplay-wordmark">GraçaPlay</span>
+              </a>
+            )}
             <button
               type="button"
               onClick={handleOpenMobileSearch}
@@ -1212,20 +1300,37 @@ export function App() {
                 })}
               </div>
             )}
+            {isCompactLandscape && (
+              <button
+                type="button"
+                onClick={handleToggleHorizontalMode}
+                aria-label={isHorizontalMode ? 'Voltar ao modo vertical' : 'Modo horizontal'}
+                title={isHorizontalMode ? 'Modo vertical' : 'Modo horizontal'}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/[0.06] shrink-0 transition-colors cursor-pointer"
+              >
+                {isHorizontalMode ? (
+                  <RectangleVertical className="w-4 h-4" aria-hidden="true" />
+                ) : (
+                  <RectangleHorizontal className="w-4 h-4" aria-hidden="true" />
+                )}
+              </button>
+            )}
           </>
         )}
         </div>
       )}
 
-      {/* Main 3-Column Studio Workspace on Desktop / Exact Viewport Feed on Mobile */}
+      {/* Main 3-Column Studio Workspace on Desktop / Exact Viewport Feed on Mobile & Landscape */}
       <main
         className={
           isNativePipMode
             ? 'fixed inset-0 z-50 bg-black flex items-stretch justify-center overflow-hidden'
+            : isCompactLandscape
+            ? 'flex-1 min-h-0 overflow-hidden w-full mx-auto px-2 py-1 flex items-center justify-center safe-px'
             : 'flex-1 min-h-0 overflow-hidden lg:overflow-visible max-w-[1360px] w-full mx-auto lg:px-6 lg:py-6 flex items-stretch lg:items-start justify-center lg:gap-8'
         }
       >
-        {!isNativePipMode && (
+        {!isNativePipMode && !isCompactLandscape && (
           <ShortsSidebar
             activeCategory={activeCategory}
             searchQuery={searchQuery}
@@ -1270,13 +1375,21 @@ export function App() {
           </Suspense>
         ) : (
           <>
-            {/* Center Vertical Shorts Stage */}
+            {/* Center Shorts / Horizontal Cinema Stage */}
             <section
-              aria-label="Reprodutor vertical de vídeos cristãos"
+              aria-label={
+                isHorizontalMode
+                  ? 'Reprodutor horizontal de vídeos cristãos'
+                  : 'Reprodutor vertical de vídeos cristãos'
+              }
               className="w-full h-full min-h-0 lg:h-auto lg:w-auto flex-1 flex flex-col items-center justify-center gap-2.5"
             >
-              {isSearchActive && !isNativePipMode && (
-                <div className="hidden lg:flex w-full max-w-[438px] items-center justify-between gap-2 px-1">
+              {isSearchActive && !isNativePipMode && !isCompactLandscape && (
+                <div
+                  className={`hidden lg:flex w-full items-center justify-between gap-2 px-1 ${
+                    isHorizontalMode ? 'max-w-[860px]' : 'max-w-[438px]'
+                  }`}
+                >
                   <button
                     type="button"
                     onClick={handleShowSearchResultsView}
@@ -1302,6 +1415,12 @@ export function App() {
                 className={
                   isNativePipMode
                     ? 'w-full h-full bg-black overflow-hidden relative'
+                    : isCompactLandscape
+                    ? isHorizontalMode
+                      ? 'w-full max-w-[min(100%,calc((100dvh-3.25rem)*16/9))] aspect-video max-h-full bg-black rounded-xl overflow-hidden shadow-2xl border border-white/[0.08] relative'
+                      : 'h-full max-h-full w-auto aspect-[9/16] max-w-full bg-black rounded-xl overflow-hidden shadow-2xl border border-white/[0.08] relative'
+                    : isHorizontalMode
+                    ? 'w-full max-w-[min(860px,calc((100dvh-10rem)*16/9))] aspect-video max-h-full bg-black rounded-xl lg:rounded-2xl overflow-hidden shadow-2xl border border-zinc-800/90 relative'
                     : 'w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-8.75rem)] lg:max-h-[760px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative'
                 }
               >
@@ -1355,6 +1474,8 @@ export function App() {
                     autoAdvance={autoAdvance}
                     isRefreshing={isRefreshing}
                     isNativePipActive={isNativePipMode}
+                    isHorizontalMode={isHorizontalMode}
+                    isCompactLandscape={useCompactStageHud}
                     savedSet={savedSet}
                     feedRef={feedRef}
                     onActiveIndexChange={setActiveIndex}
@@ -1363,12 +1484,13 @@ export function App() {
                     onShare={handleOpenShareModal}
                     onRefresh={handleRefreshFeed}
                     onEnded={handleVideoEnded}
+                    onToggleHorizontalMode={handleToggleHorizontalMode}
                   />
                 )}
               </div>
             </section>
 
-            {!isNativePipMode && (
+            {!isNativePipMode && !isCompactLandscape && !isHorizontalMode && (
               <Suspense
                 fallback={
                   <aside

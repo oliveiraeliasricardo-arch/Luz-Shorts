@@ -5,6 +5,8 @@ import {
   Pause,
   PictureInPicture2,
   Play,
+  RectangleHorizontal,
+  RectangleVertical,
   RefreshCw,
   RotateCcw,
   RotateCw,
@@ -27,6 +29,8 @@ interface ShortsFeedStageProps {
   autoAdvance: boolean;
   isRefreshing: boolean;
   isNativePipActive?: boolean;
+  isHorizontalMode?: boolean;
+  isCompactLandscape?: boolean;
   savedSet: Set<string>;
   feedRef: React.RefObject<HTMLDivElement | null>;
   onActiveIndexChange: (index: number) => void;
@@ -35,6 +39,7 @@ interface ShortsFeedStageProps {
   onShare: (short: ChristianShort) => void;
   onRefresh: () => void;
   onEnded: () => void;
+  onToggleHorizontalMode?: () => void;
 }
 
 function formatViews(views: number | null): string | null {
@@ -63,6 +68,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   autoAdvance,
   isRefreshing,
   isNativePipActive = false,
+  isHorizontalMode = false,
+  isCompactLandscape = false,
   savedSet,
   feedRef,
   onActiveIndexChange,
@@ -71,6 +78,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   onShare,
   onRefresh,
   onEnded,
+  onToggleHorizontalMode,
 }) => {
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
   const playerHostElRef = useRef<HTMLDivElement | null>(null);
@@ -841,10 +849,14 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
     handleTogglePlayPause();
   };
 
-  // Sync Android native Picture-in-Picture eligibility with live playback state
+  // Sync Android native Picture-in-Picture eligibility & aspect ratio with live playback state
   useEffect(() => {
-    syncNativePipPlaybackState(isPlaying && !hasError && !isDocPipActive, 9, 16);
-  }, [isPlaying, hasError, isDocPipActive, activeVideoId]);
+    syncNativePipPlaybackState(
+      isPlaying && !hasError && !isDocPipActive,
+      isHorizontalMode ? 16 : 9,
+      isHorizontalMode ? 9 : 16
+    );
+  }, [isPlaying, hasError, isDocPipActive, activeVideoId, isHorizontalMode]);
 
   useEffect(() => {
     return () => {
@@ -907,8 +919,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
     try {
       const pipWin = await pipApi.requestWindow({
-        width: 340,
-        height: 560,
+        width: isHorizontalMode ? 480 : 340,
+        height: isHorizontalMode ? 300 : 560,
       });
       pipWindowRef.current = pipWin;
 
@@ -978,6 +990,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   }, [
     activeShort,
     closeDocumentPip,
+    isHorizontalMode,
     isPlaying,
     restoreHostFromDocPip,
     showPipInfoNotice,
@@ -1195,7 +1208,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
             >
               {/* Full-Frame Thumbnail Poster */}
               <div
-                className={`absolute inset-0 bg-gradient-to-br from-black via-zinc-950 to-zinc-900 transition-opacity duration-200 ${
+                className={`absolute inset-0 bg-black transition-opacity duration-200 ${
                   hidePosterForVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
                 }`}
               >
@@ -1203,7 +1216,12 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                   src={short.thumbnailUrl}
                   alt={short.title}
                   referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
+                  className={`w-full h-full ${
+                    isHorizontalMode &&
+                    (short.category === 'biblia' || short.category === 'testemunhos')
+                      ? 'object-contain'
+                      : 'object-cover'
+                  }`}
                 />
               </div>
 
@@ -1258,10 +1276,20 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
               {/* Bottom measured contrast scrim + video details (hidden in compact Android PiP window) */}
               {!isCompactNativePip && (
                 <>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/50 to-transparent z-20" />
+                  <div
+                    className={`pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent z-20 ${
+                      isCompactLandscape ? 'h-28' : 'h-56'
+                    }`}
+                  />
 
-                  <div className="absolute inset-x-0 bottom-0 z-30 px-4 pt-4 pb-[84px] pr-16 sm:px-5 sm:pt-5 sm:pb-[90px] sm:pr-20 flex flex-col justify-end pointer-events-none">
-                    <div className="space-y-1.5">
+                  <div
+                    className={`absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end pointer-events-none ${
+                      isCompactLandscape
+                        ? 'px-3.5 pt-2 pb-[56px] pr-[224px]'
+                        : 'px-4 pt-4 pb-[84px] pr-16 sm:px-5 sm:pt-5 sm:pb-[90px] sm:pr-20'
+                    }`}
+                  >
+                    <div className={isCompactLandscape ? 'space-y-0.5' : 'space-y-1.5'}>
                       <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-200 font-medium">
                         <span className="font-semibold text-white truncate max-w-[200px]">
                           {short.channelTitle}
@@ -1272,7 +1300,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                             <span className="font-mono tabular-nums">{short.durationLabel}</span>
                           </>
                         )}
-                        {viewsLabel && (
+                        {viewsLabel && !isCompactLandscape && (
                           <>
                             <span aria-hidden="true">·</span>
                             <span className="tabular-nums">{viewsLabel}</span>
@@ -1280,20 +1308,62 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                         )}
                       </div>
 
-                      <h2 className="text-base sm:text-[17px] font-display font-semibold text-white leading-snug line-clamp-2">
+                      <h2
+                        className={`font-display font-semibold text-white leading-snug ${
+                          isCompactLandscape
+                            ? 'text-sm line-clamp-1'
+                            : 'text-base sm:text-[17px] line-clamp-2'
+                        }`}
+                      >
                         {short.title}
                       </h2>
 
-                      <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-medium">
-                        <span>{short.categoryLabel}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{short.doctrineLabel}</span>
-                      </div>
+                      {!isCompactLandscape && (
+                        <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-medium">
+                          <span>{short.categoryLabel}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{short.doctrineLabel}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Right-side thumb-zone actions */}
-                  <div className="absolute right-2.5 bottom-[86px] sm:bottom-[92px] z-30 flex flex-col items-center gap-3">
+                  {/* Right-side thumb-zone actions (horizontal row in compact landscape so nothing overflows vertically) */}
+                  <div
+                    className={`absolute z-30 flex items-center ${
+                      isCompactLandscape
+                        ? 'right-2.5 bottom-[54px] flex-row gap-1'
+                        : 'right-2.5 bottom-[86px] sm:bottom-[92px] flex-col gap-2.5'
+                    }`}
+                  >
+                    {onToggleHorizontalMode && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAudioUnlocked();
+                          onToggleHorizontalMode();
+                        }}
+                        aria-label={
+                          isHorizontalMode
+                            ? 'Voltar ao modo vertical'
+                            : 'Assistir na horizontal'
+                        }
+                        title={
+                          isHorizontalMode ? 'Modo vertical' : 'Modo horizontal'
+                        }
+                        className={`${
+                          isCompactLandscape ? 'w-10 h-10' : 'w-11 h-11'
+                        } rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer`}
+                      >
+                        {isHorizontalMode ? (
+                          <RectangleVertical className="w-5 h-5" aria-hidden="true" />
+                        ) : (
+                          <RectangleHorizontal className="w-5 h-5" aria-hidden="true" />
+                        )}
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1306,7 +1376,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                           : 'Abrir em janela flutuante (PiP)'
                       }
                       title="Janela flutuante (PiP)"
-                      className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
+                      className={`${
+                        isCompactLandscape ? 'w-10 h-10' : 'w-11 h-11'
+                      } rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer`}
                     >
                       <PictureInPicture2 className="w-5 h-5" aria-hidden="true" />
                     </button>
@@ -1319,7 +1391,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                         onToggleSave(short.id);
                       }}
                       aria-label={isSaved ? 'Remover dos salvos' : 'Salvar vídeo'}
-                      className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
+                      className={`${
+                        isCompactLandscape ? 'w-10 h-10' : 'w-11 h-11'
+                      } rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer`}
                     >
                       <Bookmark
                         className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`}
@@ -1335,7 +1409,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                         onShare(short);
                       }}
                       aria-label="Compartilhar este vídeo"
-                      className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
+                      className={`${
+                        isCompactLandscape ? 'w-10 h-10' : 'w-11 h-11'
+                      } rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer`}
                     >
                       <Share2 className="w-5 h-5" aria-hidden="true" />
                     </button>
@@ -1352,7 +1428,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
                       aria-label="Abrir vídeo no YouTube"
-                      className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150"
+                      className={`${
+                        isCompactLandscape ? 'w-10 h-10' : 'w-11 h-11'
+                      } rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150`}
                     >
                       <ExternalLink className="w-4 h-4" aria-hidden="true" />
                     </a>
@@ -1371,7 +1449,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
           onTouchStart={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
-          className="absolute inset-x-0 bottom-0 z-40 px-4 pt-2 pb-2.5 sm:px-5 sm:pb-3 bg-gradient-to-t from-black via-black/85 to-transparent"
+          className={`absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-black via-black/85 to-transparent ${
+            isCompactLandscape
+              ? 'px-3.5 pt-1 pb-1.5'
+              : 'px-4 pt-2 pb-2.5 sm:px-5 sm:pb-3'
+          }`}
         >
           <div className="flex items-center justify-between gap-2 mb-0.5">
             <div className="flex items-baseline gap-1 font-mono tabular-nums text-[11px] sm:text-xs leading-none">
@@ -1433,7 +1515,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
             onPointerUp={handleTrackPointerUp}
             onPointerCancel={handleTrackPointerCancel}
             onKeyDown={handleTrackKeyDown}
-            className="relative w-full h-8 flex items-center cursor-pointer touch-none group focus:outline-none focus-visible:ring-1 focus-visible:ring-white/80 rounded"
+            className={`relative w-full flex items-center cursor-pointer touch-none group focus:outline-none focus-visible:ring-1 focus-visible:ring-white/80 rounded ${
+              isCompactLandscape ? 'h-7' : 'h-8'
+            }`}
           >
             <div
               className={`relative w-full bg-white/25 rounded-full transition-[height] duration-100 ${

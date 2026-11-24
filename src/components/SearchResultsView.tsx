@@ -60,7 +60,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = React.memo(({
   return (
     <div className="flex-1 min-w-0 h-full lg:h-auto flex flex-col bg-black text-zinc-100">
       {/* Top Bar of Search Results */}
-      <div className="shrink-0 bg-black/70 backdrop-blur-md border-b border-white/[0.06] px-3 sm:px-5 pt-3 space-y-2">
+      <div className="shrink-0 bg-black/70 backdrop-blur-md border-b border-white/[0.06] px-3 sm:px-5 pt-2 sm:pt-3 space-y-1.5 sm:space-y-2">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <button

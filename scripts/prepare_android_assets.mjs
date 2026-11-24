@@ -77,14 +77,23 @@ if (fs.existsSync(manifestPath)) {
       nextAttrs += '\n            android:launchMode="singleTask"';
     }
 
+    if (/android:screenOrientation=/i.test(nextAttrs)) {
+      nextAttrs = nextAttrs.replace(
+        /android:screenOrientation="[^"]*"/i,
+        'android:screenOrientation="fullUser"'
+      );
+    } else {
+      nextAttrs += '\n            android:screenOrientation="fullUser"';
+    }
+
     return `<activity${nextAttrs}>`;
   });
 
   fs.writeFileSync(manifestPath, manifest, 'utf8');
-  console.log('AndroidManifest.xml configured for Picture-in-Picture.');
+  console.log('AndroidManifest.xml configured for Picture-in-Picture and horizontal orientation.');
 }
 
-// 3. Configure MainActivity.java with native Android Picture-in-Picture & WebView keep-alive
+// 3. Configure MainActivity.java with native Android Picture-in-Picture, Orientation bridge & WebView keep-alive
 function findFileRecursive(dir, targetName) {
   if (!fs.existsSync(dir)) return null;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -110,6 +119,7 @@ if (mainActivityPath) {
   const mainActivityCode = `package ${packageName};
 
 import android.app.PictureInPictureParams;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Build;
@@ -151,6 +161,7 @@ public class MainActivity extends BridgeActivity {
       settings.setMediaPlaybackRequiresUserGesture(false);
     }
     webView.addJavascriptInterface(new PipJsBridge(), "GracaPlayNativePip");
+    webView.addJavascriptInterface(new OrientationJsBridge(), "GracaPlayOrientation");
     syncAutoEnterPipParams();
   }
 
@@ -235,6 +246,12 @@ public class MainActivity extends BridgeActivity {
   }
 
   @Override
+  public void onConfigurationChanged(@NonNull Configuration newConfig) {
+    super.onConfigurationChanged(newConfig);
+    keepWebViewActive();
+  }
+
+  @Override
   public void onPause() {
     super.onPause();
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode()) {
@@ -277,9 +294,29 @@ public class MainActivity extends BridgeActivity {
       mainHandler.post(MainActivity.this::enterPipNow);
     }
   }
+
+  public class OrientationJsBridge {
+    @JavascriptInterface
+    public boolean isSupported() {
+      return true;
+    }
+
+    @JavascriptInterface
+    public void requestOrientation(String mode) {
+      mainHandler.post(() -> {
+        if ("landscape".equals(mode)) {
+          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        } else if ("portrait".equals(mode)) {
+          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+        } else {
+          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
+        }
+      });
+    }
+  }
 }
 `;
 
   fs.writeFileSync(mainActivityPath, mainActivityCode, 'utf8');
-  console.log('MainActivity.java updated with native Android Picture-in-Picture support.');
+  console.log('MainActivity.java updated with native Android Picture-in-Picture and Orientation bridge.');
 }

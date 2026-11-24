@@ -60,7 +60,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(({
         {/* Desktop Single-Line Centered Category Navigation */}
         <nav
           aria-label="Categorias principais"
-          className="hidden md:flex items-center justify-center gap-6 h-10 w-full border-t border-white/[0.05]"
+          className="hidden lg:flex items-center justify-center gap-6 h-10 w-full border-t border-white/[0.05]"
         >
           {NAV_ITEMS.map((item) => {
             const isActive = activeCategory === item.id;
