@@ -1,4 +1,4 @@
-name: Build Android APK & Verify Luz Shorts
+name: Build Android APK & Verify GraçaPlay
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
           node-version: '22'
 
       - name: Setup Java 21
-        uses: actions/setup-java@v4
+        uses: setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -61,6 +61,8 @@ jobs:
         run: npm run lint
 
       - name: Build production web bundle
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL }}
         run: npm run build
 
       - name: Prepare Capacitor Android project
@@ -71,19 +73,19 @@ jobs:
           node scripts/prepare_android_assets.mjs
           npx cap sync android
 
-      - name: Build Luz-Shorts.apk
+      - name: Build GracaPlay.apk
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
           cd ..
-          cp android/app/build/outputs/apk/debug/app-debug.apk Luz-Shorts.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk GracaPlay.apk
 
-      - name: Upload Luz-Shorts-APK artifact
+      - name: Upload GracaPlay-APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Luz-Shorts-APK
-          path: Luz-Shorts.apk
+          name: GracaPlay-APK
+          path: GracaPlay.apk
           retention-days: 30
 
       - name: Publish direct APK download to GitHub Releases
@@ -92,9 +94,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest
-          name: Luz Shorts Android (APK)
+          name: GraçaPlay Android (APK)
           body: |
-            Aplicativo Android **Luz Shorts** compilado automaticamente.
-            Baixe o arquivo `Luz-Shorts.apk` abaixo e abra no seu celular Android para instalar.
-          files: Luz-Shorts.apk
+            Aplicativo Android **GraçaPlay** compilado automaticamente.
+            Baixe o arquivo `GracaPlay.apk` abaixo e abra no seu celular Android para instalar.
+          files: GracaPlay.apk
           overwrite_files: true

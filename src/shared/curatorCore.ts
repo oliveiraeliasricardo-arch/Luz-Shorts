@@ -1360,6 +1360,165 @@ export function parseChannelRssXml(
   return results;
 }
 
+const RSS_LOUVOR_PLAYLISTS: Array<{
+  playlistId: string;
+  spec: CuratedChannelSpec;
+}> = [
+  // Novo Hinário Adventista (1-600)
+  {
+    playlistId: 'PLAPpcKnpMfeO9Fydpl1tTKC9CRRnIMMSK',
+    spec: {
+      id: 'UCQhkLOO40bmTMeLcbspKW8A',
+      title: 'Novo Hinário Adventista',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLAPpcKnpMfeOsWzlaY0bXm1Q5pnQQxn_y',
+    spec: {
+      id: 'UCQhkLOO40bmTMeLcbspKW8A',
+      title: 'Novo Hinário Adventista',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLAPpcKnpMfeMnCMuGcdWKVkgpi2P_sRkE',
+    spec: {
+      id: 'UCQhkLOO40bmTMeLcbspKW8A',
+      title: 'Novo Hinário Adventista',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLAPpcKnpMfeNIrE1nk3w2OkcUdxuY6y1l',
+    spec: {
+      id: 'UCQhkLOO40bmTMeLcbspKW8A',
+      title: 'Novo Hinário Adventista',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLAPpcKnpMfePvD6DLI-Y5TR-RVVo62s6Z',
+    spec: {
+      id: 'UCQhkLOO40bmTMeLcbspKW8A',
+      title: 'Novo Hinário Adventista',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLAPpcKnpMfePWEOuIu4B4F3PVljyD8DoO',
+    spec: {
+      id: 'UCQhkLOO40bmTMeLcbspKW8A',
+      title: 'Novo Hinário Adventista',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  // Adoradores Novo Tempo
+  {
+    playlistId: 'PLnjYWXTXSkDpfADeUa3LJkhdzzXwsqD_P',
+    spec: {
+      id: 'UCj14fcdKiGxi2qQsqhPf9tg',
+      title: 'Adoradores Novo Tempo',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLnjYWXTXSkDrri7WFuBCYB5Ljo9uhbOUG',
+    spec: {
+      id: 'UCj14fcdKiGxi2qQsqhPf9tg',
+      title: 'Adoradores Novo Tempo',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLGd1LrnOTfcu_5cTv_hXG2NhMb1CfULoK',
+    spec: {
+      id: 'UCj14fcdKiGxi2qQsqhPf9tg',
+      title: 'Adoradores Novo Tempo',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  // CD Jovem / Ministério Jovem
+  {
+    playlistId: 'PL4sNlZt4GK2gdDHuCLJo7zbBrAgrejKgZ',
+    spec: {
+      id: 'UCIvT_5iKmxPksHRqv4g_GZQ',
+      title: 'Ministério Jovem',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLbVEebfqK46x3MZ9MSjtSy8Z7p8lUIblW',
+    spec: {
+      id: 'UCIvT_5iKmxPksHRqv4g_GZQ',
+      title: 'Ministério Jovem',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLJL3zUYFtkP_UhdQDQ3qIqAeHQtahqbkP',
+    spec: {
+      id: 'UCIvT_5iKmxPksHRqv4g_GZQ',
+      title: 'Ministério Jovem',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PL-EHuXADFVigifAI3blR0zMp163K7GfIM',
+    spec: {
+      id: 'UCIvT_5iKmxPksHRqv4g_GZQ',
+      title: 'Ministério Jovem',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PL4sNlZt4GK2hONK721JkhSvIBYSk1xO7z',
+    spec: {
+      id: 'UCIvT_5iKmxPksHRqv4g_GZQ',
+      title: 'Ministério Jovem',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+  {
+    playlistId: 'PLdKdSz4_lV0psVHoo6-hquHfyTKu7O-Gl',
+    spec: {
+      id: 'UCFTFFVStluyIusWi71Yc0sA',
+      title: 'CD Jovem - Menos Um',
+      doctrineScope: 'adventista',
+      defaultCategory: 'louvores',
+      allowInCategories: ['louvores'],
+    },
+  },
+];
+
 export async function fetchCuratedRssWithAdapter(
   fetchXml: (url: string) => Promise<string | null>,
   pageIndex = 0
@@ -1452,6 +1611,23 @@ export async function fetchCuratedRssWithAdapter(
         })()
       );
     }
+  }
+
+  // Rotate across Novo Hinário Adventista, Adoradores, and CD Jovem playlist RSS feeds
+  const playlistSliceSize = 6;
+  const startOffset = (pageIndex * playlistSliceSize) % RSS_LOUVOR_PLAYLISTS.length;
+  for (let i = 0; i < playlistSliceSize; i++) {
+    const entry =
+      RSS_LOUVOR_PLAYLISTS[(startOffset + i) % RSS_LOUVOR_PLAYLISTS.length];
+    tasks.push(
+      (async () => {
+        const xml = await fetchXml(
+          `https://www.youtube.com/feeds/videos.xml?playlist_id=${entry.playlistId}`
+        );
+        if (!xml || !xml.includes('<entry>')) return [];
+        return parseChannelRssXml(xml, entry.spec, false, true);
+      })()
+    );
   }
 
   const responses = await Promise.allSettled(tasks);

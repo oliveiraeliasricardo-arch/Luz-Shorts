@@ -9,7 +9,7 @@ if (!fs.existsSync(resDir)) {
   process.exit(1);
 }
 
-// Remove adaptive XML so crisp Luz Shorts PNG launcher icons render on all Android versions
+// Remove adaptive XML so crisp GraçaPlay PNG launcher icons render on all Android versions
 const anydpiDir = path.join(resDir, 'mipmap-anydpi-v26');
 if (fs.existsSync(anydpiDir)) {
   fs.rmSync(anydpiDir, { recursive: true, force: true });
@@ -34,4 +34,4 @@ for (const [folder, srcFile] of densitySources) {
   fs.copyFileSync(srcFile, path.join(targetDir, 'ic_launcher_round.png'));
 }
 
-console.log('Android launcher icons updated for Luz Shorts.');
+console.log('Android launcher icons updated for GraçaPlay.');

@@ -31,6 +31,37 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
 
+  const extraAllowedOrigins = new Set(
+    (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    const isCapacitorOrLocalOrigin =
+      typeof origin === 'string' &&
+      (/^(https?|capacitor|ionic):\/\/localhost(:\d+)?$/i.test(origin) ||
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
+        extraAllowedOrigins.has(origin));
+
+    if (origin && (isCapacitorOrLocalOrigin || extraAllowedOrigins.size === 0)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    } else if (!origin) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+
   app.get('/api/health', (_req, res) => {
     const apiKeyConfigured = Boolean(process.env.YOUTUBE_API_KEY?.trim());
     res.json({
@@ -150,6 +181,10 @@ async function startServer() {
     } catch {
       res.status(502).json({ error: 'Falha ao consultar o vídeo solicitado.' });
     }
+  });
+
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'Rota da API não encontrada.' });
   });
 
   if (!IS_PROD) {

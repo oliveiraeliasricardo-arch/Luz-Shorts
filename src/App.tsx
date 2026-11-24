@@ -125,32 +125,6 @@ function readStoredIdList(key: string, legacyKey?: string): string[] {
   }
 }
 
-function shuffleArray<T>(list: T[]): T[] {
-  const copy = [...list];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
-function spreadChannelOrder(list: ChristianShort[]): ChristianShort[] {
-  const remaining = [...list];
-  const arranged: ChristianShort[] = [];
-  let lastChannelId: string | null = null;
-
-  while (remaining.length > 0) {
-    let idx = remaining.findIndex((item) => item.channelId !== lastChannelId);
-    if (idx === -1) idx = 0;
-    const [picked] = remaining.splice(idx, 1);
-    if (picked) {
-      arranged.push(picked);
-      lastChannelId = picked.channelId;
-    }
-  }
-  return arranged;
-}
-
 export function App() {
   const [allShorts, setAllShorts] = useState<ChristianShort[]>([]);
   const [sourceMode, setSourceMode] = useState<'youtube_api' | 'curated_rss'>('curated_rss');
@@ -275,7 +249,6 @@ export function App() {
 
     try {
       let data: ShortsApiResponse | null = null;
-      let usedOfflineFallback = false;
       const nativeApp = isNativeCapacitorApp();
 
       if (!nativeApp || API_BASE_URL.length > 0) {
@@ -310,14 +283,11 @@ export function App() {
 
       if (!data) {
         data = await fetchShortsOnNativeDevice(forceRefresh);
-        usedOfflineFallback = true;
       }
 
-      // Preserve the server's balanced bucket ordering (Hinário, CD Jovem, Adoradores, Gospel Geral
+      // Preserve balanced bucket ordering (Hinário, CD Jovem, Adoradores, Gospel Geral
       // and per-category balance), while demoting previously shown top items and watched items.
-      const orderedSource = usedOfflineFallback
-        ? spreadChannelOrder(shuffleArray(data.items))
-        : data.items;
+      const orderedSource = data.items;
 
       const seenSet = new Set(seenIdsRef.current);
       const lastTopSet = new Set(lastSessionTopRef.current);
