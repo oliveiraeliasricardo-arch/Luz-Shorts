@@ -159,6 +159,15 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ChristianShort | null>(null);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [isNativePipMode, setIsNativePipMode] = useState(() => {
+    if (typeof document !== 'undefined' && document.documentElement.dataset.pipMode === 'true') {
+      return true;
+    }
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      return window.matchMedia('(display-mode: picture-in-picture)').matches;
+    }
+    return false;
+  });
 
   const feedRef = useRef<HTMLDivElement | null>(null);
   const seenIdsRef = useRef<string[]>(
@@ -181,6 +190,34 @@ export function App() {
   useEffect(() => {
     allShortsRef.current = allShorts;
   }, [allShorts]);
+
+  useEffect(() => {
+    const handleNativePipChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ active?: boolean }>).detail;
+      if (typeof detail?.active === 'boolean') {
+        setIsNativePipMode(detail.active);
+      }
+    };
+    window.addEventListener('gracaplay-pip-change', handleNativePipChange);
+
+    const mediaQuery =
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(display-mode: picture-in-picture)')
+        : null;
+    const handleMediaChange = (e: MediaQueryListEvent) => {
+      setIsNativePipMode(e.matches);
+    };
+    if (mediaQuery) {
+      mediaQuery.addEventListener('change', handleMediaChange);
+    }
+
+    return () => {
+      window.removeEventListener('gracaplay-pip-change', handleNativePipChange);
+      if (mediaQuery) {
+        mediaQuery.removeEventListener('change', handleMediaChange);
+      }
+    };
+  }, []);
 
   const recordSurfacedTopIds = useCallback((ids: string[], removeIds: string[] = []) => {
     const removeSet = new Set(removeIds);
@@ -969,19 +1006,28 @@ export function App() {
   const showingSearchResults = isSearchActive && searchViewMode === 'results';
 
   return (
-    <div className="h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-black text-zinc-100 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full">
-      <TopBar
-        activeCategory={activeCategory}
-        onSelectCategory={(cat) => {
-          if (isSearchActive && searchViewMode === 'player') {
-            setSearchViewMode('player');
-          }
-          handleSelectCategory(cat);
-        }}
-      />
+    <div
+      className={
+        isNativePipMode
+          ? 'h-[100dvh] w-screen bg-black text-zinc-100 overflow-hidden'
+          : 'h-[100dvh] max-h-[100dvh] lg:h-auto lg:max-h-none lg:min-h-screen flex flex-col bg-black text-zinc-100 overflow-hidden lg:overflow-visible safe-pb lg:pb-0 w-full max-w-full'
+      }
+    >
+      {!isNativePipMode && (
+        <TopBar
+          activeCategory={activeCategory}
+          onSelectCategory={(cat) => {
+            if (isSearchActive && searchViewMode === 'player') {
+              setSearchViewMode('player');
+            }
+            handleSelectCategory(cat);
+          }}
+        />
+      )}
 
       {/* Mobile compact single-line category / search bar (stays well below 15% sticky height cap) */}
-      <div className="lg:hidden shrink-0 z-30 bg-black/95 backdrop-blur-md border-b border-zinc-900 px-3 h-11 flex items-center gap-2 safe-px">
+      {!isNativePipMode && (
+        <div className="lg:hidden shrink-0 z-30 bg-black/95 backdrop-blur-md border-b border-zinc-900 px-3 h-11 flex items-center gap-2 safe-px">
         {mobileSearchOpen ? (
           <div className="flex items-center gap-1.5 w-full">
             <button
@@ -1059,28 +1105,37 @@ export function App() {
             )}
           </>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Main 3-Column Studio Workspace on Desktop / Exact Viewport Feed on Mobile */}
-      <main className="flex-1 min-h-0 overflow-hidden lg:overflow-visible max-w-[1360px] w-full mx-auto lg:px-6 lg:py-6 flex items-stretch lg:items-start justify-center lg:gap-8">
-        <ShortsSidebar
-          activeCategory={activeCategory}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          onSearchSubmit={handleSubmitSearch}
-          onClearSearch={handleClearSearch}
-          catalogShorts={allShorts}
-          apiBaseUrl={API_BASE_URL}
-          isSearching={isSearching}
-          onSelectCategory={handleSelectCategory}
-          categoryCounts={categoryCounts}
-          totalCount={todosFeedCount}
-          savedCount={savedIds.length}
-          sourceMode={sourceMode}
-          apiKeyConfigured={apiKeyConfigured}
-        />
+      <main
+        className={
+          isNativePipMode
+            ? 'fixed inset-0 z-50 bg-black flex items-stretch justify-center overflow-hidden'
+            : 'flex-1 min-h-0 overflow-hidden lg:overflow-visible max-w-[1360px] w-full mx-auto lg:px-6 lg:py-6 flex items-stretch lg:items-start justify-center lg:gap-8'
+        }
+      >
+        {!isNativePipMode && (
+          <ShortsSidebar
+            activeCategory={activeCategory}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onSearchSubmit={handleSubmitSearch}
+            onClearSearch={handleClearSearch}
+            catalogShorts={allShorts}
+            apiBaseUrl={API_BASE_URL}
+            isSearching={isSearching}
+            onSelectCategory={handleSelectCategory}
+            categoryCounts={categoryCounts}
+            totalCount={todosFeedCount}
+            savedCount={savedIds.length}
+            sourceMode={sourceMode}
+            apiKeyConfigured={apiKeyConfigured}
+          />
+        )}
 
-        {showingSearchResults ? (
+        {showingSearchResults && !isNativePipMode ? (
           <SearchResultsView
             query={submittedSearchQuery}
             items={visibleShorts}
@@ -1102,7 +1157,7 @@ export function App() {
               aria-label="Reprodutor vertical de vídeos cristãos"
               className="w-full h-full min-h-0 lg:h-auto lg:w-auto flex-1 flex flex-col items-center justify-center gap-2.5"
             >
-              {isSearchActive && (
+              {isSearchActive && !isNativePipMode && (
                 <div className="hidden lg:flex w-full max-w-[438px] items-center justify-between gap-2 px-1">
                   <button
                     type="button"
@@ -1125,7 +1180,13 @@ export function App() {
                 </div>
               )}
 
-              <div className="w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-8.75rem)] lg:max-h-[760px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative">
+              <div
+                className={
+                  isNativePipMode
+                    ? 'w-full h-full bg-black overflow-hidden relative'
+                    : 'w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-8.75rem)] lg:max-h-[760px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative'
+                }
+              >
                 {loading ? (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
                     <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
@@ -1178,6 +1239,7 @@ export function App() {
                     audioUnlocked={audioUnlocked}
                     autoAdvance={autoAdvance}
                     isRefreshing={isRefreshing}
+                    isNativePipActive={isNativePipMode}
                     savedSet={savedSet}
                     feedRef={feedRef}
                     onActiveIndexChange={setActiveIndex}
@@ -1191,29 +1253,35 @@ export function App() {
               </div>
             </section>
 
-            <RightQueuePanel
-              items={visibleShorts}
-              activeIndex={activeIndex}
-              autoAdvance={autoAdvance}
-              isRefreshing={isRefreshing}
-              onToggleAutoAdvance={() => setAutoAdvance((prev) => !prev)}
-              onPrev={() => scrollToIndex(activeIndex - 1)}
-              onNext={() => scrollToIndex(activeIndex + 1)}
-              onSelectIndex={scrollToIndex}
-              onShare={setShareTarget}
-              onRefresh={handleRefreshFeed}
-            />
+            {!isNativePipMode && (
+              <RightQueuePanel
+                items={visibleShorts}
+                activeIndex={activeIndex}
+                autoAdvance={autoAdvance}
+                isRefreshing={isRefreshing}
+                onToggleAutoAdvance={() => setAutoAdvance((prev) => !prev)}
+                onPrev={() => scrollToIndex(activeIndex - 1)}
+                onNext={() => scrollToIndex(activeIndex + 1)}
+                onSelectIndex={scrollToIndex}
+                onShare={setShareTarget}
+                onRefresh={handleRefreshFeed}
+              />
+            )}
           </>
         )}
       </main>
 
-      <ShareModal
-        short={shareTarget}
-        isOpen={Boolean(shareTarget)}
-        onClose={() => setShareTarget(null)}
-      />
+      {!isNativePipMode && (
+        <>
+          <ShareModal
+            short={shareTarget}
+            isOpen={Boolean(shareTarget)}
+            onClose={() => setShareTarget(null)}
+          />
 
-      <OfflineIndicator />
+          <OfflineIndicator />
+        </>
+      )}
     </div>
   );
 }

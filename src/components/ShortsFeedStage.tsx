@@ -3,6 +3,7 @@ import {
   Bookmark,
   ExternalLink,
   Pause,
+  PictureInPicture2,
   Play,
   RefreshCw,
   RotateCcw,
@@ -11,6 +12,13 @@ import {
 } from 'lucide-react';
 import type { ChristianShort } from '../types/shorts';
 import { loadYouTubeIframeApi, type YTPlayer } from '../utils/youtubePlayerApi';
+import {
+  type DocumentPictureInPictureWindow,
+  isDocumentPipAvailable,
+  isNativeAndroidPipAvailable,
+  requestNativeAndroidPip,
+  syncNativePipPlaybackState,
+} from '../utils/pictureInPicture';
 
 interface ShortsFeedStageProps {
   items: ChristianShort[];
@@ -18,6 +26,7 @@ interface ShortsFeedStageProps {
   audioUnlocked: boolean;
   autoAdvance: boolean;
   isRefreshing: boolean;
+  isNativePipActive?: boolean;
   savedSet: Set<string>;
   feedRef: React.RefObject<HTMLDivElement | null>;
   onActiveIndexChange: (index: number) => void;
@@ -53,6 +62,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   audioUnlocked,
   autoAdvance,
   isRefreshing,
+  isNativePipActive = false,
   savedSet,
   feedRef,
   onActiveIndexChange,
@@ -62,8 +72,13 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   onRefresh,
   onEnded,
 }) => {
-  const playerHostRef = useRef<HTMLDivElement | null>(null);
+  const playerSlotRef = useRef<HTMLDivElement | null>(null);
+  const playerHostElRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YTPlayer | null>(null);
+  const pipWindowRef = useRef<DocumentPictureInPictureWindow | null>(null);
+  const pipTitleElRef = useRef<HTMLDivElement | null>(null);
+  const pipPlayBtnRef = useRef<HTMLButtonElement | null>(null);
+  const pipNoticeTimerRef = useRef<number | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const currentVideoIdRef = useRef<string | null>(null);
   const autoplayCheckTimerRef = useRef<number | null>(null);
@@ -86,6 +101,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   const [playerReady, setPlayerReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isVideoVisible, setIsVideoVisible] = useState(false);
+  const [isDocPipActive, setIsDocPipActive] = useState(false);
+  const [pipNotice, setPipNotice] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
@@ -281,20 +298,31 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     seekGraceRef.current = null;
   }, [activeVideoId, fallbackDuration]);
 
-  // Boot ONE single persistent YouTube IFrame Player once
+  // Boot ONE single persistent YouTube IFrame Player once inside an imperative host container
+  // so it can move seamlessly into a Document Picture-in-Picture window without reloading.
   useEffect(() => {
-    if (!playerHostRef.current || !activeVideoId) return;
+    if (!playerSlotRef.current || !activeVideoId) return;
 
     let cancelled = false;
     const initialVideoId = activeVideoId;
+    const hostEl = document.createElement('div');
+    hostEl.className = 'w-full h-full';
+    hostEl.style.width = '100%';
+    hostEl.style.height = '100%';
+
     const mountNode = document.createElement('div');
     mountNode.className = 'w-full h-full';
-    playerHostRef.current.innerHTML = '';
-    playerHostRef.current.appendChild(mountNode);
+    mountNode.style.width = '100%';
+    mountNode.style.height = '100%';
+    hostEl.appendChild(mountNode);
+
+    playerSlotRef.current.innerHTML = '';
+    playerSlotRef.current.appendChild(hostEl);
+    playerHostElRef.current = hostEl;
 
     loadYouTubeIframeApi()
       .then((YT) => {
-        if (cancelled || !playerHostRef.current) return;
+        if (cancelled || !playerHostElRef.current) return;
 
         const player = new YT.Player(mountNode, {
           videoId: initialVideoId,
@@ -414,6 +442,14 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
         window.clearTimeout(autoplayCheckTimerRef.current);
         autoplayCheckTimerRef.current = null;
       }
+      if (pipWindowRef.current) {
+        try {
+          pipWindowRef.current.close();
+        } catch {
+          // Ignore
+        }
+        pipWindowRef.current = null;
+      }
       if (playerRef.current) {
         try {
           playerRef.current.stopVideo();
@@ -423,13 +459,18 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
         }
         playerRef.current = null;
       }
-      if (playerHostRef.current) {
-        playerHostRef.current.innerHTML = '';
+      if (playerHostElRef.current) {
+        playerHostElRef.current.remove();
+        playerHostElRef.current = null;
+      }
+      if (playerSlotRef.current) {
+        playerSlotRef.current.innerHTML = '';
       }
       currentVideoIdRef.current = null;
       setPlayerReady(false);
       setIsPlaying(false);
       setIsVideoVisible(false);
+      setIsDocPipActive(false);
       resetPlaybackClock(0);
     };
     // Mount single persistent player once and reuse via loadVideoById
@@ -800,6 +841,208 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
     handleTogglePlayPause();
   };
 
+  // Sync Android native Picture-in-Picture eligibility with live playback state
+  useEffect(() => {
+    syncNativePipPlaybackState(isPlaying && !hasError && !isDocPipActive, 9, 16);
+  }, [isPlaying, hasError, isDocPipActive, activeVideoId]);
+
+  useEffect(() => {
+    return () => {
+      syncNativePipPlaybackState(false);
+      if (pipNoticeTimerRef.current) {
+        window.clearTimeout(pipNoticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showPipInfoNotice = useCallback((msg: string) => {
+    setPipNotice(msg);
+    if (pipNoticeTimerRef.current) {
+      window.clearTimeout(pipNoticeTimerRef.current);
+    }
+    pipNoticeTimerRef.current = window.setTimeout(() => {
+      setPipNotice(null);
+      pipNoticeTimerRef.current = null;
+    }, 3400);
+  }, []);
+
+  const restoreHostFromDocPip = useCallback(() => {
+    const hostEl = playerHostElRef.current;
+    const slotEl = playerSlotRef.current;
+    if (hostEl && slotEl && hostEl.parentElement !== slotEl) {
+      slotEl.innerHTML = '';
+      slotEl.appendChild(hostEl);
+    }
+    pipTitleElRef.current = null;
+    pipPlayBtnRef.current = null;
+    pipWindowRef.current = null;
+    setIsDocPipActive(false);
+  }, []);
+
+  const closeDocumentPip = useCallback(() => {
+    const win = pipWindowRef.current;
+    restoreHostFromDocPip();
+    if (win) {
+      try {
+        win.close();
+      } catch {
+        // Ignore
+      }
+    }
+  }, [restoreHostFromDocPip]);
+
+  const handleTogglePlayPauseRef = useRef(handleTogglePlayPause);
+  const jumpToSlideRef = useRef(jumpToSlide);
+  handleTogglePlayPauseRef.current = handleTogglePlayPause;
+  jumpToSlideRef.current = jumpToSlide;
+
+  const openDocumentPip = useCallback(async () => {
+    if (pipWindowRef.current) {
+      closeDocumentPip();
+      return;
+    }
+    const hostEl = playerHostElRef.current;
+    const pipApi = window.documentPictureInPicture;
+    if (!hostEl || !pipApi?.requestWindow) return;
+
+    try {
+      const pipWin = await pipApi.requestWindow({
+        width: 340,
+        height: 560,
+      });
+      pipWindowRef.current = pipWin;
+
+      const doc = pipWin.document;
+      doc.title = activeShort ? `${activeShort.title} · GraçaPlay` : 'GraçaPlay';
+      doc.documentElement.style.cssText = 'height:100%;margin:0;background:#000;';
+      doc.body.style.cssText =
+        'height:100%;margin:0;padding:0;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;overflow:hidden;user-select:none;';
+
+      const stage = doc.createElement('div');
+      stage.style.cssText =
+        'position:relative;flex:1;min-height:0;width:100%;background:#000;overflow:hidden;';
+      stage.appendChild(hostEl);
+
+      const footer = doc.createElement('div');
+      footer.style.cssText =
+        'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:#09090b;border-top:1px solid rgba(255,255,255,0.1);';
+
+      const titleEl = doc.createElement('div');
+      titleEl.style.cssText =
+        'flex:1;min-width:0;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#f4f4f5;';
+      titleEl.textContent = activeShort?.title || 'GraçaPlay';
+      pipTitleElRef.current = titleEl;
+
+      const controls = doc.createElement('div');
+      controls.style.cssText = 'display:flex;align-items:center;gap:4px;flex-shrink:0;';
+
+      const makeBtn = (label: string, title: string, onClick: () => void) => {
+        const btn = doc.createElement('button');
+        btn.type = 'button';
+        btn.textContent = label;
+        btn.title = title;
+        btn.setAttribute('aria-label', title);
+        btn.style.cssText =
+          'width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:#18181b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+        btn.addEventListener('click', onClick);
+        return btn;
+      };
+
+      const prevBtn = makeBtn('‹', 'Vídeo anterior', () =>
+        jumpToSlideRef.current(activeIndexRef.current - 1)
+      );
+      const playBtn = makeBtn(isPlaying ? '❚❚' : '▶', 'Reproduzir ou pausar', () =>
+        handleTogglePlayPauseRef.current()
+      );
+      pipPlayBtnRef.current = playBtn;
+      const nextBtn = makeBtn('›', 'Próximo vídeo', () =>
+        jumpToSlideRef.current(activeIndexRef.current + 1)
+      );
+      const backBtn = makeBtn('⤢', 'Voltar ao aplicativo', () => closeDocumentPip());
+
+      controls.append(prevBtn, playBtn, nextBtn, backBtn);
+      footer.append(titleEl, controls);
+      doc.body.append(stage, footer);
+
+      pipWin.addEventListener('pagehide', () => {
+        restoreHostFromDocPip();
+      });
+
+      setIsDocPipActive(true);
+    } catch {
+      restoreHostFromDocPip();
+      showPipInfoNotice(
+        'Não foi possível abrir a janela flutuante neste navegador.'
+      );
+    }
+  }, [
+    activeShort,
+    closeDocumentPip,
+    isPlaying,
+    restoreHostFromDocPip,
+    showPipInfoNotice,
+  ]);
+
+  const handleTogglePictureInPicture = useCallback(() => {
+    onAudioUnlocked();
+    if (isNativeAndroidPipAvailable()) {
+      requestNativeAndroidPip();
+      return;
+    }
+    if (isDocumentPipAvailable()) {
+      void openDocumentPip();
+      return;
+    }
+    showPipInfoNotice(
+      'No app Android (APK) a janela flutuante abre ao minimizar. No navegador, use Chrome ou Edge no computador.'
+    );
+  }, [onAudioUnlocked, openDocumentPip, showPipInfoNotice]);
+
+  // Keep Document PiP title & play/pause label synced as videos change or pause
+  useEffect(() => {
+    if (!isDocPipActive) return;
+    if (pipTitleElRef.current) {
+      pipTitleElRef.current.textContent = activeShort?.title || 'GraçaPlay';
+    }
+    if (pipWindowRef.current && activeShort) {
+      pipWindowRef.current.document.title = `${activeShort.title} · GraçaPlay`;
+    }
+    if (pipPlayBtnRef.current) {
+      pipPlayBtnRef.current.textContent = isPlaying ? '❚❚' : '▶';
+    }
+  }, [isDocPipActive, activeShort, isPlaying]);
+
+  // Register Media Session handler for browsers that support auto-PiP on tab switch
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    if (!isDocumentPipAvailable()) return;
+
+    try {
+      (
+        navigator.mediaSession as MediaSession & {
+          setActionHandler: (action: string, handler: (() => void) | null) => void;
+        }
+      ).setActionHandler('enterpictureinpicture', () => {
+        if (!pipWindowRef.current) {
+          void openDocumentPip();
+        }
+      });
+      return () => {
+        try {
+          (
+            navigator.mediaSession as MediaSession & {
+              setActionHandler: (action: string, handler: (() => void) | null) => void;
+            }
+          ).setActionHandler('enterpictureinpicture', null);
+        } catch {
+          // Ignore
+        }
+      };
+    } catch {
+      return undefined;
+    }
+  }, [openDocumentPip]);
+
   const isScrubbing = scrubSeconds !== null;
   const displayedTime =
     effectiveDuration > 0
@@ -810,8 +1053,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       ? Math.min(100, Math.max(0, (displayedTime / effectiveDuration) * 100))
       : 0;
 
+  const isCompactNativePip = Boolean(isNativePipActive);
   const pullThreshold = 92;
-  const showPullIndicator = isRefreshing || pullDistance > 16;
+  const showPullIndicator = !isCompactNativePip && (isRefreshing || pullDistance > 16);
   const readyToRefresh = pullDistance >= pullThreshold;
   const pullProgress = Math.min(1, pullDistance / pullThreshold);
   const pullTranslateY = isRefreshing ? 14 : Math.min(64, Math.round(pullDistance * 0.45)) - 6;
@@ -821,45 +1065,60 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
   const isScrollingMotion =
     isActivelyDisplaced || isSliding || indexDeltaFromLastRender !== 0;
   const shouldAnimateTrack = !isDragging && !isBigNonAdjacentJump;
-  const showLivePlayer = isVideoVisible && !hasError && !isScrollingMotion;
+  const showLivePlayer =
+    isVideoVisible && !hasError && !isScrollingMotion && !isDocPipActive;
 
   return (
     <div className="relative w-full h-full bg-black overflow-hidden select-none overscroll-none">
       {/* Pull-to-refresh floating indicator */}
-      <div
-        aria-live="polite"
-        className={`pointer-events-none absolute top-2 left-1/2 z-40 transition-opacity duration-150 ${
-          showPullIndicator ? 'opacity-100' : 'opacity-0'
-        }`}
-        style={{
-          transform: `translate3d(-50%, ${pullTranslateY}px, 0)`,
-        }}
-      >
+      {!isCompactNativePip && (
         <div
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-full backdrop-blur-md border text-xs font-semibold shadow-lg whitespace-nowrap ${
-            readyToRefresh || isRefreshing
-              ? 'bg-white border-white text-black'
-              : 'bg-zinc-950/95 border-zinc-800 text-zinc-100'
+          aria-live="polite"
+          className={`pointer-events-none absolute top-2 left-1/2 z-40 transition-opacity duration-150 ${
+            showPullIndicator ? 'opacity-100' : 'opacity-0'
           }`}
+          style={{
+            transform: `translate3d(-50%, ${pullTranslateY}px, 0)`,
+          }}
         >
-          <RefreshCw
-            className={`w-3.5 h-3.5 shrink-0 ${isRefreshing ? 'animate-spin' : ''}`}
-            style={
-              isRefreshing
-                ? undefined
-                : { transform: `rotate(${Math.round(pullProgress * 220)}deg)` }
-            }
-            aria-hidden="true"
-          />
-          <span>
-            {isRefreshing
-              ? 'Atualizando vídeos...'
-              : readyToRefresh
-              ? 'Solte para atualizar o feed'
-              : 'Deslize mais para atualizar'}
-          </span>
+          <div
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-full backdrop-blur-md border text-xs font-semibold shadow-lg whitespace-nowrap ${
+              readyToRefresh || isRefreshing
+                ? 'bg-white border-white text-black'
+                : 'bg-zinc-950/95 border-zinc-800 text-zinc-100'
+            }`}
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 shrink-0 ${isRefreshing ? 'animate-spin' : ''}`}
+              style={
+                isRefreshing
+                  ? undefined
+                  : { transform: `rotate(${Math.round(pullProgress * 220)}deg)` }
+              }
+              aria-hidden="true"
+            />
+            <span>
+              {isRefreshing
+                ? 'Atualizando vídeos...'
+                : readyToRefresh
+                ? 'Solte para atualizar o feed'
+                : 'Deslize mais para atualizar'}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Subtle transient PiP notice on unsupported web browsers */}
+      {pipNotice && !isCompactNativePip && (
+        <div
+          role="status"
+          className="pointer-events-none absolute top-3 inset-x-4 z-50 flex justify-center"
+        >
+          <div className="px-3.5 py-2 rounded-xl bg-zinc-950/95 border border-zinc-700 text-xs font-medium text-zinc-100 text-center shadow-xl max-w-[300px]">
+            {pipNotice}
+          </div>
+        </div>
+      )}
 
       {/* Persistent Single YouTube Player Layer */}
       <div
@@ -867,8 +1126,32 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
           showLivePlayer ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        <div ref={playerHostRef} className="w-full h-full" />
+        <div ref={playerSlotRef} className="w-full h-full" />
       </div>
+
+      {/* In-app placeholder while video is floating in Web Document PiP */}
+      {isDocPipActive && !isCompactNativePip && (
+        <div className="absolute inset-0 z-30 bg-black/95 flex flex-col items-center justify-center px-6 text-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white">
+            <PictureInPicture2 className="w-6 h-6" aria-hidden="true" />
+          </div>
+          <div className="space-y-1 max-w-[260px]">
+            <p className="text-sm font-semibold text-white">
+              Reproduzindo na janela flutuante
+            </p>
+            {activeShort && (
+              <p className="text-xs text-zinc-400 line-clamp-2">{activeShort.title}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={closeDocumentPip}
+            className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
+          >
+            Trazer vídeo de volta
+          </button>
+        </div>
+      )}
 
       {/* TikTok-style GPU-Accelerated Vertical Slide Viewport */}
       <div
@@ -972,89 +1255,110 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
                 </div>
               )}
 
-              {/* Bottom measured contrast scrim + video details */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/50 to-transparent z-20" />
+              {/* Bottom measured contrast scrim + video details (hidden in compact Android PiP window) */}
+              {!isCompactNativePip && (
+                <>
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/50 to-transparent z-20" />
 
-              <div className="absolute inset-x-0 bottom-0 z-30 px-4 pt-4 pb-[84px] pr-16 sm:px-5 sm:pt-5 sm:pb-[90px] sm:pr-20 flex flex-col justify-end pointer-events-none">
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-200 font-medium">
-                    <span className="font-semibold text-white truncate max-w-[200px]">
-                      {short.channelTitle}
-                    </span>
-                    {short.durationLabel && (
-                      <>
+                  <div className="absolute inset-x-0 bottom-0 z-30 px-4 pt-4 pb-[84px] pr-16 sm:px-5 sm:pt-5 sm:pb-[90px] sm:pr-20 flex flex-col justify-end pointer-events-none">
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-200 font-medium">
+                        <span className="font-semibold text-white truncate max-w-[200px]">
+                          {short.channelTitle}
+                        </span>
+                        {short.durationLabel && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span className="font-mono tabular-nums">{short.durationLabel}</span>
+                          </>
+                        )}
+                        {viewsLabel && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span className="tabular-nums">{viewsLabel}</span>
+                          </>
+                        )}
+                      </div>
+
+                      <h2 className="text-base sm:text-[17px] font-display font-semibold text-white leading-snug line-clamp-2">
+                        {short.title}
+                      </h2>
+
+                      <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-medium">
+                        <span>{short.categoryLabel}</span>
                         <span aria-hidden="true">·</span>
-                        <span className="font-mono tabular-nums">{short.durationLabel}</span>
-                      </>
-                    )}
-                    {viewsLabel && (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <span className="tabular-nums">{viewsLabel}</span>
-                      </>
-                    )}
+                        <span>{short.doctrineLabel}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <h2 className="text-base sm:text-[17px] font-display font-semibold text-white leading-snug line-clamp-2">
-                    {short.title}
-                  </h2>
+                  {/* Right-side thumb-zone actions */}
+                  <div className="absolute right-2.5 bottom-[86px] sm:bottom-[92px] z-30 flex flex-col items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTogglePictureInPicture();
+                      }}
+                      aria-label={
+                        isDocPipActive
+                          ? 'Fechar janela flutuante'
+                          : 'Abrir em janela flutuante (PiP)'
+                      }
+                      title="Janela flutuante (PiP)"
+                      className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
+                    >
+                      <PictureInPicture2 className="w-5 h-5" aria-hidden="true" />
+                    </button>
 
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-medium">
-                    <span>{short.categoryLabel}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{short.doctrineLabel}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAudioUnlocked();
+                        onToggleSave(short.id);
+                      }}
+                      aria-label={isSaved ? 'Remover dos salvos' : 'Salvar vídeo'}
+                      className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
+                    >
+                      <Bookmark
+                        className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`}
+                        aria-hidden="true"
+                      />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAudioUnlocked();
+                        onShare(short);
+                      }}
+                      aria-label="Compartilhar este vídeo"
+                      className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
+                    >
+                      <Share2 className="w-5 h-5" aria-hidden="true" />
+                    </button>
+
+                    <a
+                      href={
+                        short.category === 'louvores' ||
+                        short.category === 'pregacoes' ||
+                        short.category === 'feliz7play'
+                          ? short.youtubeUrl
+                          : short.shortsUrl
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="Abrir vídeo no YouTube"
+                      className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150"
+                    >
+                      <ExternalLink className="w-4 h-4" aria-hidden="true" />
+                    </a>
                   </div>
-                </div>
-              </div>
-
-              {/* Right-side thumb-zone actions */}
-              <div className="absolute right-2.5 bottom-[86px] sm:bottom-[92px] z-30 flex flex-col items-center gap-3">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAudioUnlocked();
-                    onToggleSave(short.id);
-                  }}
-                  aria-label={isSaved ? 'Remover dos salvos' : 'Salvar vídeo'}
-                  className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
-                >
-                  <Bookmark
-                    className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`}
-                    aria-hidden="true"
-                  />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAudioUnlocked();
-                    onShare(short);
-                  }}
-                  aria-label="Compartilhar este vídeo"
-                  className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150 cursor-pointer"
-                >
-                  <Share2 className="w-5 h-5" aria-hidden="true" />
-                </button>
-
-                <a
-                  href={
-                    short.category === 'louvores' ||
-                    short.category === 'pregacoes' ||
-                    short.category === 'feliz7play'
-                      ? short.youtubeUrl
-                      : short.shortsUrl
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="Abrir vídeo no YouTube"
-                  className="w-11 h-11 rounded-full bg-transparent hover:bg-white/10 active:scale-95 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] flex items-center justify-center transition-all duration-150"
-                >
-                  <ExternalLink className="w-4 h-4" aria-hidden="true" />
-                </a>
-              </div>
+                </>
+              )}
             </article>
           );
         })}
@@ -1062,7 +1366,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = ({
       </div>
 
       {/* Interactive playback progress & seek bar (isolated from swipe gestures at z-40) */}
-      {activeShort && !hasError && (
+      {activeShort && !hasError && !isCompactNativePip && (
         <div
           onTouchStart={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
