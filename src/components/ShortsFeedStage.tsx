@@ -57,6 +57,8 @@ function formatPlaybackTime(totalSeconds: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
+const PULL_REFRESH_THRESHOLD = 76;
+
 export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   items,
   activeIndex,
@@ -86,13 +88,18 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const currentVideoIdRef = useRef<string | null>(null);
   const autoplayCheckTimerRef = useRef<number | null>(null);
   const wheelLockUntilRef = useRef<number>(0);
+  const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
+  const touchStartTimeRef = useRef<number>(0);
   const lastTouchYRef = useRef<number>(0);
   const lastTouchTimeRef = useRef<number>(0);
+  const gestureAxisRef = useRef<'pending' | 'vertical' | 'horizontal'>('pending');
   const velocityYRef = useRef<number>(0);
   const dragOffsetPxRef = useRef<number>(0);
   const touchDraggedRef = useRef<boolean>(false);
   const pullDistanceRef = useRef<number>(0);
+  const peakPullDistanceRef = useRef<number>(0);
+  const longPullRefreshArmedRef = useRef<boolean>(false);
   const lastWheelTimeRef = useRef<number>(0);
   const lastWheelAbsDeltaRef = useRef<number>(0);
   const slideTimerRef = useRef<number | null>(null);
@@ -541,22 +548,32 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      const y = e.touches[0].clientY;
-      touchStartYRef.current = y;
-      lastTouchYRef.current = y;
-      lastTouchTimeRef.current = performance.now();
+      const touch = e.touches[0];
+      const now = performance.now();
+      touchStartXRef.current = touch.clientX;
+      touchStartYRef.current = touch.clientY;
+      touchStartTimeRef.current = now;
+      lastTouchYRef.current = touch.clientY;
+      lastTouchTimeRef.current = now;
+      gestureAxisRef.current = 'pending';
       velocityYRef.current = 0;
       dragOffsetPxRef.current = 0;
       touchDraggedRef.current = false;
       pullDistanceRef.current = 0;
+      peakPullDistanceRef.current = 0;
+      longPullRefreshArmedRef.current = false;
       setPullDistance(0);
       setDragOffsetPx(0);
       setIsDragging(true);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (touchStartYRef.current === null || e.touches.length !== 1) return;
-      const currentY = e.touches[0].clientY;
+      if (touchStartYRef.current === null || touchStartXRef.current === null || e.touches.length !== 1) {
+        return;
+      }
+      const touch = e.touches[0];
+      const currentX = touch.clientX;
+      const currentY = touch.clientY;
       const now = performance.now();
       const dt = Math.max(1, now - lastTouchTimeRef.current);
       const instantVelocity = (currentY - lastTouchYRef.current) / dt;
@@ -564,7 +581,20 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       lastTouchYRef.current = currentY;
       lastTouchTimeRef.current = now;
 
+      const deltaX = currentX - touchStartXRef.current;
       const deltaY = currentY - touchStartYRef.current; // negative = swiping up (next), positive = swiping down (prev/refresh)
+
+      if (gestureAxisRef.current === 'pending') {
+        if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
+          gestureAxisRef.current =
+            Math.abs(deltaX) > Math.abs(deltaY) * 1.25 ? 'horizontal' : 'vertical';
+        }
+      }
+
+      if (gestureAxisRef.current === 'horizontal') {
+        return;
+      }
+
       if (Math.abs(deltaY) > 7) {
         touchDraggedRef.current = true;
         e.preventDefault();
@@ -572,20 +602,57 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
       const idx = activeIndexRef.current;
       const total = itemsLengthRef.current;
+      const containerHeight = container.clientHeight || 640;
 
-      // Top of feed + dragging down: pull-to-refresh + gentle rubber-band slide
+      // Top of feed + dragging down: responsive pull-to-refresh + gentle rubber-band slide
       if (idx === 0 && deltaY > 0) {
-        const dampedPull = Math.min(180, Math.round(deltaY * 0.78));
-        const rubberOffset = Math.min(76, Math.round(deltaY * 0.26));
+        const dampedPull = Math.min(180, Math.round(deltaY * 0.86));
+        const rubberOffset = Math.min(82, Math.round(deltaY * 0.28));
         pullDistanceRef.current = dampedPull;
+        if (dampedPull > peakPullDistanceRef.current) {
+          peakPullDistanceRef.current = dampedPull;
+        }
         dragOffsetPxRef.current = rubberOffset;
         setPullDistance(dampedPull);
         setDragOffsetPx(rubberOffset);
         return;
       }
 
-      if (pullDistanceRef.current > 0) {
+      // Mid-feed + deliberate longer downward drag: arm pull-to-refresh without breaking quick prev-video swipe
+      if (idx > 0 && deltaY > 0) {
+        const longPullActivatePx = Math.min(185, Math.max(112, Math.round(containerHeight * 0.23)));
+        const elapsed = now - touchStartTimeRef.current;
+
+        if (!longPullRefreshArmedRef.current) {
+          if (deltaY >= longPullActivatePx && (elapsed >= 135 || deltaY >= longPullActivatePx + 55)) {
+            longPullRefreshArmedRef.current = true;
+          }
+        } else if (deltaY < longPullActivatePx - 36) {
+          longPullRefreshArmedRef.current = false;
+        }
+
+        if (longPullRefreshArmedRef.current) {
+          const extraPull = Math.max(0, deltaY - longPullActivatePx);
+          const dampedPull = Math.min(180, Math.round(38 + extraPull * 0.92));
+          const cushionedOffset = Math.min(
+            longPullActivatePx + 58,
+            Math.round(longPullActivatePx + extraPull * 0.16)
+          );
+          pullDistanceRef.current = dampedPull;
+          if (dampedPull > peakPullDistanceRef.current) {
+            peakPullDistanceRef.current = dampedPull;
+          }
+          dragOffsetPxRef.current = cushionedOffset;
+          setPullDistance(dampedPull);
+          setDragOffsetPx(cushionedOffset);
+          return;
+        }
+      }
+
+      if (pullDistanceRef.current > 0 || longPullRefreshArmedRef.current) {
         pullDistanceRef.current = 0;
+        peakPullDistanceRef.current = 0;
+        longPullRefreshArmedRef.current = false;
         setPullDistance(0);
       }
 
@@ -607,6 +674,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
       const currentOffset = dragOffsetPxRef.current;
       const pulled = pullDistanceRef.current;
+      const peakPulled = peakPullDistanceRef.current;
+      const wasLongPullArmed = longPullRefreshArmedRef.current;
+      const wasHorizontal = gestureAxisRef.current === 'horizontal';
       const velocityY = velocityYRef.current;
       const idx = activeIndexRef.current;
       const total = itemsLengthRef.current;
@@ -614,13 +684,28 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       const distThreshold = Math.max(56, containerHeight * 0.16);
       const hasUpFlick = velocityY < -0.35 && currentOffset < -22;
       const hasDownFlick = velocityY > 0.35 && currentOffset > 22;
+      const metRefreshPull =
+        pulled >= PULL_REFRESH_THRESHOLD ||
+        (peakPulled >= PULL_REFRESH_THRESHOLD + 8 && pulled >= PULL_REFRESH_THRESHOLD - 18);
 
       setIsDragging(false);
       dragOffsetPxRef.current = 0;
       setDragOffsetPx(0);
 
-      if (idx === 0 && pulled > 0) {
-        if (!isRefreshingRef.current && pulled >= 92) {
+      if (wasHorizontal) {
+        if (Math.abs(currentOffset) > 2) {
+          triggerSlideWindow(280);
+        }
+      } else if (idx === 0 && pulled > 0) {
+        if (!isRefreshingRef.current && metRefreshPull) {
+          onAudioUnlockedRef.current();
+          onRefreshRef.current();
+        }
+        if (Math.abs(currentOffset) > 2) {
+          triggerSlideWindow(280);
+        }
+      } else if (wasLongPullArmed && metRefreshPull) {
+        if (!isRefreshingRef.current) {
           onAudioUnlockedRef.current();
           onRefreshRef.current();
         }
@@ -637,7 +722,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       }
 
       pullDistanceRef.current = 0;
+      peakPullDistanceRef.current = 0;
+      longPullRefreshArmedRef.current = false;
+      gestureAxisRef.current = 'pending';
       setPullDistance(0);
+      touchStartXRef.current = null;
       touchStartYRef.current = null;
       velocityYRef.current = 0;
       window.setTimeout(() => {
@@ -1151,8 +1240,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       : 0;
 
   const isCompactNativePip = Boolean(isNativePipActive);
-  const pullThreshold = 92;
-  const showPullIndicator = !isCompactNativePip && (isRefreshing || pullDistance > 16);
+  const pullThreshold = PULL_REFRESH_THRESHOLD;
+  const showPullIndicator = !isCompactNativePip && (isRefreshing || pullDistance > 14);
   const readyToRefresh = pullDistance >= pullThreshold;
   const pullProgress = Math.min(1, pullDistance / pullThreshold);
   const pullTranslateY = isRefreshing ? 14 : Math.min(64, Math.round(pullDistance * 0.45)) - 6;
