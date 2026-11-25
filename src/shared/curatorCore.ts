@@ -1711,7 +1711,7 @@ function shuffleInPlace<T>(arr: T[]): T[] {
   return arr;
 }
 
-function normalizeTitleKey(title: string): string {
+export function normalizeTitleKey(title: string): string {
   return title
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -1721,6 +1721,34 @@ function normalizeTitleKey(title: string): string {
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+export function extractFuzzyContentKey(title: string): string {
+  let cleaned = title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/#[a-z0-9_]+/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ');
+
+  const pipeIdx = cleaned.indexOf('|');
+  if (pipeIdx >= 18) {
+    cleaned = cleaned.slice(0, pipeIdx);
+  }
+
+  cleaned = cleaned
+    .replace(/\b(parte|part|pt)\s*\d+\b/gi, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const words = cleaned.split(' ').filter(Boolean);
+  if (cleaned.length < 24 || words.length < 4) {
+    return '';
+  }
+  return cleaned;
 }
 
 const SONG_ARTIST_OR_TAG_RE =
@@ -1784,6 +1812,7 @@ export function deduplicateShorts(
   const allowSameSongVariants = Boolean(options?.allowSameSongVariants);
   const seenIds = new Set<string>();
   const seenGlobalTitles = new Set<string>();
+  const seenFuzzyTitles = new Set<string>();
   const seenChannelTitles = new Set<string>();
   const seenLouvorSongs = new Set<string>();
   const unique: ChristianShort[] = [];
@@ -1792,9 +1821,11 @@ export function deduplicateShorts(
     if (seenIds.has(item.id)) continue;
 
     const titleKey = normalizeTitleKey(item.title);
+    const fuzzyKey = extractFuzzyContentKey(item.title);
     const channelTitleKey = `${item.channelId}:${titleKey}`;
 
     if (titleKey.length >= 14 && seenGlobalTitles.has(titleKey)) continue;
+    if (fuzzyKey && seenFuzzyTitles.has(fuzzyKey)) continue;
     if (titleKey.length >= 6 && seenChannelTitles.has(channelTitleKey)) continue;
 
     if (!allowSameSongVariants && item.category === 'louvores') {
@@ -1805,6 +1836,7 @@ export function deduplicateShorts(
 
     seenIds.add(item.id);
     if (titleKey.length >= 14) seenGlobalTitles.add(titleKey);
+    if (fuzzyKey) seenFuzzyTitles.add(fuzzyKey);
     if (titleKey.length >= 6) seenChannelTitles.add(channelTitleKey);
     unique.push(item);
   }

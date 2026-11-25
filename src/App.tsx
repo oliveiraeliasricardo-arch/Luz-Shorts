@@ -32,19 +32,26 @@ import {
   isNativeCapacitorApp,
 } from './utils/nativeShortsFallback';
 import { getViewportOrientationState } from './utils/screenOrientation';
-import { buildDiverseFeed } from './shared/curatorCore';
+import {
+  buildDiverseFeed,
+  extractFuzzyContentKey,
+  normalizeTitleKey,
+} from './shared/curatorCore';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const SAVED_STORAGE_KEY = 'gracaplay_saved_ids_v1';
+const SAVED_SHORTS_STORAGE_KEY = 'gracaplay_saved_shorts_v1';
 const SEEN_STORAGE_KEY = 'gracaplay_seen_ids_v1';
+const SEEN_TITLES_STORAGE_KEY = 'gracaplay_seen_titles_v1';
 const LAST_SESSION_TOP_KEY = 'gracaplay_last_top_v1';
 const FEED_CACHE_STORAGE_KEY = 'gracaplay_feed_cache_v2';
 const LEGACY_FEED_CACHE_STORAGE_KEY = 'gracaplay_feed_cache_v1';
 const LEGACY_SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
-const MAX_SEEN_IDS = 5000;
-const MAX_SURFACED_TOP_IDS = 2500;
+const MAX_SEEN_IDS = 8000;
+const MAX_SEEN_TITLES = 5000;
+const MAX_SURFACED_TOP_IDS = 4000;
 const MAX_CACHED_FEED_ITEMS = 220;
 
 const MAIN_ALL_CATEGORIES: ContentCategory[] = [
@@ -54,73 +61,67 @@ const MAIN_ALL_CATEGORIES: ContentCategory[] = [
   'testemunhos',
 ];
 
-function orderByOldestHistoryFirst(
-  items: ChristianShort[],
-  historyIds: string[]
+function getItemTitleKeys(title: string): string[] {
+  const keys: string[] = [];
+  const exactKey = normalizeTitleKey(title);
+  if (exactKey.length >= 14) keys.push(exactKey);
+  const fuzzyKey = extractFuzzyContentKey(title);
+  if (fuzzyKey && fuzzyKey !== exactKey) keys.push(fuzzyKey);
+  return keys;
+}
+
+function isItemRetired(
+  item: ChristianShort,
+  seenSet: Set<string>,
+  priorSurfacedSet: Set<string>,
+  seenTitleSet: Set<string>
+): boolean {
+  if (seenSet.has(item.id) || priorSurfacedSet.has(item.id)) {
+    return true;
+  }
+  const titleKeys = getItemTitleKeys(item.title);
+  return titleKeys.some((k) => seenTitleSet.has(k));
+}
+
+function filterFreshUnseenItems(
+  source: ChristianShort[],
+  seenIds: string[],
+  priorSurfacedIds: string[],
+  seenTitleKeys: string[]
 ): ChristianShort[] {
-  if (items.length <= 1 || historyIds.length === 0) return items;
-  const recencyRank = new Map<string, number>();
-  historyIds.forEach((id, idx) => {
-    if (!recencyRank.has(id)) {
-      recencyRank.set(id, idx);
-    }
-  });
-  // Higher index = surfaced/watched longer ago -> comes FIRST when recycling
-  return [...items].sort((a, b) => {
-    const rankA = recencyRank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-    const rankB = recencyRank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-    return rankB - rankA;
-  });
+  const seenSet = new Set(seenIds);
+  const priorSurfacedSet = new Set(priorSurfacedIds);
+  const seenTitleSet = new Set(seenTitleKeys);
+  const batchIds = new Set<string>();
+  const batchTitles = new Set<string>();
+
+  const fresh: ChristianShort[] = [];
+  for (const item of source) {
+    if (batchIds.has(item.id)) continue;
+    if (isItemRetired(item, seenSet, priorSurfacedSet, seenTitleSet)) continue;
+    const tKeys = getItemTitleKeys(item.title);
+    if (tKeys.some((k) => batchTitles.has(k))) continue;
+
+    batchIds.add(item.id);
+    for (const k of tKeys) batchTitles.add(k);
+    fresh.push(item);
+  }
+  return fresh;
 }
 
 function prioritizeAndShuffleFeed(
   source: ChristianShort[],
   seenIds: string[],
-  surfacedTopIds: string[],
-  targetCategory?: ShortCategory
-): { items: ChristianShort[]; resetSurfacedIds: string[] } {
-  const seenSet = new Set(seenIds);
-  const surfacedSet = new Set(surfacedTopIds);
-
-  const unseenFresh = source.filter(
-    (item) => !seenSet.has(item.id) && !surfacedSet.has(item.id)
+  priorSurfacedIds: string[],
+  seenTitleKeys: string[]
+): ChristianShort[] {
+  const unseenFresh = filterFreshUnseenItems(
+    source,
+    seenIds,
+    priorSurfacedIds,
+    seenTitleKeys
   );
-  const unseenSurfaced = orderByOldestHistoryFirst(
-    source.filter((item) => !seenSet.has(item.id) && surfacedSet.has(item.id)),
-    surfacedTopIds
-  );
-  const seenItems = orderByOldestHistoryFirst(
-    source.filter((item) => seenSet.has(item.id)),
-    seenIds
-  );
-
-  const targetHasFresh =
-    targetCategory && targetCategory !== 'all' && targetCategory !== 'salvos'
-      ? unseenFresh.some((item) => item.category === targetCategory)
-      : targetCategory === 'all'
-        ? unseenFresh.some((item) => item.category !== 'feliz7play')
-        : unseenFresh.length > 0;
-
-  if (!targetHasFresh && unseenSurfaced.length > 0) {
-    // Preserve surfaced history so recent videos stay at the end; only surface oldest-seen items first
-    return {
-      items: [
-        ...buildDiverseFeed(unseenFresh, true),
-        ...unseenSurfaced,
-        ...seenItems,
-      ],
-      resetSurfacedIds: [],
-    };
-  }
-
-  return {
-    items: [
-      ...buildDiverseFeed(unseenFresh, true),
-      ...unseenSurfaced,
-      ...seenItems,
-    ],
-    resetSurfacedIds: [],
-  };
+  return buildDiverseFeed(unseenFresh, true);
 }
 
 function extractSessionTopIds(items: ChristianShort[]): string[] {
@@ -202,23 +203,65 @@ function readCachedFeedSnapshot(): ChristianShort[] {
   }
 }
 
+function readSavedShortsSnapshot(): Record<string, ChristianShort> {
+  try {
+    const raw = localStorage.getItem(SAVED_SHORTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const result: Record<string, ChristianShort> = {};
+    for (const [id, item] of Object.entries(parsed as Record<string, unknown>)) {
+      if (
+        item &&
+        typeof item === 'object' &&
+        typeof (item as ChristianShort).id === 'string' &&
+        typeof (item as ChristianShort).title === 'string' &&
+        typeof (item as ChristianShort).category === 'string'
+      ) {
+        result[id] = item as ChristianShort;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function writeSavedShortsSnapshot(
+  map: Record<string, ChristianShort>,
+  savedIds: string[]
+): void {
+  try {
+    const next: Record<string, ChristianShort> = {};
+    for (const id of savedIds) {
+      const item = map[id];
+      if (!item) continue;
+      next[id] =
+        item.description.length > 160
+          ? { ...item, description: `${item.description.slice(0, 157)}...` }
+          : item;
+    }
+    localStorage.setItem(SAVED_SHORTS_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
 function writeCachedFeedSnapshot(
   items: ChristianShort[],
-  seenSet?: Set<string>,
-  surfacedSet?: Set<string>
+  seenSet: Set<string>,
+  surfacedSet: Set<string>,
+  seenTitleSet: Set<string>
 ): void {
-  if (items.length === 0) return;
   try {
-    // Store brand-new unseen & unsurfaced items first so the next cold launch always opens on fresh videos
     const unseenFresh = items.filter(
-      (item) => !seenSet?.has(item.id) && !surfacedSet?.has(item.id)
+      (item) => !isItemRetired(item, seenSet, surfacedSet, seenTitleSet)
     );
-    const unseenBackup = items.filter(
-      (item) => !seenSet?.has(item.id) && surfacedSet?.has(item.id)
-    );
-    const preferred = [...unseenFresh, ...unseenBackup];
-    const source = preferred.length > 0 ? preferred : items;
-    const compact = source.slice(0, MAX_CACHED_FEED_ITEMS).map((item) =>
+    if (unseenFresh.length === 0) {
+      localStorage.removeItem(FEED_CACHE_STORAGE_KEY);
+      return;
+    }
+    const compact = unseenFresh.slice(0, MAX_CACHED_FEED_ITEMS).map((item) =>
       item.description.length > 160
         ? { ...item, description: `${item.description.slice(0, 157)}...` }
         : item
@@ -242,11 +285,12 @@ export function App() {
     if (cachedRaw.length === 0) return [];
     const initialSeen = readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY);
     const initialTop = readStoredIdList(LAST_SESSION_TOP_KEY);
-    const { items: prioritized } = prioritizeAndShuffleFeed(
+    const initialTitles = readStoredIdList(SEEN_TITLES_STORAGE_KEY);
+    const prioritized = prioritizeAndShuffleFeed(
       cachedRaw,
       initialSeen,
       initialTop,
-      'all'
+      initialTitles
     );
     const sharedVideoId = getSharedVideoIdFromUrl();
     if (sharedVideoId) {
@@ -268,6 +312,9 @@ export function App() {
   const [searchViewMode, setSearchViewMode] = useState<'results' | 'player'>('player');
   const [savedIds, setSavedIds] = useState<string[]>(() =>
     readStoredIdList(SAVED_STORAGE_KEY, LEGACY_SAVED_STORAGE_KEY)
+  );
+  const [savedShortsById, setSavedShortsById] = useState<Record<string, ChristianShort>>(() =>
+    readSavedShortsSnapshot()
   );
   const [activeIndex, setActiveIndex] = useState(0);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -313,12 +360,15 @@ export function App() {
     readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY)
   );
   const seenIdsSetRef = useRef<Set<string>>(new Set(seenIdsRef.current));
+  const seenTitleKeysRef = useRef<string[]>(readStoredIdList(SEEN_TITLES_STORAGE_KEY));
+  const seenTitleKeysSetRef = useRef<Set<string>>(new Set(seenTitleKeysRef.current));
   const lastSessionTopRef = useRef<string[]>(readStoredIdList(LAST_SESSION_TOP_KEY));
+  const savedShortsByIdRef = useRef<Record<string, ChristianShort>>(savedShortsById);
   const allShortsRef = useRef<ChristianShort[]>(allShorts);
   const visibleShortsRef = useRef<ChristianShort[]>([]);
   const activeIndexRef = useRef<number>(activeIndex);
   const hasMoreByCategoryRef = useRef<Record<string, boolean>>(hasMoreByCategory);
-  const prevActiveIdRef = useRef<string | undefined>(undefined);
+  const prevActiveShortRef = useRef<ChristianShort | undefined>(undefined);
   const categoryCursorsRef = useRef<Record<string, string | null>>({});
   const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
   const emptyRetryCountRef = useRef(0);
@@ -332,6 +382,7 @@ export function App() {
 
   activeIndexRef.current = activeIndex;
   hasMoreByCategoryRef.current = hasMoreByCategory;
+  savedShortsByIdRef.current = savedShortsById;
 
   useEffect(() => {
     allShortsRef.current = allShorts;
@@ -382,11 +433,14 @@ export function App() {
     };
   }, []);
 
-  const recordSurfacedTopIds = useCallback((ids: string[], removeIds: string[] = []) => {
-    const removeSet = new Set(removeIds);
-    const cleanedPrev = lastSessionTopRef.current.filter((id) => !removeSet.has(id));
-    const next = Array.from(new Set([...ids, ...cleanedPrev])).slice(0, MAX_SURFACED_TOP_IDS);
-    lastSessionTopRef.current = next;
+  const persistNextSessionTopIds = useCallback((ids: string[], updateInMemoryRef = false) => {
+    const next = Array.from(new Set([...ids, ...lastSessionTopRef.current])).slice(
+      0,
+      MAX_SURFACED_TOP_IDS
+    );
+    if (updateInMemoryRef) {
+      lastSessionTopRef.current = next;
+    }
     try {
       localStorage.setItem(LAST_SESSION_TOP_KEY, JSON.stringify(next));
     } catch {
@@ -394,93 +448,87 @@ export function App() {
     }
   }, []);
 
-  const markShortSeen = useCallback((shortId: string | undefined) => {
-    if (!shortId) return;
-    const next = [shortId, ...seenIdsRef.current.filter((id) => id !== shortId)].slice(
-      0,
-      MAX_SEEN_IDS
-    );
-    seenIdsRef.current = next;
-    seenIdsSetRef.current = new Set(next);
-    try {
-      localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, []);
+  const markShortsSeenBatch = useCallback(
+    (items: Array<{ id?: string; title?: string }>) => {
+      if (items.length === 0) return;
+      const incomingIds: string[] = [];
+      const incomingTitleKeys: string[] = [];
+      for (const entry of items) {
+        if (entry.id) incomingIds.push(entry.id);
+        if (entry.title) {
+          incomingTitleKeys.push(...getItemTitleKeys(entry.title));
+        }
+      }
+      if (incomingIds.length === 0) return;
 
-  const reshuffleUnseenFeed = useCallback(
-    (targetCat: ShortCategory) => {
-      const currentList = allShortsRef.current;
-      if (currentList.length === 0 || targetCat === 'salvos') return;
-
-      const { items: nextItems, resetSurfacedIds } = prioritizeAndShuffleFeed(
-        currentList,
-        seenIdsRef.current,
-        lastSessionTopRef.current,
-        targetCat
-      );
-
-      const seenSet = new Set(seenIdsRef.current);
-      const upcomingForTarget = (
-        targetCat === 'all'
-          ? nextItems.filter((item) => item.category !== 'feliz7play')
-          : nextItems.filter((item) => item.category === targetCat)
-      )
-        .filter((item) => !seenSet.has(item.id))
-        .slice(0, 3)
-        .map((item) => item.id);
-
-      recordSurfacedTopIds(upcomingForTarget, resetSurfacedIds);
-      allShortsRef.current = nextItems;
-      setAllShorts(nextItems);
-    },
-    [recordSurfacedTopIds]
-  );
-
-  const orderResponseItems = useCallback((orderedSource: ChristianShort[]) => {
-    const seenSet = new Set(seenIdsRef.current);
-    const lastTopSet = new Set(lastSessionTopRef.current);
-    const unseenFresh = orderedSource.filter(
-      (item) => !seenSet.has(item.id) && !lastTopSet.has(item.id)
-    );
-    const unseenPrevTop = orderByOldestHistoryFirst(
-      orderedSource.filter((item) => !seenSet.has(item.id) && lastTopSet.has(item.id)),
-      lastSessionTopRef.current
-    );
-    const seenItems = orderByOldestHistoryFirst(
-      orderedSource.filter((item) => seenSet.has(item.id)),
-      seenIdsRef.current
-    );
-
-    let items: ChristianShort[];
-    if (unseenFresh.length === 0 && unseenPrevTop.length === 0 && seenItems.length > 0) {
-      // Protect up to 1500 most recently watched IDs so older day-1 videos stay buried unless the catalog is tiny
-      const keepCount = Math.min(1500, Math.max(250, Math.floor(seenIdsRef.current.length * 0.7)));
-      const recentOnly = seenIdsRef.current.slice(0, keepCount);
-      seenIdsRef.current = recentOnly;
-      seenIdsSetRef.current = new Set(recentOnly);
+      const incomingIdSet = new Set(incomingIds);
+      const nextIds = [
+        ...Array.from(incomingIdSet),
+        ...seenIdsRef.current.filter((id) => !incomingIdSet.has(id)),
+      ].slice(0, MAX_SEEN_IDS);
+      seenIdsRef.current = nextIds;
+      seenIdsSetRef.current = new Set(nextIds);
       try {
-        localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(recentOnly));
+        localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(nextIds));
       } catch {
         // Ignore storage quota errors
       }
-      const recentSet = seenIdsSetRef.current;
-      items = [
-        ...buildDiverseFeed(orderedSource.filter((item) => !recentSet.has(item.id)), true),
-        ...orderByOldestHistoryFirst(
-          orderedSource.filter((item) => recentSet.has(item.id)),
-          recentOnly
-        ),
-      ];
-    } else {
-      items = [
-        ...buildDiverseFeed(unseenFresh, true),
-        ...unseenPrevTop,
-        ...seenItems,
-      ];
-    }
 
+      if (incomingTitleKeys.length > 0) {
+        const incomingTitleSet = new Set(incomingTitleKeys);
+        const nextTitles = [
+          ...Array.from(incomingTitleSet),
+          ...seenTitleKeysRef.current.filter((k) => !incomingTitleSet.has(k)),
+        ].slice(0, MAX_SEEN_TITLES);
+        seenTitleKeysRef.current = nextTitles;
+        seenTitleKeysSetRef.current = new Set(nextTitles);
+        try {
+          localStorage.setItem(SEEN_TITLES_STORAGE_KEY, JSON.stringify(nextTitles));
+        } catch {
+          // Ignore storage quota errors
+        }
+      }
+    },
+    []
+  );
+
+  const markShortSeen = useCallback(
+    (shortId: string | undefined, shortTitle?: string) => {
+      if (!shortId) return;
+      markShortsSeenBatch([{ id: shortId, title: shortTitle }]);
+    },
+    [markShortsSeenBatch]
+  );
+
+  const reshuffleUnseenFeed = useCallback((targetCat: ShortCategory) => {
+    const currentList = allShortsRef.current;
+    if (currentList.length === 0 || targetCat === 'salvos') return;
+
+    const nextItems = prioritizeAndShuffleFeed(
+      currentList,
+      seenIdsRef.current,
+      lastSessionTopRef.current,
+      seenTitleKeysRef.current
+    );
+
+    allShortsRef.current = nextItems;
+    setAllShorts(nextItems);
+    writeCachedFeedSnapshot(
+      nextItems,
+      seenIdsSetRef.current,
+      new Set(lastSessionTopRef.current),
+      seenTitleKeysSetRef.current
+    );
+  }, []);
+
+  const orderResponseItems = useCallback((orderedSource: ChristianShort[]) => {
+    const unseenFresh = filterFreshUnseenItems(
+      orderedSource,
+      seenIdsRef.current,
+      lastSessionTopRef.current,
+      seenTitleKeysRef.current
+    );
+    const items = buildDiverseFeed(unseenFresh, true);
     const nextSessionTop = extractSessionTopIds(items);
     return { items, nextSessionTop };
   }, []);
@@ -492,7 +540,7 @@ export function App() {
       preserveActivePlayback: boolean
     ) => {
       const { items: orderedItems, nextSessionTop } = orderResponseItems(data.items);
-      recordSurfacedTopIds(nextSessionTop);
+      persistNextSessionTopIds(nextSessionTop, false);
 
       let items = orderedItems;
       if (!forceRefresh) {
@@ -518,12 +566,6 @@ export function App() {
         }
       }
 
-      writeCachedFeedSnapshot(
-        items,
-        seenIdsSetRef.current,
-        new Set(lastSessionTopRef.current)
-      );
-
       if (preserveActivePlayback && !forceRefresh && allShortsRef.current.length > 0) {
         const currentVisible = visibleShortsRef.current;
         const currentIdx = activeIndexRef.current;
@@ -537,11 +579,27 @@ export function App() {
             ? allShortsRef.current.slice(0, anchorIdxInAll + 1)
             : allShortsRef.current.slice(0, 1);
         const prefixIds = new Set(prefix.map((item) => item.id));
+        const seenTitleSet = seenTitleKeysSetRef.current;
+        const prefixTitleSet = new Set(
+          prefix.flatMap((item) => getItemTitleKeys(item.title))
+        );
         const merged = [
           ...prefix,
-          ...items.filter((item) => !prefixIds.has(item.id)),
+          ...items.filter(
+            (item) =>
+              !prefixIds.has(item.id) &&
+              !getItemTitleKeys(item.title).some(
+                (k) => prefixTitleSet.has(k) || seenTitleSet.has(k)
+              )
+          ),
         ];
 
+        writeCachedFeedSnapshot(
+          merged,
+          seenIdsSetRef.current,
+          new Set(lastSessionTopRef.current),
+          seenTitleKeysSetRef.current
+        );
         allShortsRef.current = merged;
         setAllShorts(merged);
         setSourceMode(data.sourceMode);
@@ -558,6 +616,12 @@ export function App() {
         return;
       }
 
+      writeCachedFeedSnapshot(
+        items,
+        seenIdsSetRef.current,
+        new Set(lastSessionTopRef.current),
+        seenTitleKeysSetRef.current
+      );
       allShortsRef.current = items;
       setAllShorts(items);
       setSourceMode(data.sourceMode);
@@ -580,7 +644,7 @@ export function App() {
         feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
       }
     },
-    [orderResponseItems, recordSurfacedTopIds]
+    [orderResponseItems, persistNextSessionTopIds]
   );
 
   const loadShorts = useCallback(
@@ -601,11 +665,11 @@ export function App() {
 
         const excludeIds = Array.from(
           new Set([
-            ...seenIdsRef.current.slice(0, 2200),
-            ...lastSessionTopRef.current.slice(0, 1400),
-            ...(forceRefresh ? allShortsRef.current.slice(0, 45).map((i) => i.id) : []),
+            ...seenIdsRef.current.slice(0, 5000),
+            ...lastSessionTopRef.current.slice(0, 2900),
+            ...(forceRefresh ? allShortsRef.current.slice(0, 100).map((i) => i.id) : []),
           ])
-        ).slice(0, 3600);
+        ).slice(0, 8000);
 
         if (!nativeApp || API_BASE_URL.length > 0) {
           try {
@@ -669,13 +733,17 @@ export function App() {
   useEffect(() => {
     // Rotate out any cached opening videos immediately on mount so rapid reopen stays fresh
     if (allShortsRef.current.length > 0) {
+      const opening = allShortsRef.current[0];
+      if (opening) {
+        markShortSeen(opening.id, opening.title);
+      }
       const openingIds = allShortsRef.current.slice(0, 8).map((item) => item.id);
-      recordSurfacedTopIds(openingIds);
+      persistNextSessionTopIds(openingIds, false);
     }
     // Pre-warm YouTube IFrame Player API immediately on mount for faster first playback
     loadYouTubeIframeApi().catch(() => {});
     loadShorts(false);
-  }, [loadShorts, recordSurfacedTopIds]);
+  }, [loadShorts, markShortSeen, persistNextSessionTopIds]);
 
   // Unlock Web autoplay audio seamlessly on the very first user gesture anywhere
   useEffect(() => {
@@ -790,6 +858,64 @@ export function App() {
     }
   }, [savedIds]);
 
+  // Keep saved video metadata available even after watched items are purged from feed
+  useEffect(() => {
+    if (savedIds.length === 0) return;
+    const candidatesById = new Map<string, ChristianShort>();
+    for (const item of allShorts) candidatesById.set(item.id, item);
+    if (remoteSearchShorts) {
+      for (const item of remoteSearchShorts) candidatesById.set(item.id, item);
+    }
+    const additions: Record<string, ChristianShort> = {};
+    let changed = false;
+    for (const id of savedIds) {
+      if (!savedShortsByIdRef.current[id]) {
+        const found = candidatesById.get(id);
+        if (found) {
+          additions[id] = found;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      setSavedShortsById((prev) => {
+        const next = { ...prev, ...additions };
+        writeSavedShortsSnapshot(next, savedIds);
+        return next;
+      });
+    }
+  }, [savedIds, allShorts, remoteSearchShorts]);
+
+  useEffect(() => {
+    const missingIds = savedIds.filter(
+      (id) => !savedShortsByIdRef.current[id] && /^[a-zA-Z0-9_-]{11}$/.test(id)
+    );
+    if (missingIds.length === 0 || (isNativeCapacitorApp() && API_BASE_URL.length === 0)) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const resolved: Record<string, ChristianShort> = {};
+      await Promise.allSettled(
+        missingIds.slice(0, 12).map(async (id) => {
+          const res = await fetch(`${API_BASE_URL}/api/shorts/video/${id}`);
+          if (!res.ok) return;
+          const item = (await res.json()) as ChristianShort;
+          if (item?.id) resolved[item.id] = item;
+        })
+      );
+      if (cancelled || Object.keys(resolved).length === 0) return;
+      setSavedShortsById((prev) => {
+        const next = { ...prev, ...resolved };
+        writeSavedShortsSnapshot(next, savedIds);
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [savedIds]);
+
   const savedSet = useMemo(() => new Set(savedIds), [savedIds]);
 
   const trimmedSubmittedSearch = useMemo(
@@ -855,17 +981,31 @@ export function App() {
       feliz7play: [],
     };
     const todosItems: ChristianShort[] = [];
-    const savedItems: ChristianShort[] = [];
+    const lookupById = new Map<string, ChristianShort>();
 
     for (const item of queryFiltered) {
+      lookupById.set(item.id, item);
       counts[item.category] += 1;
       byCategory[item.category].push(item);
       if (allowFelizInSearch || item.category !== 'feliz7play') {
         todosItems.push(item);
       }
-      if (savedSet.has(item.id)) {
-        savedItems.push(item);
+    }
+
+    const savedItems: ChristianShort[] = [];
+    const savedSearchTokens = foldSearchText(trimmedSubmittedSearch)
+      .split(/\s+/)
+      .filter(Boolean);
+    for (const id of savedIds) {
+      const item = savedShortsById[id] ?? lookupById.get(id);
+      if (!item) continue;
+      if (savedSearchTokens.length > 0) {
+        const haystack = foldSearchText(
+          `${item.title} ${item.channelTitle} ${item.description} ${item.categoryLabel}`
+        );
+        if (!savedSearchTokens.every((tok) => haystack.includes(tok))) continue;
       }
+      savedItems.push(item);
     }
 
     return {
@@ -875,7 +1015,7 @@ export function App() {
       todosFeedCount: allowFelizInSearch ? queryFiltered.length : todosItems.length,
       savedItems,
     };
-  }, [queryFiltered, allowFelizInSearch, savedSet]);
+  }, [queryFiltered, allowFelizInSearch, savedIds, savedShortsById, trimmedSubmittedSearch]);
 
   const categoryCounts = filteredCatalog.counts;
   const todosFeedCount = filteredCatalog.todosFeedCount;
@@ -920,12 +1060,12 @@ export function App() {
 
       const combinedExclude = Array.from(
         new Set([
-          ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 1800)),
-          ...(isLiveSearch ? [] : lastSessionTopRef.current.slice(0, 1100)),
-          ...allShorts.slice(0, 350).map((i) => i.id),
-          ...allShorts.slice(-350).map((i) => i.id),
+          ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 4800)),
+          ...(isLiveSearch ? [] : lastSessionTopRef.current.slice(0, 2200)),
+          ...allShorts.slice(0, 500).map((i) => i.id),
+          ...allShorts.slice(-500).map((i) => i.id),
         ])
-      ).slice(0, 3600);
+      ).slice(0, 8000);
 
       if (!nativeApp || API_BASE_URL.length > 0) {
         const cursorToUse = isLiveSearch ? searchCursor : categoryCursor;
@@ -975,42 +1115,53 @@ export function App() {
           emptyRetryCountRef.current = 0;
         }
       } else {
+        const seenSet = seenIdsSetRef.current;
+        const surfacedSet = new Set(lastSessionTopRef.current);
+        const seenTitleSet = seenTitleKeysSetRef.current;
         const existingAll = new Set(allShorts.map((i) => i.id));
-        const freshCount = data.items.filter((i) => !existingAll.has(i.id)).length;
+        const freshCount = data.items.filter(
+          (i) =>
+            !existingAll.has(i.id) &&
+            !isItemRetired(i, seenSet, surfacedSet, seenTitleSet)
+        ).length;
         const currentVisible = visibleShortsRef.current;
         const currentIdx = activeIndexRef.current;
-        const anchorId =
-          currentVisible[
-            Math.min(currentIdx + 1, Math.max(0, currentVisible.length - 1))
-          ]?.id;
+        const activeId = currentVisible[currentIdx]?.id;
         setAllShorts((prev) => {
           const existing = new Set(prev.map((i) => i.id));
-          const seenSet = seenIdsSetRef.current;
-          const surfacedSet = new Set(lastSessionTopRef.current);
-          const fresh = data!.items.filter((i) => !existing.has(i.id));
-          if (fresh.length === 0) return prev;
-
-          const anchorIdx = anchorId ? prev.findIndex((i) => i.id === anchorId) : -1;
+          const anchorIdx = activeId ? prev.findIndex((i) => i.id === activeId) : -1;
           const head = anchorIdx >= 0 ? prev.slice(0, anchorIdx + 1) : [];
           const tail = anchorIdx >= 0 ? prev.slice(anchorIdx + 1) : prev;
 
-          const unseenNew = fresh.filter((i) => !seenSet.has(i.id) && !surfacedSet.has(i.id));
-          const unseenTailFresh = tail.filter((i) => !seenSet.has(i.id) && !surfacedSet.has(i.id));
-          const unseenSurfaced = [...tail, ...fresh].filter(
-            (i) => !seenSet.has(i.id) && surfacedSet.has(i.id)
-          );
-          const seenAll = [...tail, ...fresh].filter((i) => seenSet.has(i.id));
+          const headIds = new Set(head.map((i) => i.id));
+          const headTitles = new Set(head.flatMap((i) => getItemTitleKeys(i.title)));
 
-          const nextAll = [
-            ...head,
-            ...buildDiverseFeed([...unseenNew, ...unseenTailFresh], true),
-            ...orderByOldestHistoryFirst(unseenSurfaced, lastSessionTopRef.current),
-            ...orderByOldestHistoryFirst(seenAll, seenIdsRef.current),
-          ];
+          const filteredIncoming = data!.items.filter(
+            (i) =>
+              !existing.has(i.id) &&
+              !headIds.has(i.id) &&
+              !isItemRetired(i, seenSet, surfacedSet, seenTitleSet) &&
+              !getItemTitleKeys(i.title).some((k) => headTitles.has(k))
+          );
+          const filteredTail = tail.filter(
+            (i) =>
+              !headIds.has(i.id) &&
+              !isItemRetired(i, seenSet, surfacedSet, seenTitleSet) &&
+              !getItemTitleKeys(i.title).some((k) => headTitles.has(k))
+          );
+
+          const tailUnseenCombined = filterFreshUnseenItems(
+            [...filteredIncoming, ...filteredTail],
+            seenIdsRef.current,
+            lastSessionTopRef.current,
+            seenTitleKeysRef.current
+          );
+          const nextAll = [...head, ...buildDiverseFeed(tailUnseenCombined, true)];
           writeCachedFeedSnapshot(
             nextAll,
             seenIdsSetRef.current,
-            surfacedSet
+            surfacedSet,
+            seenTitleKeysSetRef.current
           );
           return nextAll;
         });
@@ -1020,7 +1171,7 @@ export function App() {
           ...prev,
           [activeCategory]: nextHasMore,
         }));
-        if (freshCount === 0 && nextHasMore && emptyRetryCountRef.current < 3) {
+        if (freshCount === 0 && nextHasMore && emptyRetryCountRef.current < 4) {
           emptyRetryCountRef.current += 1;
           setPaginationRetryTick((t) => t + 1);
         } else {
@@ -1120,9 +1271,10 @@ export function App() {
 
   const handleSelectCategory = useCallback(
     (cat: ShortCategory) => {
-      const currentId = visibleShortsRef.current[activeIndexRef.current]?.id;
-      if (currentId) {
-        markShortSeen(currentId);
+      const currentIdx = activeIndexRef.current;
+      const displayedSoFar = visibleShortsRef.current.slice(0, currentIdx + 1);
+      if (displayedSoFar.length > 0 && activeCategory !== 'salvos') {
+        markShortsSeenBatch(displayedSoFar);
       }
       if (!trimmedSubmittedSearch && cat !== 'salvos') {
         reshuffleUnseenFeed(cat);
@@ -1135,7 +1287,7 @@ export function App() {
         feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
       }
     },
-    [trimmedSubmittedSearch, markShortSeen, reshuffleUnseenFeed]
+    [activeCategory, trimmedSubmittedSearch, markShortsSeenBatch, reshuffleUnseenFeed]
   );
 
   // Automatically re-prioritize and shuffle unseen videos when returning via browser history (pageshow)
@@ -1217,63 +1369,87 @@ export function App() {
   }, [scrollToIndex, shareTarget]);
 
   const handleToggleSave = useCallback((shortId: string) => {
-    setSavedIds((prev) =>
-      prev.includes(shortId) ? prev.filter((id) => id !== shortId) : [shortId, ...prev]
-    );
+    setSavedIds((prev) => {
+      const exists = prev.includes(shortId);
+      const nextIds = exists ? prev.filter((id) => id !== shortId) : [shortId, ...prev];
+      if (!exists) {
+        const found =
+          visibleShortsRef.current.find((i) => i.id === shortId) ??
+          allShortsRef.current.find((i) => i.id === shortId);
+        if (found) {
+          setSavedShortsById((prevMap) => {
+            const nextMap = { ...prevMap, [shortId]: found };
+            writeSavedShortsSnapshot(nextMap, nextIds);
+            return nextMap;
+          });
+        }
+      } else {
+        setSavedShortsById((prevMap) => {
+          const nextMap = { ...prevMap };
+          delete nextMap[shortId];
+          writeSavedShortsSnapshot(nextMap, nextIds);
+          return nextMap;
+        });
+      }
+      return nextIds;
+    });
   }, []);
 
   const handleUnlockAudio = useCallback(() => {
     setAudioUnlocked(true);
   }, []);
 
-  // Track watched Shorts immediately on swipe/navigation, after 150ms dwell, and when closing/backgrounding
+  // Track every displayed video IMMEDIATELY when activeIndex lands on it (never wait 150ms)
+  // while leaving playback undisturbed until refresh, category switch, or reload.
   useEffect(() => {
-    const activeId = visibleShorts[activeIndex]?.id;
-    const previousId = prevActiveIdRef.current;
-    if (previousId && previousId !== activeId) {
-      markShortSeen(previousId);
+    const activeShort = visibleShorts[activeIndex];
+    const previousShort = prevActiveShortRef.current;
+    if (previousShort && previousShort.id !== activeShort?.id) {
+      markShortSeen(previousShort.id, previousShort.title);
     }
-    prevActiveIdRef.current = activeId;
-    if (!activeId) return;
+    prevActiveShortRef.current = activeShort;
+    if (!activeShort) return;
 
-    const timer = window.setTimeout(() => {
-      markShortSeen(activeId);
-    }, 150);
-    const handleVisibilityOrHide = () => {
-      if (document.visibilityState === 'hidden') {
-        markShortSeen(activeId);
+    markShortSeen(activeShort.id, activeShort.title);
+
+    const flushVisible = () => {
+      const idx = activeIndexRef.current;
+      const shown = visibleShortsRef.current.slice(0, idx + 1);
+      if (shown.length > 0) {
+        markShortsSeenBatch(shown);
       }
     };
-    const handleBeforeUnload = () => {
-      markShortSeen(activeId);
+    const handleVisibilityOrHide = () => {
+      if (document.visibilityState === 'hidden') {
+        flushVisible();
+      }
     };
-    window.addEventListener('pagehide', handleVisibilityOrHide);
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', flushVisible);
+    window.addEventListener('beforeunload', flushVisible);
     document.addEventListener('visibilitychange', handleVisibilityOrHide);
     return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener('pagehide', handleVisibilityOrHide);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', flushVisible);
+      window.removeEventListener('beforeunload', flushVisible);
       document.removeEventListener('visibilitychange', handleVisibilityOrHide);
     };
-  }, [activeIndex, visibleShorts, markShortSeen]);
+  }, [activeIndex, visibleShorts, markShortSeen, markShortsSeenBatch]);
 
   const handleRefreshFeed = useCallback(() => {
     const currentIdx = activeIndexRef.current;
     const currentVisible = visibleShortsRef.current;
-    const currentId = currentVisible[currentIdx]?.id;
-    if (currentId) {
-      markShortSeen(currentId);
+    const displayedSoFar = currentVisible.slice(0, currentIdx + 1);
+    if (displayedSoFar.length > 0) {
+      markShortsSeenBatch(displayedSoFar);
     }
     const surfacedInView = [
-      ...currentVisible.slice(0, Math.max(currentIdx + 8, 16)).map((i) => i.id),
-      ...allShortsRef.current.slice(0, 16).map((i) => i.id),
+      ...currentVisible.slice(0, Math.max(currentIdx + 8, 24)).map((i) => i.id),
+      ...allShortsRef.current.slice(0, 24).map((i) => i.id),
     ];
     if (surfacedInView.length > 0) {
-      recordSurfacedTopIds(surfacedInView);
+      persistNextSessionTopIds(surfacedInView, true);
     }
     loadShorts(true);
-  }, [markShortSeen, recordSurfacedTopIds, loadShorts]);
+  }, [markShortsSeenBatch, persistNextSessionTopIds, loadShorts]);
 
   // Prefetch next 2 thumbnails so swiping feels instantaneous without keeping extra video iframes open
   useEffect(() => {

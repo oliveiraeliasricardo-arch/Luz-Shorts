@@ -25,12 +25,12 @@ function parseExcludeIds(raw: unknown): string[] {
   return list
     .map((s) => s.trim())
     .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
-    .slice(0, 4000);
+    .slice(0, 8000);
 }
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '256kb' }));
+  app.use(express.json({ limit: '512kb' }));
 
   const extraAllowedOrigins = new Set(
     (process.env.ALLOWED_ORIGINS || '')

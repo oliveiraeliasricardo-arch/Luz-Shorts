@@ -43,8 +43,7 @@ export async function fetchFastNativeSeed(
     nativeFetchXml(url, 2800)
   );
   const unseen = rawItems.filter((item) => !excludeSet.has(item.id));
-  const pool = unseen.length >= 12 ? unseen : rawItems;
-  const diverseItems = buildDiverseFeed(pool, true);
+  const diverseItems = buildDiverseFeed(unseen, true);
   return formatFilteredResponse(
     diverseItems,
     'curated_rss',
@@ -98,11 +97,7 @@ export async function fetchShortsOnNativeDevice(
 
   const allItems = [...merged.values()];
   const unseenItems = allItems.filter((item) => !excludeSet.has(item.id));
-  const targetPool =
-    unseenItems.length >= 24
-      ? unseenItems
-      : [...unseenItems, ...allItems.filter((item) => excludeSet.has(item.id)).slice(0, 30)];
-  const diverseItems = buildDiverseFeed(targetPool, true || forceRefresh);
+  const diverseItems = buildDiverseFeed(unseenItems, true || forceRefresh);
   const hasMore = pageIndex < 2;
   return formatFilteredResponse(
     diverseItems,
