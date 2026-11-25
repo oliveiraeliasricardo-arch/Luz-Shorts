@@ -36,14 +36,15 @@ async function nativeFetchXml(url: string, timeoutMs = 4200): Promise<string | n
 }
 
 export async function fetchFastNativeSeed(
-  excludeIds: string[] = []
+  excludeIds: string[] = [],
+  seed?: number
 ): Promise<ShortsApiResponse> {
   const excludeSet = new Set(excludeIds);
   const rawItems = await fetchFastBootstrapRssWithAdapter((url) =>
     nativeFetchXml(url, 2800)
   );
   const unseen = rawItems.filter((item) => !excludeSet.has(item.id));
-  const diverseItems = buildDiverseFeed(unseen, true);
+  const diverseItems = buildDiverseFeed(unseen, true, seed);
   return formatFilteredResponse(
     diverseItems,
     'curated_rss',
@@ -58,10 +59,11 @@ export async function fetchFastNativeSeed(
 
 const NATIVE_ROTATION_KEY = 'gracaplay_native_rss_rot_v1';
 
-function nextNativeArchivePage(): number {
+function nextNativeArchivePage(randomOffset?: number): number {
   try {
     const prev = Number(localStorage.getItem(NATIVE_ROTATION_KEY) || '0');
-    const next = (Number.isFinite(prev) ? prev + 1 : 1) % 3;
+    const step = randomOffset !== undefined ? 1 + (Math.abs(randomOffset) % 2) : 1;
+    const next = (Number.isFinite(prev) ? prev + step : 1) % 3;
     localStorage.setItem(NATIVE_ROTATION_KEY, String(next));
     return next;
   } catch {
@@ -72,10 +74,12 @@ function nextNativeArchivePage(): number {
 export async function fetchShortsOnNativeDevice(
   forceRefresh = false,
   pageIndex = 0,
-  excludeIds: string[] = []
+  excludeIds: string[] = [],
+  seed?: number,
+  randomOffset?: number
 ): Promise<ShortsApiResponse> {
   const excludeSet = new Set(excludeIds);
-  const archivePage = pageIndex === 0 ? nextNativeArchivePage() : pageIndex;
+  const archivePage = pageIndex === 0 ? nextNativeArchivePage(randomOffset) : pageIndex;
   const requests =
     archivePage > 0 && pageIndex === 0
       ? [
@@ -97,7 +101,7 @@ export async function fetchShortsOnNativeDevice(
 
   const allItems = [...merged.values()];
   const unseenItems = allItems.filter((item) => !excludeSet.has(item.id));
-  const diverseItems = buildDiverseFeed(unseenItems, true || forceRefresh);
+  const diverseItems = buildDiverseFeed(unseenItems, true || forceRefresh, seed);
   const hasMore = pageIndex < 2;
   return formatFilteredResponse(
     diverseItems,

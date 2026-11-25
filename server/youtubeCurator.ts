@@ -10,6 +10,7 @@ import {
   buildTieredDiverseFeed,
   buildShortRecord,
   classifyShort,
+  createSeededRng,
   decodeXmlEntities,
   deduplicateShorts,
   fetchCuratedRssWithAdapter,
@@ -331,23 +332,79 @@ function mergeIntoCatalogPool(
 function selectBalancedFeedSlice(
   orderedItems: ChristianShort[],
   excludeSet: Set<string>,
-  perCategoryLimit = 45
+  perCategoryLimit = 45,
+  randomOffset = 0,
+  seed?: number
 ): ChristianShort[] {
-  const counts: Record<ContentCategory, number> = {
+  const categories: ContentCategory[] = [
+    'pregacoes',
+    'biblia',
+    'louvores',
+    'testemunhos',
+    'feliz7play',
+  ];
+  const byCategory: Record<ContentCategory, ChristianShort[]> = {
+    pregacoes: [],
+    biblia: [],
+    louvores: [],
+    testemunhos: [],
+    feliz7play: [],
+  };
+
+  for (const item of orderedItems) {
+    if (excludeSet.has(item.id)) continue;
+    byCategory[item.category].push(item);
+  }
+
+  const entropy = Math.abs((randomOffset || 0) + (seed ?? 0));
+  const rotatedByCat: Record<ContentCategory, ChristianShort[]> = {
+    pregacoes: [],
+    biblia: [],
+    louvores: [],
+    testemunhos: [],
+    feliz7play: [],
+  };
+
+  categories.forEach((cat, catIdx) => {
+    const list = byCategory[cat];
+    if (list.length <= perCategoryLimit || entropy === 0) {
+      rotatedByCat[cat] = list.slice(0, perCategoryLimit);
+      return;
+    }
+    const startIdx = (entropy + catIdx * 17) % list.length;
+    const picked: ChristianShort[] = [];
+    for (let i = 0; i < perCategoryLimit; i++) {
+      picked.push(list[(startIdx + i) % list.length]);
+    }
+    rotatedByCat[cat] = picked;
+  });
+
+  // Preserve the interleaved flow of categories with rotated/seeded subsets
+  const selected: ChristianShort[] = [];
+  const cursors: Record<ContentCategory, number> = {
     pregacoes: 0,
     biblia: 0,
     louvores: 0,
     testemunhos: 0,
     feliz7play: 0,
   };
+  const catOrder = [...categories];
+  if (entropy > 0) {
+    const shift = entropy % catOrder.length;
+    catOrder.push(...catOrder.splice(0, shift));
+  }
 
-  const selected: ChristianShort[] = [];
-  for (const item of orderedItems) {
-    if (excludeSet.has(item.id)) continue;
-    const cat = item.category;
-    if (counts[cat] >= perCategoryLimit) continue;
-    counts[cat] += 1;
-    selected.push(item);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const cat of catOrder) {
+      const idx = cursors[cat];
+      if (idx < rotatedByCat[cat].length) {
+        selected.push(rotatedByCat[cat][idx]);
+        cursors[cat] = idx + 1;
+        added = true;
+      }
+    }
   }
   return selected;
 }
@@ -371,7 +428,8 @@ function prunePaginationSessions(): void {
 function createPaginationCursor(
   initialIds: string[],
   searchToken: string | null = null,
-  seedPlaylistTokens: Record<string, string | null> = {}
+  seedPlaylistTokens: Record<string, string | null> = {},
+  seedOffset = 0
 ): string {
   prunePaginationSessions();
   const cursor = crypto.randomUUID();
@@ -391,9 +449,10 @@ function createPaginationCursor(
     'testemunhos',
     'feliz7play',
   ];
+  const normalizedOffset = Math.abs(Math.trunc(seedOffset || 0));
   for (const cat of cats) {
     const qLen = DISCOVERY_QUERIES_BY_CATEGORY[cat].length;
-    const offset = globalDiscoveryOffsets[cat] % qLen;
+    const offset = (globalDiscoveryOffsets[cat] + normalizedOffset) % qLen;
     globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % qLen;
     discoveryByCategory[cat] = { queryIdx: offset, pageToken: null };
   }
@@ -401,12 +460,12 @@ function createPaginationCursor(
   paginationSessions.set(cursor, {
     createdAtMs: Date.now(),
     playlistStates: seededPlaylists,
-    round: 0,
+    round: normalizedOffset % 7,
     seenIds: new Set(initialIds),
     searchToken,
     rssPage: 1,
     discoveryByCategory,
-    allCycleIdx: Math.floor(Math.random() * 5),
+    allCycleIdx: (Math.floor(Math.random() * 5) + normalizedOffset) % 4,
   });
   return cursor;
 }
@@ -658,10 +717,14 @@ function isWithinCategoryDuration(
   return true;
 }
 
-function pickRotatedPlaylists(list: string[], count: number): string[] {
+function pickRotatedPlaylists(
+  list: string[],
+  count: number,
+  rng: () => number = Math.random
+): string[] {
   const copy = [...list];
   for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy.slice(0, count);
@@ -2152,12 +2215,22 @@ export async function getCuratedChristianShorts(options: {
   q?: string;
   forceRefresh?: boolean;
   excludeIds?: string[];
+  seed?: number;
+  randomOffset?: number;
 }): Promise<ShortsApiResponse> {
   const apiKey = process.env.YOUTUBE_API_KEY?.trim() || '';
   const apiKeyConfigured = apiKey.length > 0;
   const nowMs = Date.now();
   const trimmedQuery = (options.q || '').trim();
   const clientExcludeSet = new Set(options.excludeIds ?? []);
+  const seedParam = options.seed;
+  const randomOffsetParam = options.randomOffset ?? 0;
+  const requestEntropy = Math.abs((seedParam ?? 0) + randomOffsetParam);
+  const effectiveSeed =
+    seedParam !== undefined || randomOffsetParam !== 0
+      ? (seedParam ?? 0) ^ (randomOffsetParam * 2654435761)
+      : undefined;
+  const requestRng = effectiveSeed !== undefined ? createSeededRng(effectiveSeed) : Math.random;
 
   if (trimmedQuery.length >= 2 && !options.forceRefresh) {
     const searchCacheKey = `${options.category || 'all'}::${foldSearchText(trimmedQuery)}`;
@@ -2226,7 +2299,7 @@ export async function getCuratedChristianShorts(options: {
     const reopenDiscoveryCats = new Set<ContentCategory>(
       options.forceRefresh ? cats : lowUnseenCats
     );
-    const startRotate = Math.floor(Math.random() * cats.length);
+    const startRotate = (Math.floor(requestRng() * cats.length) + requestEntropy) % cats.length;
     for (let k = 0; k < cats.length && reopenDiscoveryCats.size < 3; k++) {
       reopenDiscoveryCats.add(cats[(startRotate + k) % cats.length]);
     }
@@ -2241,15 +2314,18 @@ export async function getCuratedChristianShorts(options: {
         const rotateSpecial = [
           ...pickRotatedPlaylists(
             NOVO_HINARIO_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
-            1
+            1,
+            requestRng
           ),
           ...pickRotatedPlaylists(
             CD_JOVEM_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
-            2
+            2,
+            requestRng
           ),
           ...pickRotatedPlaylists(
             ADORADORES_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
-            2
+            2,
+            requestRng
           ),
         ];
         for (const pid of rotateSpecial) {
@@ -2263,7 +2339,8 @@ export async function getCuratedChristianShorts(options: {
           const targetForCat = options.forceRefresh ? 2 : cat === 'feliz7play' ? 2 : 3;
           const shuffledCh = pickRotatedPlaylists(
             matchingChannels.map((c) => c.id),
-            targetForCat + 2
+            targetForCat + 2,
+            requestRng
           );
           let pickedForCat = 0;
           for (const chId of shuffledCh) {
@@ -2315,12 +2392,12 @@ export async function getCuratedChristianShorts(options: {
             const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
             const jobCount = unseenCountByCat[cat] < 24 ? 2 : 1;
             for (let j = 0; j < jobCount; j++) {
-              const idx = globalDiscoveryOffsets[cat] % queries.length;
+              const idx = (globalDiscoveryOffsets[cat] + requestEntropy + j) % queries.length;
               globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
               webSearchJobs.push({
                 cat,
                 query: queries[idx],
-                filter: filters[(idx + dIdx + j) % filters.length],
+                filter: filters[(idx + dIdx + j + requestEntropy) % filters.length],
               });
             }
           }
@@ -2442,7 +2519,7 @@ export async function getCuratedChristianShorts(options: {
     const olderUnseen = poolItems.filter(
       (item) => !clientExcludeSet.has(item.id) && !freshIds.has(item.id)
     );
-    poolItems = buildTieredDiverseFeed([freshUnseen, olderUnseen], true);
+    poolItems = buildTieredDiverseFeed([freshUnseen, olderUnseen], true, effectiveSeed);
   }
 
   // Always vary the opening order across categories and channels on every entry,
@@ -2454,7 +2531,8 @@ export async function getCuratedChristianShorts(options: {
           trimmedQuery.length >= 2
             ? poolItems
             : poolItems.filter((item) => !clientExcludeSet.has(item.id)),
-          true
+          true,
+          effectiveSeed
         );
 
   // If user searches with a query, query YouTube live (API search.list + multi-angle web search)
@@ -2511,7 +2589,8 @@ export async function getCuratedChristianShorts(options: {
   const cursor = createPaginationCursor(
     combinedItems.map((i) => i.id),
     searchToken,
-    seedPlaylistTokens
+    seedPlaylistTokens,
+    requestEntropy
   );
 
   // When searching live on YouTube, merge live YouTube hits + accent-folded token catalog matches,
@@ -2593,7 +2672,13 @@ export async function getCuratedChristianShorts(options: {
     return searchPayload;
   }
 
-  const leanFeedItems = selectBalancedFeedSlice(combinedItems, clientExcludeSet, 45);
+  const leanFeedItems = selectBalancedFeedSlice(
+    combinedItems,
+    clientExcludeSet,
+    45,
+    randomOffsetParam,
+    effectiveSeed
+  );
   return formatFilteredResponse(
     leanFeedItems,
     sourceMode,
@@ -2611,6 +2696,8 @@ export async function getMoreChristianShorts(options: {
   q?: string;
   cursor?: string;
   excludeIds?: string[];
+  seed?: number;
+  randomOffset?: number;
 }): Promise<ShortsApiResponse> {
   const apiKey = process.env.YOUTUBE_API_KEY?.trim() || '';
   const apiKeyConfigured = apiKey.length > 0;
@@ -2624,6 +2711,13 @@ export async function getMoreChristianShorts(options: {
       ? options.category
       : undefined;
   const trimmedQuery = (options.q || '').trim();
+  const seedParam = options.seed;
+  const randomOffsetParam = options.randomOffset ?? 0;
+  const requestEntropy = Math.abs((seedParam ?? 0) + randomOffsetParam);
+  const effectiveSeed =
+    seedParam !== undefined || randomOffsetParam !== 0
+      ? (seedParam ?? 0) ^ (randomOffsetParam * 2654435761)
+      : undefined;
 
   let cursor = options.cursor?.trim() || '';
   let state = cursor ? paginationSessions.get(cursor) : undefined;
@@ -2631,7 +2725,8 @@ export async function getMoreChristianShorts(options: {
     cursor = createPaginationCursor(
       options.excludeIds ?? [],
       null,
-      cachedCatalog?.playlistTokens ?? {}
+      cachedCatalog?.playlistTokens ?? {},
+      requestEntropy
     );
     state = paginationSessions.get(cursor)!;
   }
@@ -2834,8 +2929,9 @@ export async function getMoreChristianShorts(options: {
 
       const total = playlistPool.length;
       const batchSize = Math.min(10, total);
+      const batchOffset = (state.round * batchSize + (requestEntropy % Math.max(1, total))) % Math.max(1, total);
       for (let i = 0; i < total && batchTargets.length < batchSize; i++) {
-        const entry = playlistPool[(state.round * batchSize + i) % total];
+        const entry = playlistPool[(batchOffset + i) % total];
         const pState = state.playlistStates[entry.playlistId];
         if (pState?.done) continue;
         batchTargets.push(entry);
@@ -2918,7 +3014,7 @@ export async function getMoreChristianShorts(options: {
       }
     }
 
-    const diverse = buildDiverseFeed(collected, true);
+    const diverse = buildDiverseFeed(collected, true, effectiveSeed);
     return formatFilteredResponse(
       diverse,
       'youtube_api',
@@ -2950,7 +3046,7 @@ export async function getMoreChristianShorts(options: {
     for (let t = 0; t < tries && fresh.length < 16; t++) {
       const discoveryCat =
         validCat ??
-        ALL_DISCOVERY_ROTATION[state.allCycleIdx++ % ALL_DISCOVERY_ROTATION.length];
+        ALL_DISCOVERY_ROTATION[(state.allCycleIdx++ + requestEntropy) % ALL_DISCOVERY_ROTATION.length];
       const discovered = await fetchCategoryDiscoveryPage('', discoveryCat, state);
       for (const item of discovered) {
         if (validCat && item.category !== validCat) continue;
@@ -2961,7 +3057,7 @@ export async function getMoreChristianShorts(options: {
       }
     }
   }
-  const diverse = buildDiverseFeed(fresh, true);
+  const diverse = buildDiverseFeed(fresh, true, effectiveSeed);
 
   return formatFilteredResponse(
     diverse,

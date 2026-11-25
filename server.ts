@@ -86,8 +86,29 @@ async function startServer() {
     }
   });
 
+function parseOptionalIntParam(raw: unknown): number | undefined {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.trunc(raw);
+  }
+  if (typeof raw === 'string' && raw.trim().length > 0) {
+    const parsed = Number(raw.trim());
+    if (Number.isFinite(parsed)) {
+      return Math.trunc(parsed);
+    }
+  }
+  return undefined;
+}
+
   const handleShortsRequest = async (
-    params: { category?: unknown; q?: unknown; refresh?: unknown; exclude?: unknown },
+    params: {
+      category?: unknown;
+      q?: unknown;
+      refresh?: unknown;
+      exclude?: unknown;
+      seed?: unknown;
+      random_offset?: unknown;
+      randomOffset?: unknown;
+    },
     res: express.Response
   ) => {
     const category = typeof params.category === 'string' ? params.category : 'all';
@@ -95,6 +116,8 @@ async function startServer() {
     const forceRefresh =
       params.refresh === true || params.refresh === '1' || params.refresh === 'true';
     const excludeIds = parseExcludeIds(params.exclude);
+    const seed = parseOptionalIntParam(params.seed);
+    const randomOffset = parseOptionalIntParam(params.random_offset ?? params.randomOffset);
 
     try {
       const payload = await getCuratedChristianShorts({
@@ -102,6 +125,8 @@ async function startServer() {
         q,
         forceRefresh,
         excludeIds,
+        seed,
+        randomOffset,
       });
       res.json(payload);
     } catch (err) {
@@ -120,19 +145,35 @@ async function startServer() {
         q: req.body?.q ?? req.query.q,
         refresh: req.body?.refresh ?? req.query.refresh,
         exclude: req.body?.exclude ?? req.query.exclude,
+        seed: req.body?.seed ?? req.query.seed,
+        random_offset:
+          req.body?.random_offset ??
+          req.body?.randomOffset ??
+          req.query.random_offset ??
+          req.query.randomOffset,
       },
       res
     )
   );
 
   const handleMoreShortsRequest = async (
-    params: { category?: unknown; q?: unknown; cursor?: unknown; exclude?: unknown },
+    params: {
+      category?: unknown;
+      q?: unknown;
+      cursor?: unknown;
+      exclude?: unknown;
+      seed?: unknown;
+      random_offset?: unknown;
+      randomOffset?: unknown;
+    },
     res: express.Response
   ) => {
     const category = typeof params.category === 'string' ? params.category : 'all';
     const q = typeof params.q === 'string' ? params.q : '';
     const cursor = typeof params.cursor === 'string' ? params.cursor : undefined;
     const excludeIds = parseExcludeIds(params.exclude);
+    const seed = parseOptionalIntParam(params.seed);
+    const randomOffset = parseOptionalIntParam(params.random_offset ?? params.randomOffset);
 
     try {
       const payload = await getMoreChristianShorts({
@@ -140,6 +181,8 @@ async function startServer() {
         q,
         cursor,
         excludeIds,
+        seed,
+        randomOffset,
       });
       res.json(payload);
     } catch (err) {
@@ -158,6 +201,12 @@ async function startServer() {
         q: req.body?.q ?? req.query.q,
         cursor: req.body?.cursor ?? req.query.cursor,
         exclude: req.body?.exclude ?? req.query.exclude,
+        seed: req.body?.seed ?? req.query.seed,
+        random_offset:
+          req.body?.random_offset ??
+          req.body?.randomOffset ??
+          req.query.random_offset ??
+          req.query.randomOffset,
       },
       res
     )

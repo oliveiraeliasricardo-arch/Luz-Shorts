@@ -1703,9 +1703,19 @@ export async function fetchCuratedRssWithAdapter(
   return [...deduped.values()];
 }
 
-function shuffleInPlace<T>(arr: T[]): T[] {
+export function createSeededRng(seed: number): () => number {
+  let state = (seed >>> 0) || 1;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleInPlace<T>(arr: T[], rng: () => number = Math.random): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
@@ -1887,7 +1897,8 @@ function getFreshnessBand(publishedAt: string, nowMs: number): 0 | 1 | 2 | 3 {
 
 function roundRobinAcrossChannels(
   items: ChristianShort[],
-  randomize: boolean
+  randomize: boolean,
+  rng: () => number = Math.random
 ): ChristianShort[] {
   if (items.length === 0) return [];
   const byChannel = new Map<string, ChristianShort[]>();
@@ -1899,11 +1910,11 @@ function roundRobinAcrossChannels(
 
   const channelQueues = [...byChannel.values()].map((list) => {
     const ordered = [...list].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
-    return randomize ? shuffleInPlace(ordered) : ordered;
+    return randomize ? shuffleInPlace(ordered, rng) : ordered;
   });
 
   if (randomize) {
-    shuffleInPlace(channelQueues);
+    shuffleInPlace(channelQueues, rng);
   } else {
     channelQueues.sort((a, b) =>
       (b[0]?.publishedAt || '').localeCompare(a[0]?.publishedAt || '')
@@ -1934,7 +1945,8 @@ function roundRobinAcrossChannels(
 
 function buildRoundRobinChannelQueue(
   items: ChristianShort[],
-  randomize: boolean
+  randomize: boolean,
+  rng: () => number = Math.random
 ): ChristianShort[] {
   if (items.length === 0) return [];
   const nowMs = Date.now();
@@ -1948,21 +1960,22 @@ function buildRoundRobinChannelQueue(
     bands[getFreshnessBand(item.publishedAt, nowMs)].push(item);
   }
   return [
-    ...roundRobinAcrossChannels(bands[0], randomize),
-    ...roundRobinAcrossChannels(bands[1], randomize),
-    ...roundRobinAcrossChannels(bands[2], randomize),
-    ...roundRobinAcrossChannels(bands[3], randomize),
+    ...roundRobinAcrossChannels(bands[0], randomize, rng),
+    ...roundRobinAcrossChannels(bands[1], randomize, rng),
+    ...roundRobinAcrossChannels(bands[2], randomize, rng),
+    ...roundRobinAcrossChannels(bands[3], randomize, rng),
   ];
 }
 
 function buildCategoryStream(
   cat: ContentCategory,
   catItems: ChristianShort[],
-  randomize: boolean
+  randomize: boolean,
+  rng: () => number = Math.random
 ): ChristianShort[] {
   if (catItems.length === 0) return [];
   if (cat !== 'louvores') {
-    return buildRoundRobinChannelQueue(catItems, randomize);
+    return buildRoundRobinChannelQueue(catItems, randomize, rng);
   }
 
   // Balance Louvores across Novo Hinário, CD Jovem, Adoradores/Adventist, and Gospel Geral
@@ -1977,14 +1990,14 @@ function buildCategoryStream(
     subBuckets[classifyLouvorSubBucket(item)].push(item);
   }
   const freshSubQueues: ChristianShort[][] = [
-    buildRoundRobinChannelQueue(subBuckets.cd_jovem, randomize),
-    buildRoundRobinChannelQueue(subBuckets.adoradores_nt, randomize),
-    buildRoundRobinChannelQueue(subBuckets.gospel_geral, randomize),
+    buildRoundRobinChannelQueue(subBuckets.cd_jovem, randomize, rng),
+    buildRoundRobinChannelQueue(subBuckets.adoradores_nt, randomize, rng),
+    buildRoundRobinChannelQueue(subBuckets.gospel_geral, randomize, rng),
   ];
   if (randomize) {
-    shuffleInPlace(freshSubQueues);
+    shuffleInPlace(freshSubQueues, rng);
   }
-  const hinarioQueue = buildRoundRobinChannelQueue(subBuckets.hinario, randomize);
+  const hinarioQueue = buildRoundRobinChannelQueue(subBuckets.hinario, randomize, rng);
   const subQueues: ChristianShort[][] = [...freshSubQueues, hinarioQueue];
 
   const result: ChristianShort[] = [];
@@ -2041,8 +2054,10 @@ function interleaveCategoryStreams(
 
 export function buildTieredDiverseFeed(
   tiers: ChristianShort[][],
-  randomize: boolean
+  randomize: boolean,
+  seed?: number
 ): ChristianShort[] {
+  const rng = seed !== undefined ? createSeededRng(seed) : Math.random;
   const categories: ContentCategory[] = [
     'pregacoes',
     'biblia',
@@ -2051,7 +2066,7 @@ export function buildTieredDiverseFeed(
     'feliz7play',
   ];
   if (randomize) {
-    shuffleInPlace(categories);
+    shuffleInPlace(categories, rng);
   }
 
   const categoryStreams: Record<ContentCategory, ChristianShort[]> = {
@@ -2072,7 +2087,7 @@ export function buildTieredDiverseFeed(
     for (const cat of categories) {
       const tierCatItems = uniqueTier.filter((item) => item.category === cat);
       if (tierCatItems.length > 0) {
-        categoryStreams[cat].push(...buildCategoryStream(cat, tierCatItems, randomize));
+        categoryStreams[cat].push(...buildCategoryStream(cat, tierCatItems, randomize, rng));
       }
     }
   }
@@ -2082,9 +2097,10 @@ export function buildTieredDiverseFeed(
 
 export function buildDiverseFeed(
   items: ChristianShort[],
-  randomize: boolean
+  randomize: boolean,
+  seed?: number
 ): ChristianShort[] {
-  return buildTieredDiverseFeed([items], randomize);
+  return buildTieredDiverseFeed([items], randomize, seed);
 }
 
 function normalizeSearchFold(text: string): string {

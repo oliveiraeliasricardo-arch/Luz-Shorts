@@ -61,6 +61,21 @@ const MAIN_ALL_CATEGORIES: ContentCategory[] = [
   'testemunhos',
 ];
 
+function createFeedRequestSeed(): { seed: number; randomOffset: number } {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const buf = new Uint32Array(2);
+    crypto.getRandomValues(buf);
+    return {
+      seed: (buf[0] % 2_147_483_646) + 1,
+      randomOffset: buf[1] % 10_000,
+    };
+  }
+  return {
+    seed: Math.floor(Math.random() * 2_147_483_646) + 1,
+    randomOffset: Math.floor(Math.random() * 10_000),
+  };
+}
+
 function getItemTitleKeys(title: string): string[] {
   const keys: string[] = [];
   const exactKey = normalizeTitleKey(title);
@@ -662,6 +677,7 @@ export function App() {
       try {
         let data: ShortsApiResponse | null = null;
         const nativeApp = isNativeCapacitorApp();
+        const { seed, randomOffset } = createFeedRequestSeed();
 
         const excludeIds = Array.from(
           new Set([
@@ -682,6 +698,8 @@ export function App() {
                 category: 'all',
                 refresh: forceRefresh,
                 exclude: excludeIds,
+                seed,
+                random_offset: randomOffset,
               }),
               signal: AbortSignal.timeout(12000),
             });
@@ -699,18 +717,30 @@ export function App() {
         if (!data) {
           // Two-stage fast native bootstrap when APK starts cold without cached feed
           if (!forceRefresh && !hasInitialCache) {
-            const seedData = await fetchFastNativeSeed(excludeIds);
+            const seedData = await fetchFastNativeSeed(excludeIds, seed);
             if (seedData.items.length > 0) {
               await applyFeedPayload(seedData, false, false);
               setLoading(false);
-              const fullData = await fetchShortsOnNativeDevice(false, 0, excludeIds);
+              const fullData = await fetchShortsOnNativeDevice(
+                false,
+                0,
+                excludeIds,
+                seed,
+                randomOffset
+              );
               if (fullData.items.length > 0) {
                 await applyFeedPayload(fullData, false, true);
               }
               return;
             }
           }
-          data = await fetchShortsOnNativeDevice(forceRefresh, 0, excludeIds);
+          data = await fetchShortsOnNativeDevice(
+            forceRefresh,
+            0,
+            excludeIds,
+            seed,
+            randomOffset
+          );
         }
 
         await applyFeedPayload(data, forceRefresh, hasInitialCache);
@@ -803,9 +833,12 @@ export function App() {
 
     (async () => {
       try {
+        const { seed, randomOffset } = createFeedRequestSeed();
         const params = new URLSearchParams({
           q: trimmed,
           category: targetCategory,
+          seed: String(seed),
+          random_offset: String(randomOffset),
         });
         const res = await fetch(`${API_BASE_URL}/api/shorts?${params.toString()}`);
         if (!res.ok || cancelled) return;
@@ -1057,6 +1090,7 @@ export function App() {
       let data: ShortsApiResponse | null = null;
       const nativeApp = isNativeCapacitorApp();
       const categoryCursor = categoryCursorsRef.current[activeCategory] ?? null;
+      const { seed, randomOffset } = createFeedRequestSeed();
 
       const combinedExclude = Array.from(
         new Set([
@@ -1080,6 +1114,8 @@ export function App() {
             cursor: cursorToUse || undefined,
             q: isLiveSearch ? trimmedQuery : undefined,
             exclude: combinedExclude,
+            seed,
+            random_offset: randomOffset,
           }),
           signal: AbortSignal.timeout(12000),
         });
@@ -1090,7 +1126,13 @@ export function App() {
       } else if (!isLiveSearch) {
         const pageNum = Number(categoryCursor || '1');
         if (Number.isFinite(pageNum) && pageNum > 0) {
-          data = await fetchShortsOnNativeDevice(false, pageNum, combinedExclude);
+          data = await fetchShortsOnNativeDevice(
+            false,
+            pageNum,
+            combinedExclude,
+            seed,
+            randomOffset
+          );
         }
       }
 
