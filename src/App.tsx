@@ -39,7 +39,8 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '
 const SAVED_STORAGE_KEY = 'gracaplay_saved_ids_v1';
 const SEEN_STORAGE_KEY = 'gracaplay_seen_ids_v1';
 const LAST_SESSION_TOP_KEY = 'gracaplay_last_top_v1';
-const FEED_CACHE_STORAGE_KEY = 'gracaplay_feed_cache_v1';
+const FEED_CACHE_STORAGE_KEY = 'gracaplay_feed_cache_v2';
+const LEGACY_FEED_CACHE_STORAGE_KEY = 'gracaplay_feed_cache_v1';
 const LEGACY_SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
 const MAX_SEEN_IDS = 5000;
@@ -178,6 +179,11 @@ function getSharedVideoIdFromUrl(): string {
 
 function readCachedFeedSnapshot(): ChristianShort[] {
   try {
+    try {
+      localStorage.removeItem(LEGACY_FEED_CACHE_STORAGE_KEY);
+    } catch {
+      // Ignore cleanup errors
+    }
     const raw = localStorage.getItem(FEED_CACHE_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
@@ -449,8 +455,9 @@ export function App() {
 
     let items: ChristianShort[];
     if (unseenFresh.length === 0 && unseenPrevTop.length === 0 && seenItems.length > 0) {
-      // Keep the most recent 250 seen IDs protected so recently watched videos stay at the end
-      const recentOnly = seenIdsRef.current.slice(0, 250);
+      // Protect up to 1500 most recently watched IDs so older day-1 videos stay buried unless the catalog is tiny
+      const keepCount = Math.min(1500, Math.max(250, Math.floor(seenIdsRef.current.length * 0.7)));
+      const recentOnly = seenIdsRef.current.slice(0, keepCount);
       seenIdsRef.current = recentOnly;
       seenIdsSetRef.current = new Set(recentOnly);
       try {

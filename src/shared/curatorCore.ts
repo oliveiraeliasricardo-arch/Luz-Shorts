@@ -416,6 +416,9 @@ const BLOCKED_GENERAL_TERMS = [
   'free fire',
   'minecraft',
   'roblox',
+  'pk xd',
+  'pkxd',
+  'gameplay',
   'gta v',
   'campeonato brasileiro',
   'novela',
@@ -1840,10 +1843,21 @@ function classifyLouvorSubBucket(item: ChristianShort): LouvorSubBucket {
   return 'gospel_geral';
 }
 
-function buildRoundRobinChannelQueue(
+function getFreshnessBand(publishedAt: string, nowMs: number): 0 | 1 | 2 | 3 {
+  const pubMs = Date.parse(publishedAt);
+  if (!Number.isFinite(pubMs)) return 2;
+  const ageDays = (nowMs - pubMs) / (24 * 60 * 60 * 1000);
+  if (ageDays <= 30) return 0; // Fresh (last 30 days)
+  if (ageDays <= 180) return 1; // Current (last 6 months)
+  if (ageDays <= 540) return 2; // Recent (last ~18 months)
+  return 3; // Older archive / classics
+}
+
+function roundRobinAcrossChannels(
   items: ChristianShort[],
   randomize: boolean
 ): ChristianShort[] {
+  if (items.length === 0) return [];
   const byChannel = new Map<string, ChristianShort[]>();
   for (const item of items) {
     const list = byChannel.get(item.channelId) ?? [];
@@ -1886,6 +1900,29 @@ function buildRoundRobinChannelQueue(
   return stream;
 }
 
+function buildRoundRobinChannelQueue(
+  items: ChristianShort[],
+  randomize: boolean
+): ChristianShort[] {
+  if (items.length === 0) return [];
+  const nowMs = Date.now();
+  const bands: [ChristianShort[], ChristianShort[], ChristianShort[], ChristianShort[]] = [
+    [],
+    [],
+    [],
+    [],
+  ];
+  for (const item of items) {
+    bands[getFreshnessBand(item.publishedAt, nowMs)].push(item);
+  }
+  return [
+    ...roundRobinAcrossChannels(bands[0], randomize),
+    ...roundRobinAcrossChannels(bands[1], randomize),
+    ...roundRobinAcrossChannels(bands[2], randomize),
+    ...roundRobinAcrossChannels(bands[3], randomize),
+  ];
+}
+
 function buildCategoryStream(
   cat: ContentCategory,
   catItems: ChristianShort[],
@@ -1897,7 +1934,7 @@ function buildCategoryStream(
   }
 
   // Balance Louvores across Novo Hinário, CD Jovem, Adoradores/Adventist, and Gospel Geral
-  // so hymnals and CD Jovem appear prominently instead of being drowned 20-to-1 by gospel labels.
+  // while letting current/fresh worship buckets open ahead of older archive-only buckets.
   const subBuckets: Record<LouvorSubBucket, ChristianShort[]> = {
     hinario: [],
     cd_jovem: [],
@@ -1907,15 +1944,17 @@ function buildCategoryStream(
   for (const item of catItems) {
     subBuckets[classifyLouvorSubBucket(item)].push(item);
   }
-  const subQueues: ChristianShort[][] = [
-    buildRoundRobinChannelQueue(subBuckets.hinario, randomize),
+  const freshSubQueues: ChristianShort[][] = [
     buildRoundRobinChannelQueue(subBuckets.cd_jovem, randomize),
     buildRoundRobinChannelQueue(subBuckets.adoradores_nt, randomize),
     buildRoundRobinChannelQueue(subBuckets.gospel_geral, randomize),
   ];
   if (randomize) {
-    shuffleInPlace(subQueues);
+    shuffleInPlace(freshSubQueues);
   }
+  const hinarioQueue = buildRoundRobinChannelQueue(subBuckets.hinario, randomize);
+  const subQueues: ChristianShort[][] = [...freshSubQueues, hinarioQueue];
+
   const result: ChristianShort[] = [];
   let lastChannelId: string | null = null;
   let more = true;

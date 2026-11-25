@@ -31,6 +31,7 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'sermão adventista completo',
     'culto divino adventista pregação',
     'semana de oração adventista pregação',
+    'culto sábado adventista pregação',
     'pr alejandro bullon pregação',
     'pr arilton oliveira pregação',
     'pr ivan saraiva pregação',
@@ -49,6 +50,8 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'pr gustavo marques pregação adventista',
     'meditação pôr do sol adventista mensagem',
     'evangelismo adventista colheita pregação',
+    'igreja adventista culto jovem pregação',
+    'pastor adventista mensagem bíblica culto',
   ],
   biblia: [
     'estudo bíblico adventista',
@@ -69,33 +72,20 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'curiosidades bíblicas adventista',
     'santuário na bíblia adventista',
     'volta de jesus profecia adventista',
+    'lição escola sabatina comentário bíblico',
+    'leandro quadros resposta bíblica',
   ],
   louvores: [
     'novo hinário adventista oficial',
     'novo hinário adventista hino letra',
-    'novo hinário adventista hinos 1 a 600',
-    'hinário adventista cantado com letra',
     'coletânea adoradores novo tempo',
     'adoradores 5 gravadora novo tempo',
     'adoradores 4 gravadora novo tempo',
     'cd jovem adventista ministério jovem',
-    'cd jovem menos um adventista',
     'cd jovem 2025 venha o teu reino ministério jovem',
-    'cd jovem 2024 ministério jovem adventista',
-    'cd jovem 2022 ministério jovem adventista',
-    'cd jovem 2020 ministério jovem adventista',
-    'cd jovem 2018 ministério jovem adventista',
-    'cd jovem 2015 ministério jovem adventista',
-    'cd jovem 2012 ministério jovem adventista',
-    'cd jovem 2010 ministério jovem adventista',
-    'cd jovem 2005 ministério jovem adventista',
-    'cd jovem coletânea adventista anos 2000',
-    'adoradores 3 gravadora novo tempo',
-    'adoradores 2 gravadora novo tempo',
-    'adoradores 1 gravadora novo tempo',
-    '1 hora de adoradores novo tempo',
-    'coletânea novo hinário adventista',
-    'louvor gospel clipe oficial',
+    'cd jovem 2026 ministério jovem adventista',
+    'cd jovem menos um adventista',
+    'louvor gospel lançamento clipe oficial',
     'música gospel adoração ao vivo',
     'arautos do rei música oficial',
     'novo tom gravadora nt clipe oficial',
@@ -114,6 +104,11 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'art trio louvor adventista oficial',
     'theo rubia música gospel ao vivo',
     'sarah farias clipe oficial louvor',
+    'eli soares louvor ao vivo oficial',
+    'gabriel guedes clipe oficial louvor',
+    'julliany souza louvor ao vivo',
+    'kemuel louvor oficial',
+    'leonardo gonçalves música oficial',
   ],
   testemunhos: [
     'testemunho cristão conversão',
@@ -134,6 +129,8 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'testemunho adventista conversão',
     'deus salvou minha vida testemunho real',
     'como deus mudou minha família testemunho',
+    'testemunho novo tempo conversão',
+    'batismo testemunho de fé cristão',
   ],
   feliz7play: [
     'feliz7play série filme adventista',
@@ -148,6 +145,7 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'minha vida é uma viagem história bíblica',
     'feliz7kids desenho animado adventista',
     'desenho bíblico infantil adventista história da bíblia',
+    'feliz7play lançamento episódio novo',
   ],
 };
 
@@ -241,17 +239,18 @@ let inFlightCatalogPromise: Promise<{
   playlistTokens: Record<string, string | null>;
 }> | null = null;
 let lastReopenReplenishAtMs = 0;
+let lastApiSearchDiscoveryAtMs = 0;
 let depthEnrichmentStarted = false;
 
 // Persistent server-side rotation cursors so new sessions and refreshes dig deeper
 // into YouTube rather than returning the exact same page-1 results every time.
 const persistentPlaylistTokens: Record<string, string | null> = {};
 const globalDiscoveryOffsets: Record<ContentCategory, number> = {
-  pregacoes: 0,
-  biblia: 0,
-  louvores: 0,
-  testemunhos: 0,
-  feliz7play: 0,
+  pregacoes: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.pregacoes.length),
+  biblia: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.biblia.length),
+  louvores: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.louvores.length),
+  testemunhos: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.testemunhos.length),
+  feliz7play: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.feliz7play.length),
 };
 
 const paginationSessions = new Map<string, PaginationSessionState>();
@@ -498,7 +497,7 @@ async function hydrateAndVerifyCandidates(
         description: fullDesc,
         channelId: c.channelId,
         channelTitle: c.channelTitle,
-        publishedAt: c.publishedAt,
+        publishedAt: effectivePublishedAt,
         thumbnailUrl: c.thumbnailUrl,
         category: classified.category,
         doctrineScope: classified.doctrineScope,
@@ -603,21 +602,21 @@ async function fetchFromYoutubeApi(
         : `UU${suffix}`;
     const savedToken = persistentPlaylistTokens[playlistId] ?? null;
     const pageToken =
-      savedToken && (advancePlaylists || Math.random() < 0.78) ? savedToken : null;
+      savedToken && (advancePlaylists || Math.random() < 0.9) ? savedToken : null;
     return { hintCategory: spec.defaultCategory, playlistId, pageToken, maxResults: 25 };
   });
 
-  // Always guarantee rich representation of Novo Hinário Adventista (all 600 hymns),
-  // CD Jovem / Ministério Jovem (1996-2026), and Adoradores (1-5) on every catalog build.
+  // Rotate a light sampling of Novo Hinário, CD Jovem, and Adoradores so classics stay
+  // present without crowding out fresh weekly channel uploads and recent gospel releases.
   const specialBatch = [
-    ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, NOVO_HINARIO_PLAYLISTS.length),
-    ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 7),
-    ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 5),
+    ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
+    ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 3),
+    ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 3),
   ];
   for (const playlistId of specialBatch) {
     const savedToken = persistentPlaylistTokens[playlistId] ?? null;
-    const pageToken = savedToken && (advancePlaylists || Math.random() < 0.78) ? savedToken : null;
-    requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken, maxResults: 45 });
+    const pageToken = savedToken && (advancePlaylists || Math.random() < 0.9) ? savedToken : null;
+    requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken, maxResults: 30 });
   }
 
   const responses = await Promise.allSettled(
@@ -729,16 +728,25 @@ function parseDisplayDurationToSeconds(raw: string | undefined): number | null {
   return null;
 }
 
+type YoutubeWebDateFilter = boolean | 'week' | 'month' | 'latest' | 'relevance';
+
 async function fetchYoutubeWebSearch(
   apiKey: string,
   query: string,
   hintCategory?: ContentCategory,
-  sortByDate = false,
+  sortByDateOrFilter: YoutubeWebDateFilter = false,
   excludeIds?: Set<string>,
   searchMode = false
 ): Promise<ChristianShort[]> {
   try {
-    const spParam = sortByDate ? '&sp=CAISAhAB' : '';
+    const spParam =
+      sortByDateOrFilter === 'week'
+        ? '&sp=EgIIAw%253D%253D'
+        : sortByDateOrFilter === 'month'
+          ? '&sp=EgIIBA%253D%253D'
+          : sortByDateOrFilter === 'latest' || sortByDateOrFilter === true
+            ? '&sp=CAISAhAB'
+            : '';
     const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}${spParam}`;
     const res = await fetch(url, {
       headers: {
@@ -1353,6 +1361,85 @@ async function fetchCategoryDiscoveryPage(
   return webFound.filter((item) => item.category === targetCategory);
 }
 
+async function fetchRecentApiDiscovery(
+  apiKey: string,
+  categories: ContentCategory[],
+  excludeIds: Set<string>
+): Promise<ChristianShort[]> {
+  if (!apiKey || categories.length === 0) return [];
+  const publishedAfter = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+  const tasks = categories.map(async (cat) => {
+    const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+    const idx = globalDiscoveryOffsets[cat] % queries.length;
+    globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
+    const params = new URLSearchParams({
+      key: apiKey,
+      part: 'snippet',
+      type: 'video',
+      videoEmbeddable: 'true',
+      safeSearch: 'strict',
+      relevanceLanguage: 'pt',
+      regionCode: 'BR',
+      maxResults: '25',
+      order: 'date',
+      publishedAfter,
+      q: queries[idx],
+    });
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
+      { signal: AbortSignal.timeout(6500) }
+    );
+    if (!res.ok) return [] as ChristianShort[];
+    const data = (await res.json()) as {
+      items?: Array<{
+        id?: { videoId?: string };
+        snippet?: {
+          title?: string;
+          description?: string;
+          channelId?: string;
+          channelTitle?: string;
+          publishedAt?: string;
+          liveBroadcastContent?: string;
+          thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
+        };
+      }>;
+    };
+    const candidates = new Map<string, CandidateVideo>();
+    for (const item of data.items ?? []) {
+      const id = item.id?.videoId;
+      const s = item.snippet;
+      if (
+        !id ||
+        !s ||
+        excludeIds.has(id) ||
+        s.liveBroadcastContent === 'live' ||
+        s.liveBroadcastContent === 'upcoming'
+      ) {
+        continue;
+      }
+      candidates.set(id, {
+        id,
+        title: decodeXmlEntities(s.title || ''),
+        description: decodeXmlEntities(s.description || ''),
+        channelId: s.channelId || '',
+        channelTitle: decodeXmlEntities(s.channelTitle || ''),
+        publishedAt: s.publishedAt || new Date().toISOString(),
+        thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
+        hintCategory: cat,
+      });
+    }
+    const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
+    return verified.filter((item) => item.category === cat);
+  });
+
+  const settled = await Promise.allSettled(tasks);
+  const collected: ChristianShort[] = [];
+  for (const r of settled) {
+    if (r.status === 'fulfilled') collected.push(...r.value);
+  }
+  return collected;
+}
+
 async function fetchInitialDiscoveryExtras(
   apiKey: string,
   excludeIds: Set<string>
@@ -1374,29 +1461,29 @@ async function fetchInitialDiscoveryExtras(
     allCycleIdx: 0,
   };
 
-  const discoveryJobs: Array<{ cat: ContentCategory; query: string; sortByDate: boolean }> = [];
+  const discoveryJobs: Array<{
+    cat: ContentCategory;
+    query: string;
+    dateFilter: YoutubeWebDateFilter;
+  }> = [];
+  const recencyCycle: YoutubeWebDateFilter[] = ['week', 'month', 'latest'];
   for (const cat of categories) {
     const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-    const extraCount =
-      cat === 'testemunhos'
-        ? 4
-        : cat === 'pregacoes' || cat === 'biblia'
-          ? 2
-          : 1;
+    const extraCount = cat === 'testemunhos' ? 3 : 2;
     for (let k = 0; k < extraCount; k++) {
       const idx = globalDiscoveryOffsets[cat] % queries.length;
       globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
       discoveryJobs.push({
         cat,
         query: queries[idx],
-        sortByDate: idx % 2 === 0,
+        dateFilter: recencyCycle[(idx + k) % recencyCycle.length],
       });
     }
   }
 
   const results = await Promise.allSettled(
     discoveryJobs.map((job) =>
-      fetchYoutubeWebSearch(apiKey, job.query, job.cat, job.sortByDate, tempState.seenIds)
+      fetchYoutubeWebSearch(apiKey, job.query, job.cat, job.dateFilter, tempState.seenIds)
     )
   );
 
@@ -1561,9 +1648,9 @@ async function buildBaseCatalog(
       );
       const [{ items: apiItems, evaluatedIds, playlistTokens }, rssItems, fastDiscoveryExtras] =
         await Promise.all([
-          fetchFromYoutubeApi(apiKey, forceRefresh),
+          fetchFromYoutubeApi(apiKey, forceRefresh || cachedCatalog !== null),
           fetchFromCuratedRss(0, 4000),
-          raceWithTimeout(discoveryPromise, 2800, [] as ChristianShort[]),
+          raceWithTimeout(discoveryPromise, 3800, [] as ChristianShort[]),
         ]);
 
       // Hydrate any extra RSS-discovered IDs through videos.list so upcoming premieres,
@@ -1602,7 +1689,9 @@ async function buildBaseCatalog(
         }
       }
 
-      poolItems = [...merged.values()].slice(0, MAX_CACHED_CATALOG_ITEMS);
+      poolItems = [...merged.values()]
+        .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+        .slice(0, MAX_CACHED_CATALOG_ITEMS);
       seedPlaylistTokens = { ...seedPlaylistTokens, ...playlistTokens };
       sourceMode = 'youtube_api';
 
@@ -1613,10 +1702,9 @@ async function buildBaseCatalog(
           const existing = new Set(cachedCatalog.items.map((i) => i.id));
           const extra = allDiscovery.filter((i) => !existing.has(i.id));
           if (extra.length > 0) {
-            cachedCatalog.items = [...extra, ...cachedCatalog.items].slice(
-              0,
-              MAX_CACHED_CATALOG_ITEMS
-            );
+            cachedCatalog.items = [...extra, ...cachedCatalog.items]
+              .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+              .slice(0, MAX_CACHED_CATALOG_ITEMS);
           }
         })
         .catch(() => {});
@@ -1651,7 +1739,7 @@ async function buildBaseCatalog(
     const discoveryPromise = fetchInitialDiscoveryExtras('', new Set());
     const [rssPage0, fastDiscoveryExtras] = await Promise.all([
       rssPromise,
-      raceWithTimeout(discoveryPromise, 2600, [] as ChristianShort[]),
+      raceWithTimeout(discoveryPromise, 3600, [] as ChristianShort[]),
     ]);
 
     const merged = new Map<string, ChristianShort>();
@@ -1659,7 +1747,9 @@ async function buildBaseCatalog(
     for (const item of rssPage0) {
       if (!merged.has(item.id)) merged.set(item.id, item);
     }
-    poolItems = [...merged.values()].slice(0, MAX_CACHED_CATALOG_ITEMS);
+    poolItems = [...merged.values()]
+      .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+      .slice(0, MAX_CACHED_CATALOG_ITEMS);
     sourceMode = 'curated_rss';
 
     void discoveryPromise
@@ -1668,10 +1758,9 @@ async function buildBaseCatalog(
         const existing = new Set(cachedCatalog.items.map((i) => i.id));
         const extra = allDiscovery.filter((i) => !existing.has(i.id));
         if (extra.length > 0) {
-          cachedCatalog.items = [...extra, ...cachedCatalog.items].slice(
-            0,
-            MAX_CACHED_CATALOG_ITEMS
-          );
+          cachedCatalog.items = [...extra, ...cachedCatalog.items]
+            .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+            .slice(0, MAX_CACHED_CATALOG_ITEMS);
         }
       })
       .catch(() => {});
@@ -1714,28 +1803,56 @@ async function enrichCatalogDepth(
       'feliz7play',
       'louvores',
     ];
-    const extraQueries: Array<{ cat: ContentCategory; query: string; sortByDate: boolean }> = [];
+    const extraQueries: Array<{
+      cat: ContentCategory;
+      query: string;
+      dateFilter: YoutubeWebDateFilter;
+    }> = [];
+    const filterCycle: YoutubeWebDateFilter[] = ['week', 'month', 'latest'];
     for (const cat of extraDiscoveryCats) {
       const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
       const count = cat === 'testemunhos' || cat === 'pregacoes' ? 3 : 2;
       for (let k = 0; k < count; k++) {
         const idx = globalDiscoveryOffsets[cat] % queries.length;
         globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
-        extraQueries.push({ cat, query: queries[idx], sortByDate: idx % 2 === 1 });
+        extraQueries.push({
+          cat,
+          query: queries[idx],
+          dateFilter: filterCycle[(idx + k) % filterCycle.length],
+        });
       }
     }
 
-    const [rssArchiveResults, discoveryResults, deeperApiResult] = await Promise.all([
-      rssArchivePromise,
-      Promise.allSettled(
-        extraQueries.map((job) =>
-          fetchYoutubeWebSearch(apiKey, job.query, job.cat, job.sortByDate, existingIds)
-        )
-      ),
-      apiKeyConfigured
-        ? fetchFromYoutubeApi(apiKey, true).catch(() => null)
-        : Promise.resolve(null),
-    ]);
+    const canRunApiRecentSearch =
+      apiKeyConfigured && Date.now() - lastApiSearchDiscoveryAtMs > 30 * 60 * 1000;
+    if (canRunApiRecentSearch) {
+      lastApiSearchDiscoveryAtMs = Date.now();
+    }
+
+    const [rssArchiveResults, discoveryResults, deeperApiResult, apiRecentDiscovery] =
+      await Promise.all([
+        rssArchivePromise,
+        Promise.allSettled(
+          extraQueries.map((job) =>
+            fetchYoutubeWebSearch(apiKey, job.query, job.cat, job.dateFilter, existingIds)
+          )
+        ),
+        apiKeyConfigured
+          ? fetchFromYoutubeApi(apiKey, true).catch(() => null)
+          : Promise.resolve(null),
+        canRunApiRecentSearch
+          ? fetchRecentApiDiscovery(apiKey, ['pregacoes', 'louvores'], existingIds).catch(
+              () => [] as ChristianShort[]
+            )
+          : Promise.resolve([] as ChristianShort[]),
+      ]);
+
+    for (const item of apiRecentDiscovery) {
+      if (!existingIds.has(item.id)) {
+        existingIds.add(item.id);
+        additions.push(item);
+      }
+    }
 
     if (deeperApiResult) {
       for (const item of deeperApiResult.items) {
@@ -1798,10 +1915,9 @@ async function enrichCatalogDepth(
     }
 
     if (additions.length > 0 && cachedCatalog) {
-      cachedCatalog.items = [...cachedCatalog.items, ...additions].slice(
-        0,
-        MAX_CACHED_CATALOG_ITEMS
-      );
+      cachedCatalog.items = [...additions, ...cachedCatalog.items]
+        .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+        .slice(0, MAX_CACHED_CATALOG_ITEMS);
     }
   } catch {
     // Non-fatal background depth enrichment
@@ -1965,15 +2081,16 @@ export async function getCuratedChristianShorts(options: {
               : Promise.resolve([]),
             discoveryTargets.length > 0
               ? Promise.allSettled(
-                  discoveryTargets.map((cat) => {
+                  discoveryTargets.map((cat, dIdx) => {
                     const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
                     const idx = globalDiscoveryOffsets[cat] % queries.length;
                     globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
+                    const filters: YoutubeWebDateFilter[] = ['week', 'month', 'latest'];
                     return fetchYoutubeWebSearch(
                       apiKey,
                       queries[idx],
                       cat,
-                      idx % 2 === 0,
+                      filters[(idx + dIdx) % filters.length],
                       new Set([...clientExcludeSet, ...poolItems.map((i) => i.id)])
                     );
                   })
@@ -2018,10 +2135,9 @@ export async function getCuratedChristianShorts(options: {
             const existingCatIds = new Set(cachedCatalog.items.map((i) => i.id));
             const uniqueNew = reopenAdditions.filter((i) => !existingCatIds.has(i.id));
             if (uniqueNew.length > 0) {
-              cachedCatalog.items = [...uniqueNew, ...cachedCatalog.items].slice(
-                0,
-                MAX_CACHED_CATALOG_ITEMS
-              );
+              cachedCatalog.items = [...uniqueNew, ...cachedCatalog.items]
+                .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+                .slice(0, MAX_CACHED_CATALOG_ITEMS);
               cachedCatalog.playlistTokens = seedPlaylistTokens;
             }
           }
