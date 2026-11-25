@@ -1519,6 +1519,62 @@ const RSS_LOUVOR_PLAYLISTS: Array<{
   },
 ];
 
+export async function fetchFastBootstrapRssWithAdapter(
+  fetchXml: (url: string) => Promise<string | null>
+): Promise<ChristianShort[]> {
+  const categories: ContentCategory[] = [
+    'pregacoes',
+    'biblia',
+    'louvores',
+    'testemunhos',
+    'feliz7play',
+  ];
+  const tasks: Array<Promise<ChristianShort[]>> = [];
+
+  for (const cat of categories) {
+    const spec = ALL_CURATED_CHANNELS.find((c) => c.defaultCategory === cat);
+    if (!spec) continue;
+    const suffix = spec.id.slice(2);
+    const url =
+      cat === 'biblia'
+        ? `https://www.youtube.com/feeds/videos.xml?playlist_id=UUSH${suffix}`
+        : `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
+    const allowFull = cat === 'louvores' || cat === 'feliz7play' || cat === 'pregacoes' || cat === 'testemunhos';
+    tasks.push(
+      (async () => {
+        const xml = await fetchXml(url);
+        if (!xml || !xml.includes('<entry>')) return [];
+        return parseChannelRssXml(xml, spec, cat === 'biblia', allowFull);
+      })()
+    );
+  }
+
+  const extraPlaylist = RSS_LOUVOR_PLAYLISTS[0];
+  if (extraPlaylist) {
+    tasks.push(
+      (async () => {
+        const xml = await fetchXml(
+          `https://www.youtube.com/feeds/videos.xml?playlist_id=${extraPlaylist.playlistId}`
+        );
+        if (!xml || !xml.includes('<entry>')) return [];
+        return parseChannelRssXml(xml, extraPlaylist.spec, false, true);
+      })()
+    );
+  }
+
+  const responses = await Promise.allSettled(tasks);
+  const deduped = new Map<string, ChristianShort>();
+  for (const res of responses) {
+    if (res.status !== 'fulfilled') continue;
+    for (const item of res.value) {
+      if (!deduped.has(item.id)) {
+        deduped.set(item.id, item);
+      }
+    }
+  }
+  return [...deduped.values()];
+}
+
 export async function fetchCuratedRssWithAdapter(
   fetchXml: (url: string) => Promise<string | null>,
   pageIndex = 0

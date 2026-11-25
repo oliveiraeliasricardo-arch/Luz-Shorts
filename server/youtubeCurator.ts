@@ -234,6 +234,13 @@ let cachedCatalog: {
   fetchedAtMs: number;
   playlistTokens: Record<string, string | null>;
 } | null = null;
+let inFlightCatalogPromise: Promise<{
+  items: ChristianShort[];
+  sourceMode: 'youtube_api' | 'curated_rss';
+  fetchedAt: string;
+  playlistTokens: Record<string, string | null>;
+}> | null = null;
+let lastReopenReplenishAtMs = 0;
 
 // Persistent server-side rotation cursors so new sessions and refreshes dig deeper
 // into YouTube rather than returning the exact same page-1 results every time.
@@ -305,11 +312,11 @@ function createPaginationCursor(
   return cursor;
 }
 
-async function fetchFromCuratedRss(pageIndex = 0): Promise<ChristianShort[]> {
+async function fetchFromCuratedRss(pageIndex = 0, timeoutMs = 4200): Promise<ChristianShort[]> {
   return fetchCuratedRssWithAdapter(async (url) => {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GracaPlay/1.0)' },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return null;
     return res.text();
@@ -1503,6 +1510,200 @@ export async function getSearchSuggestions(rawQuery: string): Promise<string[]> 
   return combined;
 }
 
+function raceWithTimeout<T>(promise: Promise<T>, ms: number, fallbackValue: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(fallbackValue);
+      }
+    }, ms);
+    promise
+      .then((val) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(val);
+        }
+      })
+      .catch(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(fallbackValue);
+        }
+      });
+  });
+}
+
+async function buildBaseCatalog(
+  apiKey: string,
+  apiKeyConfigured: boolean,
+  forceRefresh: boolean
+): Promise<{
+  items: ChristianShort[];
+  sourceMode: 'youtube_api' | 'curated_rss';
+  fetchedAt: string;
+  playlistTokens: Record<string, string | null>;
+}> {
+  const nowMs = Date.now();
+  let poolItems: ChristianShort[] = [];
+  let sourceMode: 'youtube_api' | 'curated_rss' = 'curated_rss';
+  let seedPlaylistTokens: Record<string, string | null> = cachedCatalog?.playlistTokens ?? {};
+
+  if (apiKeyConfigured) {
+    try {
+      const discoveryPromise = fetchInitialDiscoveryExtras(
+        apiKey,
+        new Set((cachedCatalog?.items ?? []).map((i) => i.id))
+      );
+      const [{ items: apiItems, evaluatedIds, playlistTokens }, rssItems, fastDiscoveryExtras] =
+        await Promise.all([
+          fetchFromYoutubeApi(apiKey, forceRefresh),
+          fetchFromCuratedRss(0, 4000),
+          raceWithTimeout(discoveryPromise, 2800, [] as ChristianShort[]),
+        ]);
+
+      // Hydrate any extra RSS-discovered IDs through videos.list so upcoming premieres,
+      // live streams, or out-of-range durations can never bypass API verification.
+      const rssExtraCandidates = new Map<string, CandidateVideo>();
+      for (const item of rssItems) {
+        if (!evaluatedIds.has(item.id) && !rssExtraCandidates.has(item.id)) {
+          rssExtraCandidates.set(item.id, {
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            channelId: item.channelId,
+            channelTitle: item.channelTitle,
+            publishedAt: item.publishedAt,
+            thumbnailUrl: item.thumbnailUrl,
+            hintCategory: item.category,
+          });
+        }
+      }
+      const verifiedRssExtras =
+        rssExtraCandidates.size > 0
+          ? await hydrateAndVerifyCandidates(apiKey, rssExtraCandidates)
+          : [];
+
+      const merged = new Map<string, ChristianShort>();
+      for (const item of fastDiscoveryExtras) merged.set(item.id, item);
+      for (const item of apiItems) {
+        if (!merged.has(item.id)) merged.set(item.id, item);
+      }
+      for (const item of verifiedRssExtras) {
+        if (!merged.has(item.id)) merged.set(item.id, item);
+      }
+      if (cachedCatalog) {
+        for (const item of cachedCatalog.items) {
+          if (!merged.has(item.id)) merged.set(item.id, item);
+        }
+      }
+
+      poolItems = [...merged.values()].slice(0, MAX_CACHED_CATALOG_ITEMS);
+      seedPlaylistTokens = { ...seedPlaylistTokens, ...playlistTokens };
+      sourceMode = 'youtube_api';
+
+      // Merge any slower discovery results asynchronously once settled
+      void discoveryPromise
+        .then((allDiscovery) => {
+          if (!cachedCatalog || allDiscovery.length === 0) return;
+          const existing = new Set(cachedCatalog.items.map((i) => i.id));
+          const extra = allDiscovery.filter((i) => !existing.has(i.id));
+          if (extra.length > 0) {
+            cachedCatalog.items = [...extra, ...cachedCatalog.items].slice(
+              0,
+              MAX_CACHED_CATALOG_ITEMS
+            );
+          }
+        })
+        .catch(() => {});
+    } catch {
+      const rssFallback = await fetchFromCuratedRss(0, 4200);
+      if (rssFallback.length > 0) {
+        const rssCandidates = new Map<string, CandidateVideo>(
+          rssFallback.map((item) => [
+            item.id,
+            {
+              id: item.id,
+              title: item.title,
+              description: item.description,
+              channelId: item.channelId,
+              channelTitle: item.channelTitle,
+              publishedAt: item.publishedAt,
+              thumbnailUrl: item.thumbnailUrl,
+              hintCategory: item.category,
+            },
+          ])
+        );
+        const verifiedFallback = await hydrateAndVerifyCandidates(apiKey, rssCandidates);
+        poolItems = verifiedFallback.length > 0 ? verifiedFallback : rssFallback;
+        sourceMode = verifiedFallback.length > 0 ? 'youtube_api' : 'curated_rss';
+      } else {
+        poolItems = cachedCatalog?.items ?? [];
+        sourceMode = cachedCatalog?.sourceMode ?? 'curated_rss';
+      }
+    }
+  } else {
+    const rssPromise = fetchFromCuratedRss(0, 3800);
+    const discoveryPromise = fetchInitialDiscoveryExtras('', new Set());
+    const [rssPage0, fastDiscoveryExtras] = await Promise.all([
+      rssPromise,
+      raceWithTimeout(discoveryPromise, 2600, [] as ChristianShort[]),
+    ]);
+
+    const merged = new Map<string, ChristianShort>();
+    for (const item of fastDiscoveryExtras) merged.set(item.id, item);
+    for (const item of rssPage0) {
+      if (!merged.has(item.id)) merged.set(item.id, item);
+    }
+    poolItems = [...merged.values()].slice(0, MAX_CACHED_CATALOG_ITEMS);
+    sourceMode = 'curated_rss';
+
+    void discoveryPromise
+      .then((allDiscovery) => {
+        if (!cachedCatalog || allDiscovery.length === 0) return;
+        const existing = new Set(cachedCatalog.items.map((i) => i.id));
+        const extra = allDiscovery.filter((i) => !existing.has(i.id));
+        if (extra.length > 0) {
+          cachedCatalog.items = [...extra, ...cachedCatalog.items].slice(
+            0,
+            MAX_CACHED_CATALOG_ITEMS
+          );
+        }
+      })
+      .catch(() => {});
+  }
+
+  const fetchedAt = new Date().toISOString();
+  cachedCatalog = {
+    items: poolItems,
+    sourceMode,
+    fetchedAt,
+    fetchedAtMs: nowMs,
+    playlistTokens: seedPlaylistTokens,
+  };
+  return {
+    items: poolItems,
+    sourceMode,
+    fetchedAt,
+    playlistTokens: seedPlaylistTokens,
+  };
+}
+
+export function warmCatalogInBackground(): void {
+  if (cachedCatalog && Date.now() - cachedCatalog.fetchedAtMs < CACHE_TTL_MS) {
+    return;
+  }
+  if (inFlightCatalogPromise) return;
+  const apiKey = process.env.YOUTUBE_API_KEY?.trim() || '';
+  const apiKeyConfigured = apiKey.length > 0;
+  inFlightCatalogPromise = buildBaseCatalog(apiKey, apiKeyConfigured, false).finally(() => {
+    inFlightCatalogPromise = null;
+  });
+}
+
 export async function getCuratedChristianShorts(options: {
   category?: string;
   q?: string;
@@ -1538,115 +1739,24 @@ export async function getCuratedChristianShorts(options: {
     sourceMode = cachedCatalog.sourceMode;
     fetchedAt = cachedCatalog.fetchedAt;
   } else {
-    if (apiKeyConfigured) {
-      try {
-        const [{ items: apiItems, evaluatedIds, playlistTokens }, rssItems] = await Promise.all([
-          fetchFromYoutubeApi(apiKey, Boolean(options.forceRefresh)),
-          fetchFromCuratedRss(0),
-        ]);
-
-        // Hydrate any extra RSS-discovered IDs through videos.list so upcoming premieres,
-        // live streams, or out-of-range durations can never bypass API verification.
-        const rssExtraCandidates = new Map<string, CandidateVideo>();
-        for (const item of rssItems) {
-          if (!evaluatedIds.has(item.id) && !rssExtraCandidates.has(item.id)) {
-            rssExtraCandidates.set(item.id, {
-              id: item.id,
-              title: item.title,
-              description: item.description,
-              channelId: item.channelId,
-              channelTitle: item.channelTitle,
-              publishedAt: item.publishedAt,
-              thumbnailUrl: item.thumbnailUrl,
-              hintCategory: item.category,
-            });
-          }
-        }
-        const verifiedRssExtras =
-          rssExtraCandidates.size > 0
-            ? await hydrateAndVerifyCandidates(apiKey, rssExtraCandidates)
-            : [];
-
-        const combinedIds = new Set<string>([
-          ...apiItems.map((i) => i.id),
-          ...verifiedRssExtras.map((i) => i.id),
-          ...(cachedCatalog?.items ?? []).map((i) => i.id),
-        ]);
-        const webDiscoveryExtras = await fetchInitialDiscoveryExtras(apiKey, combinedIds);
-
-        // Merge new items with previously discovered catalog items (capped cleanly)
-        // so refreshing grows variety instead of recycling only the same 25 latest uploads.
-        const merged = new Map<string, ChristianShort>();
-        for (const item of webDiscoveryExtras) merged.set(item.id, item);
-        for (const item of apiItems) {
-          if (!merged.has(item.id)) merged.set(item.id, item);
-        }
-        for (const item of verifiedRssExtras) {
-          if (!merged.has(item.id)) merged.set(item.id, item);
-        }
-        if (cachedCatalog) {
-          for (const item of cachedCatalog.items) {
-            if (!merged.has(item.id)) merged.set(item.id, item);
-          }
-        }
-
-        poolItems = [...merged.values()].slice(0, MAX_CACHED_CATALOG_ITEMS);
-        seedPlaylistTokens = { ...seedPlaylistTokens, ...playlistTokens };
-        sourceMode = 'youtube_api';
-      } catch {
-        const rssFallback = await fetchFromCuratedRss(0);
-        if (rssFallback.length > 0) {
-          const rssCandidates = new Map<string, CandidateVideo>(
-            rssFallback.map((item) => [
-              item.id,
-              {
-                id: item.id,
-                title: item.title,
-                description: item.description,
-                channelId: item.channelId,
-                channelTitle: item.channelTitle,
-                publishedAt: item.publishedAt,
-                thumbnailUrl: item.thumbnailUrl,
-                hintCategory: item.category,
-              },
-            ])
-          );
-          const verifiedFallback = await hydrateAndVerifyCandidates(apiKey, rssCandidates);
-          poolItems = verifiedFallback.length > 0 ? verifiedFallback : rssFallback;
-          sourceMode = verifiedFallback.length > 0 ? 'youtube_api' : 'curated_rss';
-        } else {
-          poolItems = cachedCatalog?.items ?? [];
-          sourceMode = cachedCatalog?.sourceMode ?? 'curated_rss';
-        }
-      }
-    } else {
-      const rssPage0 = await fetchFromCuratedRss(0);
-      const webDiscoveryExtras = await fetchInitialDiscoveryExtras(
-        '',
-        new Set(rssPage0.map((i) => i.id))
-      );
-      const merged = new Map<string, ChristianShort>();
-      for (const item of webDiscoveryExtras) merged.set(item.id, item);
-      for (const item of rssPage0) {
-        if (!merged.has(item.id)) merged.set(item.id, item);
-      }
-      poolItems = [...merged.values()].slice(0, MAX_CACHED_CATALOG_ITEMS);
-      sourceMode = 'curated_rss';
+    if (!inFlightCatalogPromise || options.forceRefresh) {
+      inFlightCatalogPromise = buildBaseCatalog(
+        apiKey,
+        apiKeyConfigured,
+        Boolean(options.forceRefresh)
+      ).finally(() => {
+        inFlightCatalogPromise = null;
+      });
     }
-
-    fetchedAt = new Date().toISOString();
-    cachedCatalog = {
-      items: poolItems,
-      sourceMode,
-      fetchedAt,
-      fetchedAtMs: nowMs,
-      playlistTokens: seedPlaylistTokens,
-    };
+    const built = await inFlightCatalogPromise;
+    poolItems = built.items;
+    sourceMode = built.sourceMode;
+    fetchedAt = built.fetchedAt;
+    seedPlaylistTokens = built.playlistTokens;
   }
 
-  // On app reopen (with seen history) across ALL categories, pull deeper playlist pages
-  // (sermons, Bible, louvores, testimonies, Feliz7Play) & fresh YouTube discovery batches
-  // so reopening the app always brings unseen fresh videos to the top in every category.
+  // On app reopen (with seen history), return available unseen items immediately so startup is instant,
+  // and replenish deeper playlist pages + fresh discovery in the background (blocking only if unseen stock ran dry).
   if (!trimmedQuery && clientExcludeSet.size > 0) {
     const cats: ContentCategory[] = [
       'pregacoes',
@@ -1655,11 +1765,12 @@ export async function getCuratedChristianShorts(options: {
       'testemunhos',
       'feliz7play',
     ];
+    const totalUnseenInPool = poolItems.filter((i) => !clientExcludeSet.has(i.id)).length;
     const lowUnseenCats = cats.filter((c) => {
       const minNeeded = c === 'louvores' ? 45 : 24;
       return poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < minNeeded;
     });
-    // Guarantee at least 2 rotating categories pull fresh web discovery on every reopen
+    // Guarantee at least 2 rotating categories pull fresh web discovery on reopen
     const reopenDiscoveryCats = new Set<ContentCategory>(lowUnseenCats);
     const startRotate = Math.floor(Math.random() * cats.length);
     for (let k = 0; k < cats.length && reopenDiscoveryCats.size < 3; k++) {
@@ -1667,126 +1778,146 @@ export async function getCuratedChristianShorts(options: {
     }
     const discoveryTargets = [...reopenDiscoveryCats];
 
-    const reopenAdditions: ChristianShort[] = [];
-    const reopenPlaylistPromises: Array<Promise<CandidateVideo[]>> = [];
-    if (apiKeyConfigured) {
-      const rotateTargets: Array<{ pid: string; hint: ContentCategory; token: string }> = [];
-      const rotateSpecial = [
-        ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
-        ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 2),
-        ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 2),
-      ];
-      for (const pid of rotateSpecial) {
-        const tok = persistentPlaylistTokens[pid];
-        if (tok) rotateTargets.push({ pid, hint: 'louvores', token: tok });
-      }
-      // Also advance 2–3 curated channels per other category (pregacoes, biblia, testemunhos, feliz7play)
-      for (const cat of ['pregacoes', 'biblia', 'testemunhos', 'feliz7play'] as ContentCategory[]) {
-        const matchingChannels = ALL_CURATED_CHANNELS.filter(
-          (ch) => ch.defaultCategory === cat || ch.allowInCategories.includes(cat)
-        );
-        const targetForCat = cat === 'feliz7play' ? 2 : 3;
-        const shuffledCh = pickRotatedPlaylists(
-          matchingChannels.map((c) => c.id),
-          targetForCat + 1
-        );
-        let pickedForCat = 0;
-        for (const chId of shuffledCh) {
-          if (pickedForCat >= targetForCat) break;
-          const suffix = chId.slice(2);
-          const candidatePids =
-            cat === 'biblia'
-              ? [`UUSH${suffix}`, `UU${suffix}`]
-              : cat === 'pregacoes' || cat === 'feliz7play'
-              ? [`UULF${suffix}`, `UU${suffix}`, `UUPV${suffix}`]
-              : [`UU${suffix}`, `UUPV${suffix}`];
-          for (const pid of candidatePids) {
-            const tok = persistentPlaylistTokens[pid];
-            if (tok) {
-              rotateTargets.push({ pid, hint: cat, token: tok });
-              pickedForCat += 1;
-              break;
+    const runReopenReplenish = async (): Promise<ChristianShort[]> => {
+      const reopenAdditions: ChristianShort[] = [];
+      const reopenPlaylistPromises: Array<Promise<CandidateVideo[]>> = [];
+      if (apiKeyConfigured) {
+        const rotateTargets: Array<{ pid: string; hint: ContentCategory; token: string }> = [];
+        const rotateSpecial = [
+          ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
+          ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 2),
+          ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 2),
+        ];
+        for (const pid of rotateSpecial) {
+          const tok = persistentPlaylistTokens[pid];
+          if (tok) rotateTargets.push({ pid, hint: 'louvores', token: tok });
+        }
+        for (const cat of ['pregacoes', 'biblia', 'testemunhos', 'feliz7play'] as ContentCategory[]) {
+          const matchingChannels = ALL_CURATED_CHANNELS.filter(
+            (ch) => ch.defaultCategory === cat || ch.allowInCategories.includes(cat)
+          );
+          const targetForCat = cat === 'feliz7play' ? 2 : 3;
+          const shuffledCh = pickRotatedPlaylists(
+            matchingChannels.map((c) => c.id),
+            targetForCat + 1
+          );
+          let pickedForCat = 0;
+          for (const chId of shuffledCh) {
+            if (pickedForCat >= targetForCat) break;
+            const suffix = chId.slice(2);
+            const candidatePids =
+              cat === 'biblia'
+                ? [`UUSH${suffix}`, `UU${suffix}`]
+                : cat === 'pregacoes' || cat === 'feliz7play'
+                ? [`UULF${suffix}`, `UU${suffix}`, `UUPV${suffix}`]
+                : [`UU${suffix}`, `UUPV${suffix}`];
+            for (const pid of candidatePids) {
+              const tok = persistentPlaylistTokens[pid];
+              if (tok) {
+                rotateTargets.push({ pid, hint: cat, token: tok });
+                pickedForCat += 1;
+                break;
+              }
             }
           }
         }
+
+        for (const t of rotateTargets) {
+          reopenPlaylistPromises.push(
+            fetchChannelPlaylistPage(apiKey, t.pid, t.hint, t.token, 35).then((r) => {
+              persistentPlaylistTokens[t.pid] = r.nextPageToken;
+              seedPlaylistTokens[t.pid] = r.nextPageToken;
+              return r.candidates;
+            })
+          );
+        }
       }
 
-      for (const t of rotateTargets) {
-        reopenPlaylistPromises.push(
-          fetchChannelPlaylistPage(apiKey, t.pid, t.hint, t.token, 35).then((r) => {
-            persistentPlaylistTokens[t.pid] = r.nextPageToken;
-            seedPlaylistTokens[t.pid] = r.nextPageToken;
-            return r.candidates;
-          })
-        );
-      }
-    }
+      if (discoveryTargets.length > 0 || reopenPlaylistPromises.length > 0) {
+        try {
+          const [playlistRes, discoveryRes] = await Promise.all([
+            reopenPlaylistPromises.length > 0
+              ? Promise.allSettled(reopenPlaylistPromises)
+              : Promise.resolve([]),
+            discoveryTargets.length > 0
+              ? Promise.allSettled(
+                  discoveryTargets.map((cat) => {
+                    const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+                    const idx = globalDiscoveryOffsets[cat] % queries.length;
+                    globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
+                    return fetchYoutubeWebSearch(
+                      apiKey,
+                      queries[idx],
+                      cat,
+                      idx % 2 === 0,
+                      new Set([...clientExcludeSet, ...poolItems.map((i) => i.id)])
+                    );
+                  })
+                )
+              : Promise.resolve([]),
+          ]);
 
-    if (discoveryTargets.length > 0 || reopenPlaylistPromises.length > 0) {
-      try {
-        const [playlistRes, discoveryRes] = await Promise.all([
-          reopenPlaylistPromises.length > 0
-            ? Promise.allSettled(reopenPlaylistPromises)
-            : Promise.resolve([]),
-          discoveryTargets.length > 0
-            ? Promise.allSettled(
-                discoveryTargets.map((cat) => {
-                  const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-                  const idx = globalDiscoveryOffsets[cat] % queries.length;
-                  globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
-                  return fetchYoutubeWebSearch(
-                    apiKey,
-                    queries[idx],
-                    cat,
-                    idx % 2 === 0,
-                    new Set([...clientExcludeSet, ...poolItems.map((i) => i.id)])
-                  );
-                })
-              )
-            : Promise.resolve([]),
-        ]);
-
-        const extraCandidates = new Map<string, CandidateVideo>();
-        const existingIds = new Set(poolItems.map((i) => i.id));
-        for (const r of playlistRes) {
-          if (r.status !== 'fulfilled') continue;
-          for (const c of r.value) {
-            if (!existingIds.has(c.id) && !clientExcludeSet.has(c.id) && !extraCandidates.has(c.id)) {
-              extraCandidates.set(c.id, c);
+          const extraCandidates = new Map<string, CandidateVideo>();
+          const existingIds = new Set(poolItems.map((i) => i.id));
+          for (const r of playlistRes) {
+            if (r.status !== 'fulfilled') continue;
+            for (const c of r.value) {
+              if (!existingIds.has(c.id) && !clientExcludeSet.has(c.id) && !extraCandidates.has(c.id)) {
+                extraCandidates.set(c.id, c);
+              }
             }
           }
-        }
-        const hydratedPlaylists =
-          apiKeyConfigured && extraCandidates.size > 0
-            ? await hydrateAndVerifyCandidates(apiKey, extraCandidates)
-            : [];
+          const hydratedPlaylists =
+            apiKeyConfigured && extraCandidates.size > 0
+              ? await hydrateAndVerifyCandidates(apiKey, extraCandidates)
+              : [];
 
-        for (const item of hydratedPlaylists) {
-          if (!existingIds.has(item.id)) {
-            existingIds.add(item.id);
-            reopenAdditions.push(item);
-          }
-        }
-        for (let i = 0; i < discoveryRes.length; i++) {
-          const r = discoveryRes[i];
-          const targetCat = discoveryTargets[i];
-          if (r.status !== 'fulfilled') continue;
-          for (const item of r.value) {
-            if (item.category === targetCat && !existingIds.has(item.id)) {
+          for (const item of hydratedPlaylists) {
+            if (!existingIds.has(item.id)) {
               existingIds.add(item.id);
               reopenAdditions.push(item);
             }
           }
-        }
+          for (let i = 0; i < discoveryRes.length; i++) {
+            const r = discoveryRes[i];
+            const targetCat = discoveryTargets[i];
+            if (r.status !== 'fulfilled') continue;
+            for (const item of r.value) {
+              if (item.category === targetCat && !existingIds.has(item.id)) {
+                existingIds.add(item.id);
+                reopenAdditions.push(item);
+              }
+            }
+          }
 
-        if (reopenAdditions.length > 0 && cachedCatalog) {
-          poolItems = [...reopenAdditions, ...poolItems].slice(0, MAX_CACHED_CATALOG_ITEMS);
-          cachedCatalog.items = poolItems;
-          cachedCatalog.playlistTokens = seedPlaylistTokens;
+          if (reopenAdditions.length > 0 && cachedCatalog) {
+            const existingCatIds = new Set(cachedCatalog.items.map((i) => i.id));
+            const uniqueNew = reopenAdditions.filter((i) => !existingCatIds.has(i.id));
+            if (uniqueNew.length > 0) {
+              cachedCatalog.items = [...uniqueNew, ...cachedCatalog.items].slice(
+                0,
+                MAX_CACHED_CATALOG_ITEMS
+              );
+              cachedCatalog.playlistTokens = seedPlaylistTokens;
+            }
+          }
+        } catch {
+          // Keep existing pool on transient discovery errors
         }
-      } catch {
-        // Keep existing pool on transient discovery errors
       }
+
+      return reopenAdditions;
+    };
+
+    let reopenAdditions: ChristianShort[] = [];
+    if (totalUnseenInPool < 15 || options.forceRefresh) {
+      reopenAdditions = await runReopenReplenish();
+      if (cachedCatalog) {
+        poolItems = cachedCatalog.items;
+      }
+    } else if (Date.now() - lastReopenReplenishAtMs > 20_000) {
+      lastReopenReplenishAtMs = Date.now();
+      void runReopenReplenish();
     }
 
     const freshIds = new Set(reopenAdditions.map((i) => i.id));

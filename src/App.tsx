@@ -27,6 +27,7 @@ const SearchResultsView = lazy(() =>
 );
 import { loadYouTubeIframeApi } from './utils/youtubePlayerApi';
 import {
+  fetchFastNativeSeed,
   fetchShortsOnNativeDevice,
   isNativeCapacitorApp,
 } from './utils/nativeShortsFallback';
@@ -38,10 +39,12 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '
 const SAVED_STORAGE_KEY = 'gracaplay_saved_ids_v1';
 const SEEN_STORAGE_KEY = 'gracaplay_seen_ids_v1';
 const LAST_SESSION_TOP_KEY = 'gracaplay_last_top_v1';
+const FEED_CACHE_STORAGE_KEY = 'gracaplay_feed_cache_v1';
 const LEGACY_SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
 const MAX_SEEN_IDS = 5000;
 const MAX_SURFACED_TOP_IDS = 120;
+const MAX_CACHED_FEED_ITEMS = 90;
 
 const MAIN_ALL_CATEGORIES: ContentCategory[] = [
   'pregacoes',
@@ -143,6 +146,50 @@ function readStoredIdList(key: string, legacyKey?: string): string[] {
   }
 }
 
+function getSharedVideoIdFromUrl(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const raw = new URLSearchParams(window.location.search).get('v')?.trim() || '';
+    return /^[a-zA-Z0-9_-]{11}$/.test(raw) ? raw : '';
+  } catch {
+    return '';
+  }
+}
+
+function readCachedFeedSnapshot(): ChristianShort[] {
+  try {
+    const raw = localStorage.getItem(FEED_CACHE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is ChristianShort =>
+        Boolean(item) &&
+        typeof item === 'object' &&
+        typeof item.id === 'string' &&
+        typeof item.title === 'string' &&
+        typeof item.category === 'string' &&
+        typeof item.embedUrl === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedFeedSnapshot(items: ChristianShort[]): void {
+  if (items.length === 0) return;
+  try {
+    const compact = items.slice(0, MAX_CACHED_FEED_ITEMS).map((item) =>
+      item.description.length > 160
+        ? { ...item, description: `${item.description.slice(0, 157)}...` }
+        : item
+    );
+    localStorage.setItem(FEED_CACHE_STORAGE_KEY, JSON.stringify(compact));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
 function foldSearchText(text: string): string {
   return text
     .normalize('NFD')
@@ -151,7 +198,29 @@ function foldSearchText(text: string): string {
 }
 
 export function App() {
-  const [allShorts, setAllShorts] = useState<ChristianShort[]>([]);
+  const [allShorts, setAllShorts] = useState<ChristianShort[]>(() => {
+    const cachedRaw = readCachedFeedSnapshot();
+    if (cachedRaw.length === 0) return [];
+    const initialSeen = readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY);
+    const initialTop = readStoredIdList(LAST_SESSION_TOP_KEY);
+    const { items: prioritized } = prioritizeAndShuffleFeed(
+      cachedRaw,
+      initialSeen,
+      initialTop,
+      'all'
+    );
+    const sharedVideoId = getSharedVideoIdFromUrl();
+    if (sharedVideoId) {
+      const sharedIdx = prioritized.findIndex((item) => item.id === sharedVideoId);
+      if (sharedIdx >= 0) {
+        const reordered = [...prioritized];
+        const [picked] = reordered.splice(sharedIdx, 1);
+        return [picked, ...reordered];
+      }
+      return [];
+    }
+    return prioritized;
+  });
   const [sourceMode, setSourceMode] = useState<'youtube_api' | 'curated_rss'>('curated_rss');
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [activeCategory, setActiveCategory] = useState<ShortCategory>('all');
@@ -164,7 +233,7 @@ export function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => allShorts.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreByCategory, setHasMoreByCategory] = useState<Record<string, boolean>>({
@@ -206,7 +275,7 @@ export function App() {
   );
   const seenIdsSetRef = useRef<Set<string>>(new Set(seenIdsRef.current));
   const lastSessionTopRef = useRef<string[]>(readStoredIdList(LAST_SESSION_TOP_KEY));
-  const allShortsRef = useRef<ChristianShort[]>([]);
+  const allShortsRef = useRef<ChristianShort[]>(allShorts);
   const visibleShortsRef = useRef<ChristianShort[]>([]);
   const activeIndexRef = useRef<number>(activeIndex);
   const hasMoreByCategoryRef = useRef<Record<string, boolean>>(hasMoreByCategory);
@@ -330,100 +399,57 @@ export function App() {
     [recordSurfacedTopIds]
   );
 
-  const loadShorts = useCallback(async (forceRefresh = false) => {
-    if (forceRefresh) {
-      setIsRefreshing(true);
+  const orderResponseItems = useCallback((orderedSource: ChristianShort[]) => {
+    const seenSet = new Set(seenIdsRef.current);
+    const lastTopSet = new Set(lastSessionTopRef.current);
+    const unseenFresh = orderedSource.filter(
+      (item) => !seenSet.has(item.id) && !lastTopSet.has(item.id)
+    );
+    const unseenPrevTop = orderedSource.filter(
+      (item) => !seenSet.has(item.id) && lastTopSet.has(item.id)
+    );
+    const seenItems = orderedSource.filter((item) => seenSet.has(item.id));
+
+    let items: ChristianShort[];
+    if (unseenFresh.length === 0 && unseenPrevTop.length === 0 && seenItems.length > 0) {
+      // Keep the most recent 250 seen IDs protected so recently watched videos stay at the end
+      const recentOnly = seenIdsRef.current.slice(0, 250);
+      seenIdsRef.current = recentOnly;
+      seenIdsSetRef.current = new Set(recentOnly);
+      try {
+        localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(recentOnly));
+      } catch {
+        // Ignore storage quota errors
+      }
+      const recentSet = seenIdsSetRef.current;
+      items = [
+        ...buildDiverseFeed(orderedSource.filter((item) => !recentSet.has(item.id)), true),
+        ...buildDiverseFeed(orderedSource.filter((item) => recentSet.has(item.id)), true),
+      ];
     } else {
-      setLoading(true);
+      items = [
+        ...buildTieredDiverseFeed([unseenFresh, unseenPrevTop], true),
+        ...buildDiverseFeed(seenItems, true),
+      ];
     }
-    setError(null);
-    fetchedCategoryBatchRef.current.clear();
-    allBalanceRetryCountRef.current = 0;
 
-    try {
-      let data: ShortsApiResponse | null = null;
-      const nativeApp = isNativeCapacitorApp();
+    const nextSessionTop = extractSessionTopIds(items);
+    return { items, nextSessionTop };
+  }, []);
 
-      if (!nativeApp || API_BASE_URL.length > 0) {
-        try {
-          const excludeIds = Array.from(
-            new Set([
-              ...lastSessionTopRef.current.slice(0, 45),
-              ...seenIdsRef.current.slice(0, 600),
-            ])
-          ).slice(0, 645);
-          const res = await fetch(`${API_BASE_URL}/api/shorts`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              category: 'all',
-              refresh: forceRefresh,
-              exclude: excludeIds,
-            }),
-          });
-          const contentType = res.headers.get('content-type') || '';
-          if (res.ok && contentType.includes('application/json')) {
-            data = (await res.json()) as ShortsApiResponse;
-          } else if (!nativeApp) {
-            throw new Error(`Erro HTTP ${res.status} ao carregar vídeos`);
-          }
-        } catch (fetchErr) {
-          if (!nativeApp) throw fetchErr;
-        }
-      }
-
-      if (!data) {
-        data = await fetchShortsOnNativeDevice(forceRefresh);
-      }
-
-      // Preserve balanced bucket ordering (Hinário, CD Jovem, Adoradores, Gospel Geral
-      // and per-category balance), while demoting previously shown top items and watched items.
-      const orderedSource = data.items;
-
-      const seenSet = new Set(seenIdsRef.current);
-      const lastTopSet = new Set(lastSessionTopRef.current);
-      const unseenFresh = orderedSource.filter(
-        (item) => !seenSet.has(item.id) && !lastTopSet.has(item.id)
-      );
-      const unseenPrevTop = orderedSource.filter(
-        (item) => !seenSet.has(item.id) && lastTopSet.has(item.id)
-      );
-      const seenItems = orderedSource.filter((item) => seenSet.has(item.id));
-
-      let items: ChristianShort[];
-      if (unseenFresh.length === 0 && unseenPrevTop.length === 0 && seenItems.length > 0) {
-        // Keep the most recent 250 seen IDs protected so recently watched videos stay at the end
-        const recentOnly = seenIdsRef.current.slice(0, 250);
-        seenIdsRef.current = recentOnly;
-        seenIdsSetRef.current = new Set(recentOnly);
-        try {
-          localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(recentOnly));
-        } catch {
-          // Ignore storage quota errors
-        }
-        const recentSet = seenIdsSetRef.current;
-        items = [
-          ...buildDiverseFeed(orderedSource.filter((item) => !recentSet.has(item.id)), true),
-          ...buildDiverseFeed(orderedSource.filter((item) => recentSet.has(item.id)), true),
-        ];
-      } else {
-        items = [
-          ...buildTieredDiverseFeed([unseenFresh, unseenPrevTop], true),
-          ...buildDiverseFeed(seenItems, true),
-        ];
-      }
-
-      // Record top items from this session so reopening or switching categories immediately rotates them out
-      const nextSessionTop = extractSessionTopIds(items);
+  const applyFeedPayload = useCallback(
+    async (
+      data: ShortsApiResponse,
+      forceRefresh: boolean,
+      preserveActivePlayback: boolean
+    ) => {
+      const { items: orderedItems, nextSessionTop } = orderResponseItems(data.items);
       recordSurfacedTopIds(nextSessionTop);
 
-      // Support direct shared video links (?v=VIDEO_ID) on initial load
+      let items = orderedItems;
       if (!forceRefresh) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const sharedVideoId = urlParams.get('v')?.trim() || '';
-        if (/^[a-zA-Z0-9_-]{11}$/.test(sharedVideoId)) {
+        const sharedVideoId = getSharedVideoIdFromUrl();
+        if (sharedVideoId) {
           const existingIdx = items.findIndex((item) => item.id === sharedVideoId);
           if (existingIdx > 0) {
             const [picked] = items.splice(existingIdx, 1);
@@ -442,6 +468,42 @@ export function App() {
             }
           }
         }
+      }
+
+      writeCachedFeedSnapshot(items);
+
+      if (preserveActivePlayback && !forceRefresh && allShortsRef.current.length > 0) {
+        const currentVisible = visibleShortsRef.current;
+        const currentIdx = activeIndexRef.current;
+        const activeShort =
+          currentVisible[currentIdx] ?? allShortsRef.current[0];
+        const anchorIdxInAll = activeShort
+          ? allShortsRef.current.findIndex((item) => item.id === activeShort.id)
+          : -1;
+        const prefix =
+          anchorIdxInAll >= 0
+            ? allShortsRef.current.slice(0, anchorIdxInAll + 1)
+            : allShortsRef.current.slice(0, 1);
+        const prefixIds = new Set(prefix.map((item) => item.id));
+        const merged = [
+          ...prefix,
+          ...items.filter((item) => !prefixIds.has(item.id)),
+        ];
+
+        allShortsRef.current = merged;
+        setAllShorts(merged);
+        setSourceMode(data.sourceMode);
+        setApiKeyConfigured(data.apiKeyConfigured);
+        categoryCursorsRef.current = {
+          ...categoryCursorsRef.current,
+          all: data.nextCursor ?? null,
+        };
+        const canPaginate = data.hasMore ?? true;
+        setHasMoreByCategory((prev) => ({
+          ...prev,
+          all: canPaginate,
+        }));
+        return;
       }
 
       allShortsRef.current = items;
@@ -465,23 +527,115 @@ export function App() {
       if (feedRef.current) {
         feedRef.current.scrollTo({ top: 0, behavior: 'auto' });
       }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível carregar os vídeos cristãos.'
-      );
-    } finally {
-      setLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [recordSurfacedTopIds]);
+    },
+    [orderResponseItems, recordSurfacedTopIds]
+  );
+
+  const loadShorts = useCallback(
+    async (forceRefresh = false) => {
+      const hasInitialCache = !forceRefresh && allShortsRef.current.length > 0;
+      if (forceRefresh) {
+        setIsRefreshing(true);
+      } else if (!hasInitialCache) {
+        setLoading(true);
+      }
+      setError(null);
+      fetchedCategoryBatchRef.current.clear();
+      allBalanceRetryCountRef.current = 0;
+
+      try {
+        let data: ShortsApiResponse | null = null;
+        const nativeApp = isNativeCapacitorApp();
+
+        if (!nativeApp || API_BASE_URL.length > 0) {
+          try {
+            const excludeIds = Array.from(
+              new Set([
+                ...lastSessionTopRef.current.slice(0, 45),
+                ...seenIdsRef.current.slice(0, 600),
+              ])
+            ).slice(0, 645);
+            const res = await fetch(`${API_BASE_URL}/api/shorts`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                category: 'all',
+                refresh: forceRefresh,
+                exclude: excludeIds,
+              }),
+            });
+            const contentType = res.headers.get('content-type') || '';
+            if (res.ok && contentType.includes('application/json')) {
+              data = (await res.json()) as ShortsApiResponse;
+            } else if (!nativeApp) {
+              throw new Error(`Erro HTTP ${res.status} ao carregar vídeos`);
+            }
+          } catch (fetchErr) {
+            if (!nativeApp) throw fetchErr;
+          }
+        }
+
+        if (!data) {
+          // Two-stage fast native bootstrap when APK starts cold without cached feed
+          if (!forceRefresh && !hasInitialCache) {
+            const seedData = await fetchFastNativeSeed();
+            if (seedData.items.length > 0) {
+              await applyFeedPayload(seedData, false, false);
+              setLoading(false);
+              const fullData = await fetchShortsOnNativeDevice(false);
+              if (fullData.items.length > 0) {
+                await applyFeedPayload(fullData, false, true);
+              }
+              return;
+            }
+          }
+          data = await fetchShortsOnNativeDevice(forceRefresh);
+        }
+
+        await applyFeedPayload(data, forceRefresh, hasInitialCache);
+      } catch (err) {
+        if (forceRefresh || allShortsRef.current.length === 0) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Não foi possível carregar os vídeos cristãos.'
+          );
+        }
+      } finally {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [applyFeedPayload]
+  );
 
   useEffect(() => {
     // Pre-warm YouTube IFrame Player API immediately on mount for faster first playback
     loadYouTubeIframeApi().catch(() => {});
     loadShorts(false);
   }, [loadShorts]);
+
+  // Unlock Web autoplay audio seamlessly on the very first user gesture anywhere
+  useEffect(() => {
+    if (audioUnlocked) return;
+    const unlock = () => {
+      setAudioUnlocked(true);
+    };
+    window.addEventListener('click', unlock, { once: true, capture: true });
+    window.addEventListener('touchend', unlock, {
+      once: true,
+      capture: true,
+      passive: true,
+    });
+    window.addEventListener('keydown', unlock, { once: true, capture: true });
+    return () => {
+      window.removeEventListener('click', unlock, { capture: true });
+      window.removeEventListener('touchend', unlock, { capture: true });
+      window.removeEventListener('keydown', unlock, { capture: true });
+    };
+  }, [audioUnlocked]);
 
   // Live YouTube search whenever user submits a query (>= 2 chars) or changes filter while searching
   useEffect(() => {

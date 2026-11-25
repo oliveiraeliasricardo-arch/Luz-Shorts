@@ -11,6 +11,7 @@ import {
   Share2,
 } from 'lucide-react';
 import type { ChristianShort } from '../types/shorts';
+import { isNativeCapacitorApp } from '../utils/nativeShortsFallback';
 import { loadYouTubeIframeApi, type YTPlayer } from '../utils/youtubePlayerApi';
 import {
   type DocumentPictureInPictureWindow,
@@ -257,16 +258,27 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       }
 
       try {
-        player.unMute();
-        player.setVolume(100);
+        const shouldStartUnmuted = audioUnlockedRef.current || isNativeCapacitorApp();
+        if (shouldStartUnmuted) {
+          player.unMute();
+          player.setVolume(100);
+        } else {
+          player.mute();
+        }
         if (isFirstMount) {
-          player.playVideo();
+          const initialState = player.getPlayerState();
+          const alreadyStarted = YTStates
+            ? initialState === YTStates.PLAYING || initialState === YTStates.BUFFERING
+            : initialState === 1 || initialState === 3;
+          if (!alreadyStarted) {
+            player.playVideo();
+          }
         } else {
           player.stopVideo();
           player.loadVideoById({ videoId, startSeconds: 0 });
         }
 
-        // Fallback only if browser blocks unmuted autoplay before first user gesture
+        // Fast fallback if browser blocks unmuted autoplay before first user gesture
         autoplayCheckTimerRef.current = window.setTimeout(() => {
           if (activeVideoIdRef.current !== videoId) return;
           try {
@@ -277,13 +289,13 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
             if (!isStarted && !audioUnlockedRef.current) {
               player.mute();
               player.playVideo();
-            } else if (isStarted) {
+            } else if (isStarted && shouldStartUnmuted) {
               onAudioUnlockedRef.current();
             }
           } catch {
             // Ignore transient state errors
           }
-        }, 200);
+        }, 100);
       } catch {
         // Ignore transient play errors
       }
@@ -339,7 +351,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
             modestbranding: 1,
             playsinline: 1,
             rel: 0,
-            mute: 0,
+            mute: isNativeCapacitorApp() || audioUnlockedRef.current ? 0 : 1,
             origin: window.location.origin,
           },
           events: {
@@ -819,12 +831,20 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   };
 
   const handleTogglePlayPause = () => {
+    const wasLocked = !audioUnlockedRef.current;
     onAudioUnlocked();
     const player = playerRef.current;
     if (!player || !playerReady) return;
     try {
+      const wasMuted =
+        typeof player.isMuted === 'function' ? player.isMuted() : wasLocked;
       player.unMute();
       player.setVolume(100);
+      if (isPlaying && wasLocked && wasMuted) {
+        setFeedbackState('play');
+        window.setTimeout(() => setFeedbackState(null), 220);
+        return;
+      }
       if (isPlaying) {
         player.pauseVideo();
         setFeedbackState('pause');

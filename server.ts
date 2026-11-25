@@ -7,6 +7,7 @@ import {
   getMoreChristianShorts,
   getSearchSuggestions,
   lookupSingleShort,
+  warmCatalogInBackground,
 } from './server/youtubeCurator.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -204,6 +205,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`GraçaPlay server listening on http://0.0.0.0:${PORT}`);
+    warmCatalogInBackground();
   });
 }
 
