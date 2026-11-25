@@ -25,7 +25,7 @@ function parseExcludeIds(raw: unknown): string[] {
   return list
     .map((s) => s.trim())
     .filter((s) => /^[a-zA-Z0-9_-]{11}$/.test(s))
-    .slice(0, 1200);
+    .slice(0, 4000);
 }
 
 async function startServer() {

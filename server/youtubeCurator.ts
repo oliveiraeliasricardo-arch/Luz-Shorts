@@ -223,7 +223,7 @@ interface PaginationSessionState {
   allCycleIdx: number;
 }
 
-const MAX_CACHED_CATALOG_ITEMS = 2500;
+const MAX_CACHED_CATALOG_ITEMS = 5000;
 
 let cachedCatalog: {
   items: ChristianShort[];
@@ -245,6 +245,7 @@ let depthEnrichmentStarted = false;
 // Persistent server-side rotation cursors so new sessions and refreshes dig deeper
 // into YouTube rather than returning the exact same page-1 results every time.
 const persistentPlaylistTokens: Record<string, string | null> = {};
+const exhaustedPlaylistIds = new Set<string>();
 const globalDiscoveryOffsets: Record<ContentCategory, number> = {
   pregacoes: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.pregacoes.length),
   biblia: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.biblia.length),
@@ -252,6 +253,74 @@ const globalDiscoveryOffsets: Record<ContentCategory, number> = {
   testemunhos: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.testemunhos.length),
   feliz7play: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.feliz7play.length),
 };
+
+function mergeIntoCatalogPool(
+  freshAdditions: ChristianShort[],
+  existingPool: ChristianShort[]
+): ChristianShort[] {
+  const byId = new Map<string, ChristianShort>();
+  for (const item of freshAdditions) {
+    byId.set(item.id, item);
+  }
+  for (const item of existingPool) {
+    if (!byId.has(item.id)) {
+      byId.set(item.id, item);
+    }
+  }
+  const all = [...byId.values()];
+  if (all.length <= MAX_CACHED_CATALOG_ITEMS) {
+    return all.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  }
+  // Keep newest half by date AND newest half by discovery order so deep playlist finds
+  // from 2023-2025 aren't immediately evicted by newer entries.
+  const freshIds = new Set(freshAdditions.map((i) => i.id));
+  const preservedFresh = all.filter((i) => freshIds.has(i.id));
+  const byDate = [...all]
+    .filter((i) => !freshIds.has(i.id))
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  const maxDateBudget = Math.max(0, MAX_CACHED_CATALOG_ITEMS - preservedFresh.length);
+  return [...preservedFresh, ...byDate.slice(0, maxDateBudget)].sort((a, b) =>
+    b.publishedAt.localeCompare(a.publishedAt)
+  );
+}
+
+function selectBalancedFeedSlice(
+  orderedItems: ChristianShort[],
+  excludeSet: Set<string>,
+  perCategoryLimit = 45
+): ChristianShort[] {
+  const counts: Record<ContentCategory, number> = {
+    pregacoes: 0,
+    biblia: 0,
+    louvores: 0,
+    testemunhos: 0,
+    feliz7play: 0,
+  };
+  const unseenCounts: Record<ContentCategory, number> = {
+    pregacoes: 0,
+    biblia: 0,
+    louvores: 0,
+    testemunhos: 0,
+    feliz7play: 0,
+  };
+  for (const item of orderedItems) {
+    if (!excludeSet.has(item.id)) {
+      unseenCounts[item.category] += 1;
+    }
+  }
+
+  const selected: ChristianShort[] = [];
+  for (const item of orderedItems) {
+    const cat = item.category;
+    const isSeen = excludeSet.has(item.id);
+    if (isSeen && unseenCounts[cat] >= 12) continue;
+    const catLimit = isSeen ? Math.min(perCategoryLimit, 20) : perCategoryLimit;
+    if (counts[cat] >= catLimit) continue;
+    counts[cat] += 1;
+    selected.push(item);
+  }
+  return selected;
+}
 
 const paginationSessions = new Map<string, PaginationSessionState>();
 
@@ -590,32 +659,50 @@ async function fetchFromYoutubeApi(
     hintCategory: ContentCategory;
     pageToken: string | null;
     maxResults?: number;
-  }> = channels.map((spec) => {
+  }> = [];
+
+  for (const spec of channels) {
     const suffix = spec.id.slice(2);
-    const playlistId =
+    const primaryPid =
       spec.defaultCategory === 'biblia'
         ? `UUSH${suffix}`
-        : advancePlaylists && Math.random() < 0.35
-        ? `UUPV${suffix}`
         : spec.defaultCategory === 'pregacoes' || spec.defaultCategory === 'feliz7play'
         ? `UULF${suffix}`
         : `UU${suffix}`;
-    const savedToken = persistentPlaylistTokens[playlistId] ?? null;
-    const pageToken =
-      savedToken && (advancePlaylists || Math.random() < 0.9) ? savedToken : null;
-    return { hintCategory: spec.defaultCategory, playlistId, pageToken, maxResults: 25 };
-  });
+    const altPid =
+      primaryPid === `UUPV${suffix}` ? `UU${suffix}` : `UUPV${suffix}`;
+    const playlistId =
+      exhaustedPlaylistIds.has(primaryPid) || (advancePlaylists && Math.random() < 0.35)
+        ? altPid
+        : primaryPid;
+    if (exhaustedPlaylistIds.has(playlistId)) continue;
+    const pageToken = persistentPlaylistTokens[playlistId] ?? null;
+    requestMeta.push({
+      hintCategory: spec.defaultCategory,
+      playlistId,
+      pageToken,
+      maxResults: 25,
+    });
+  }
 
   // Rotate a light sampling of Novo Hinário, CD Jovem, and Adoradores so classics stay
   // present without crowding out fresh weekly channel uploads and recent gospel releases.
   const specialBatch = [
-    ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
-    ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 3),
-    ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 3),
+    ...pickRotatedPlaylists(
+      NOVO_HINARIO_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
+      2
+    ),
+    ...pickRotatedPlaylists(
+      CD_JOVEM_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
+      3
+    ),
+    ...pickRotatedPlaylists(
+      ADORADORES_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
+      3
+    ),
   ];
   for (const playlistId of specialBatch) {
-    const savedToken = persistentPlaylistTokens[playlistId] ?? null;
-    const pageToken = savedToken && (advancePlaylists || Math.random() < 0.9) ? savedToken : null;
+    const pageToken = persistentPlaylistTokens[playlistId] ?? null;
     requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken, maxResults: 30 });
   }
 
@@ -630,11 +717,14 @@ async function fetchFromYoutubeApi(
 
   for (let idx = 0; idx < responses.length; idx++) {
     const res = responses[idx];
-    const { playlistId } = requestMeta[idx];
+    const { playlistId, pageToken: usedToken } = requestMeta[idx];
     if (res.status !== 'fulfilled') continue;
     if (res.value.candidates.length > 0) anyFulfilled = true;
     playlistTokens[playlistId] = res.value.nextPageToken;
     persistentPlaylistTokens[playlistId] = res.value.nextPageToken;
+    if (usedToken && !res.value.nextPageToken) {
+      exhaustedPlaylistIds.add(playlistId);
+    }
     for (const c of res.value.candidates) {
       if (!candidates.has(c.id)) {
         candidates.set(c.id, c);
@@ -1683,15 +1773,7 @@ async function buildBaseCatalog(
       for (const item of verifiedRssExtras) {
         if (!merged.has(item.id)) merged.set(item.id, item);
       }
-      if (cachedCatalog) {
-        for (const item of cachedCatalog.items) {
-          if (!merged.has(item.id)) merged.set(item.id, item);
-        }
-      }
-
-      poolItems = [...merged.values()]
-        .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-        .slice(0, MAX_CACHED_CATALOG_ITEMS);
+      poolItems = mergeIntoCatalogPool([...merged.values()], cachedCatalog?.items ?? []);
       seedPlaylistTokens = { ...seedPlaylistTokens, ...playlistTokens };
       sourceMode = 'youtube_api';
 
@@ -1702,9 +1784,7 @@ async function buildBaseCatalog(
           const existing = new Set(cachedCatalog.items.map((i) => i.id));
           const extra = allDiscovery.filter((i) => !existing.has(i.id));
           if (extra.length > 0) {
-            cachedCatalog.items = [...extra, ...cachedCatalog.items]
-              .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-              .slice(0, MAX_CACHED_CATALOG_ITEMS);
+            cachedCatalog.items = mergeIntoCatalogPool(extra, cachedCatalog.items);
           }
         })
         .catch(() => {});
@@ -1747,9 +1827,7 @@ async function buildBaseCatalog(
     for (const item of rssPage0) {
       if (!merged.has(item.id)) merged.set(item.id, item);
     }
-    poolItems = [...merged.values()]
-      .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-      .slice(0, MAX_CACHED_CATALOG_ITEMS);
+    poolItems = mergeIntoCatalogPool([...merged.values()], cachedCatalog?.items ?? []);
     sourceMode = 'curated_rss';
 
     void discoveryPromise
@@ -1758,9 +1836,7 @@ async function buildBaseCatalog(
         const existing = new Set(cachedCatalog.items.map((i) => i.id));
         const extra = allDiscovery.filter((i) => !existing.has(i.id));
         if (extra.length > 0) {
-          cachedCatalog.items = [...extra, ...cachedCatalog.items]
-            .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-            .slice(0, MAX_CACHED_CATALOG_ITEMS);
+          cachedCatalog.items = mergeIntoCatalogPool(extra, cachedCatalog.items);
         }
       })
       .catch(() => {});
@@ -1915,9 +1991,7 @@ async function enrichCatalogDepth(
     }
 
     if (additions.length > 0 && cachedCatalog) {
-      cachedCatalog.items = [...additions, ...cachedCatalog.items]
-        .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-        .slice(0, MAX_CACHED_CATALOG_ITEMS);
+      cachedCatalog.items = mergeIntoCatalogPool(additions, cachedCatalog.items);
     }
   } catch {
     // Non-fatal background depth enrichment
@@ -1969,17 +2043,20 @@ export async function getCuratedChristianShorts(options: {
   let fetchedAt = new Date().toISOString();
   let seedPlaylistTokens: Record<string, string | null> = cachedCatalog?.playlistTokens ?? {};
 
-  const cacheValid =
-    !options.forceRefresh &&
-    cachedCatalog !== null &&
-    nowMs - cachedCatalog.fetchedAtMs < CACHE_TTL_MS;
+  const hasWarmCatalog = cachedCatalog !== null && cachedCatalog.items.length >= 40;
+  const cacheFresh = hasWarmCatalog && nowMs - cachedCatalog!.fetchedAtMs < CACHE_TTL_MS;
 
-  if (cacheValid && cachedCatalog) {
+  if (hasWarmCatalog && cachedCatalog) {
+    // Always serve instantaneously from warm in-memory catalog and refresh stale base catalog in background
+    // instead of blocking user pulls/reopens for 6-8 seconds on a full 58-channel rebuild.
     poolItems = cachedCatalog.items;
     sourceMode = cachedCatalog.sourceMode;
     fetchedAt = cachedCatalog.fetchedAt;
+    if (!cacheFresh && !inFlightCatalogPromise) {
+      warmCatalogInBackground();
+    }
   } else {
-    if (!inFlightCatalogPromise || options.forceRefresh) {
+    if (!inFlightCatalogPromise) {
       inFlightCatalogPromise = buildBaseCatalog(
         apiKey,
         apiKeyConfigured,
@@ -1995,9 +2072,9 @@ export async function getCuratedChristianShorts(options: {
     seedPlaylistTokens = built.playlistTokens;
   }
 
-  // On app reopen (with seen history), return available unseen items immediately so startup is instant,
-  // and replenish deeper playlist pages + fresh discovery in the background (blocking only if unseen stock ran dry).
-  if (!trimmedQuery && clientExcludeSet.size > 0) {
+  // On app reopen or pull-to-refresh, pull fresh rotated deep playlist pages + web discovery
+  // within a tight latency budget (<=1.6s on refresh, instant background on warm reopen).
+  if (!trimmedQuery && (clientExcludeSet.size > 0 || options.forceRefresh)) {
     const cats: ContentCategory[] = [
       'pregacoes',
       'biblia',
@@ -2010,8 +2087,9 @@ export async function getCuratedChristianShorts(options: {
       const minNeeded = c === 'louvores' ? 45 : 24;
       return poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < minNeeded;
     });
-    // Guarantee at least 2 rotating categories pull fresh web discovery on reopen
-    const reopenDiscoveryCats = new Set<ContentCategory>(lowUnseenCats);
+    const reopenDiscoveryCats = new Set<ContentCategory>(
+      options.forceRefresh ? cats : lowUnseenCats
+    );
     const startRotate = Math.floor(Math.random() * cats.length);
     for (let k = 0; k < cats.length && reopenDiscoveryCats.size < 3; k++) {
       reopenDiscoveryCats.add(cats[(startRotate + k) % cats.length]);
@@ -2022,24 +2100,33 @@ export async function getCuratedChristianShorts(options: {
       const reopenAdditions: ChristianShort[] = [];
       const reopenPlaylistPromises: Array<Promise<CandidateVideo[]>> = [];
       if (apiKeyConfigured) {
-        const rotateTargets: Array<{ pid: string; hint: ContentCategory; token: string }> = [];
+        const rotateTargets: Array<{ pid: string; hint: ContentCategory; token: string | null }> = [];
         const rotateSpecial = [
-          ...pickRotatedPlaylists(NOVO_HINARIO_PLAYLISTS, 2),
-          ...pickRotatedPlaylists(CD_JOVEM_PLAYLISTS, 2),
-          ...pickRotatedPlaylists(ADORADORES_PLAYLISTS, 2),
+          ...pickRotatedPlaylists(
+            NOVO_HINARIO_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
+            1
+          ),
+          ...pickRotatedPlaylists(
+            CD_JOVEM_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
+            2
+          ),
+          ...pickRotatedPlaylists(
+            ADORADORES_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
+            2
+          ),
         ];
         for (const pid of rotateSpecial) {
-          const tok = persistentPlaylistTokens[pid];
+          const tok = persistentPlaylistTokens[pid] ?? null;
           if (tok) rotateTargets.push({ pid, hint: 'louvores', token: tok });
         }
         for (const cat of ['pregacoes', 'biblia', 'testemunhos', 'feliz7play'] as ContentCategory[]) {
           const matchingChannels = ALL_CURATED_CHANNELS.filter(
             (ch) => ch.defaultCategory === cat || ch.allowInCategories.includes(cat)
           );
-          const targetForCat = cat === 'feliz7play' ? 2 : 3;
+          const targetForCat = options.forceRefresh ? 2 : cat === 'feliz7play' ? 2 : 3;
           const shuffledCh = pickRotatedPlaylists(
             matchingChannels.map((c) => c.id),
-            targetForCat + 1
+            targetForCat + 2
           );
           let pickedForCat = 0;
           for (const chId of shuffledCh) {
@@ -2047,11 +2134,12 @@ export async function getCuratedChristianShorts(options: {
             const suffix = chId.slice(2);
             const candidatePids =
               cat === 'biblia'
-                ? [`UUSH${suffix}`, `UU${suffix}`]
+                ? [`UUSH${suffix}`, `UU${suffix}`, `UUPV${suffix}`]
                 : cat === 'pregacoes' || cat === 'feliz7play'
-                ? [`UULF${suffix}`, `UU${suffix}`, `UUPV${suffix}`]
+                ? [`UULF${suffix}`, `UUPV${suffix}`, `UU${suffix}`]
                 : [`UU${suffix}`, `UUPV${suffix}`];
             for (const pid of candidatePids) {
+              if (exhaustedPlaylistIds.has(pid)) continue;
               const tok = persistentPlaylistTokens[pid];
               if (tok) {
                 rotateTargets.push({ pid, hint: cat, token: tok });
@@ -2064,9 +2152,12 @@ export async function getCuratedChristianShorts(options: {
 
         for (const t of rotateTargets) {
           reopenPlaylistPromises.push(
-            fetchChannelPlaylistPage(apiKey, t.pid, t.hint, t.token, 35).then((r) => {
+            fetchChannelPlaylistPage(apiKey, t.pid, t.hint, t.token, 30).then((r) => {
               persistentPlaylistTokens[t.pid] = r.nextPageToken;
               seedPlaylistTokens[t.pid] = r.nextPageToken;
+              if (t.token && !r.nextPageToken) {
+                exhaustedPlaylistIds.add(t.pid);
+              }
               return r.candidates;
             })
           );
@@ -2075,6 +2166,7 @@ export async function getCuratedChristianShorts(options: {
 
       if (discoveryTargets.length > 0 || reopenPlaylistPromises.length > 0) {
         try {
+          const poolIdSet = new Set(poolItems.map((i) => i.id));
           const [playlistRes, discoveryRes] = await Promise.all([
             reopenPlaylistPromises.length > 0
               ? Promise.allSettled(reopenPlaylistPromises)
@@ -2091,7 +2183,7 @@ export async function getCuratedChristianShorts(options: {
                       queries[idx],
                       cat,
                       filters[(idx + dIdx) % filters.length],
-                      new Set([...clientExcludeSet, ...poolItems.map((i) => i.id)])
+                      new Set([...clientExcludeSet, ...poolIdSet])
                     );
                   })
                 )
@@ -2099,11 +2191,10 @@ export async function getCuratedChristianShorts(options: {
           ]);
 
           const extraCandidates = new Map<string, CandidateVideo>();
-          const existingIds = new Set(poolItems.map((i) => i.id));
           for (const r of playlistRes) {
             if (r.status !== 'fulfilled') continue;
             for (const c of r.value) {
-              if (!existingIds.has(c.id) && !clientExcludeSet.has(c.id) && !extraCandidates.has(c.id)) {
+              if (!poolIdSet.has(c.id) && !clientExcludeSet.has(c.id) && !extraCandidates.has(c.id)) {
                 extraCandidates.set(c.id, c);
               }
             }
@@ -2114,8 +2205,8 @@ export async function getCuratedChristianShorts(options: {
               : [];
 
           for (const item of hydratedPlaylists) {
-            if (!existingIds.has(item.id)) {
-              existingIds.add(item.id);
+            if (!poolIdSet.has(item.id)) {
+              poolIdSet.add(item.id);
               reopenAdditions.push(item);
             }
           }
@@ -2124,8 +2215,8 @@ export async function getCuratedChristianShorts(options: {
             const targetCat = discoveryTargets[i];
             if (r.status !== 'fulfilled') continue;
             for (const item of r.value) {
-              if (item.category === targetCat && !existingIds.has(item.id)) {
-                existingIds.add(item.id);
+              if (item.category === targetCat && !poolIdSet.has(item.id)) {
+                poolIdSet.add(item.id);
                 reopenAdditions.push(item);
               }
             }
@@ -2135,9 +2226,7 @@ export async function getCuratedChristianShorts(options: {
             const existingCatIds = new Set(cachedCatalog.items.map((i) => i.id));
             const uniqueNew = reopenAdditions.filter((i) => !existingCatIds.has(i.id));
             if (uniqueNew.length > 0) {
-              cachedCatalog.items = [...uniqueNew, ...cachedCatalog.items]
-                .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-                .slice(0, MAX_CACHED_CATALOG_ITEMS);
+              cachedCatalog.items = mergeIntoCatalogPool(uniqueNew, cachedCatalog.items);
               cachedCatalog.playlistTokens = seedPlaylistTokens;
             }
           }
@@ -2151,20 +2240,26 @@ export async function getCuratedChristianShorts(options: {
 
     const mainAllCats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
     const lowMainCategoryStock = mainAllCats.some(
-      (c) => poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < 5
+      (c) => poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < 8
     );
 
     let reopenAdditions: ChristianShort[] = [];
-    if (totalUnseenInPool < 20 || lowMainCategoryStock || options.forceRefresh) {
+    if (totalUnseenInPool < 40 || lowMainCategoryStock || options.forceRefresh) {
+      const waitBudgetMs =
+        options.forceRefresh && totalUnseenInPool >= 120 && !lowMainCategoryStock
+          ? 950
+          : options.forceRefresh
+          ? 1600
+          : 1800;
       reopenAdditions = await raceWithTimeout(
         runReopenReplenish(),
-        options.forceRefresh ? 8000 : 2200,
+        waitBudgetMs,
         [] as ChristianShort[]
       );
       if (cachedCatalog) {
         poolItems = cachedCatalog.items;
       }
-    } else if (Date.now() - lastReopenReplenishAtMs > 5_000) {
+    } else if (Date.now() - lastReopenReplenishAtMs > 4_000) {
       lastReopenReplenishAtMs = Date.now();
       void runReopenReplenish();
     }
@@ -2174,29 +2269,33 @@ export async function getCuratedChristianShorts(options: {
     const olderUnseen = poolItems.filter(
       (item) => !clientExcludeSet.has(item.id) && !freshIds.has(item.id)
     );
-    const seenPool = poolItems
-      .filter((item) => clientExcludeSet.has(item.id))
-      .slice(0, olderUnseen.length + freshUnseen.length >= 180 ? 80 : 250);
-    poolItems = [
-      ...buildTieredDiverseFeed([freshUnseen, olderUnseen], true),
-      ...buildDiverseFeed(seenPool, true),
-    ];
+    const unseenCombined = buildTieredDiverseFeed([freshUnseen, olderUnseen], true);
+    const seenFallback =
+      unseenCombined.length >= 60
+        ? []
+        : buildDiverseFeed(
+            poolItems.filter((item) => clientExcludeSet.has(item.id)).slice(0, 60),
+            true
+          );
+    poolItems = [...unseenCombined, ...seenFallback];
   }
 
   // Always vary the opening order across categories and channels on every entry,
   // and place unseen videos ahead of anything the user already watched.
   const baseItems =
-    !trimmedQuery && clientExcludeSet.size > 0
+    !trimmedQuery && (clientExcludeSet.size > 0 || options.forceRefresh)
       ? poolItems
       : [
           ...buildDiverseFeed(
             poolItems.filter((item) => !clientExcludeSet.has(item.id)),
             true
           ),
-          ...buildDiverseFeed(
-            poolItems.filter((item) => clientExcludeSet.has(item.id)),
-            true
-          ),
+          ...(poolItems.filter((item) => !clientExcludeSet.has(item.id)).length >= 60
+            ? []
+            : buildDiverseFeed(
+                poolItems.filter((item) => clientExcludeSet.has(item.id)).slice(0, 60),
+                true
+              )),
         ];
 
   // If user searches with a query, query YouTube live (API search.list + multi-angle web search)
@@ -2335,8 +2434,9 @@ export async function getCuratedChristianShorts(options: {
     return searchPayload;
   }
 
+  const leanFeedItems = selectBalancedFeedSlice(combinedItems, clientExcludeSet, 45);
   return formatFilteredResponse(
-    combinedItems,
+    leanFeedItems,
     sourceMode,
     apiKeyConfigured,
     fetchedAt,

@@ -891,7 +891,7 @@ function hasChristianRelevance(
 }
 
 const STRICT_TALK_BLOCK_RE =
-  /\b(podcast|prega[cç][aã]o|serm[aã]o|devocional|medita[cç][aã]o|escola sabatina|li[cç][aã]o|fonte de alegria|sob suas asas|protagonistas|entrevista|bate-?papo|react|reagindo|como tocar|tutorial|aula de|v[ií]deo ?aula|cifra|making of|bastidores|not[ií]cia|reportagem|document[aá]rio|s[eé]ri[ae] b[ií]blica|crescimento espiritual|compartilheesperan[cç]a)\b/i;
+  /\b(podcast|prega[cç][aã]o|serm[aã]o|devocional|medita[cç][aã]o|escola sabatina|li[cç][aã]o|fonte de alegria|sob suas asas|protagonistas|entrevista|bate-?papo|react|reagindo|como tocar|tutorial|aula de|v[ií]deo ?aula|cifra|making of|bastidores|not[ií]cia|reportagem|relat[oó]rio|informativo|document[aá]rio|s[eé]ri[ae] b[ií]blica|crescimento espiritual|compartilheesperan[cç]a|epis[oó]dio|ep\.?\s*\d+|t\d+e\d+|retrospectiva)\b/i;
 
 function looksLikeWorshipSong(
   title: string,

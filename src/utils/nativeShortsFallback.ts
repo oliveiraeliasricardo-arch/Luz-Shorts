@@ -35,11 +35,16 @@ async function nativeFetchXml(url: string, timeoutMs = 4200): Promise<string | n
     : JSON.stringify(response.data ?? '');
 }
 
-export async function fetchFastNativeSeed(): Promise<ShortsApiResponse> {
+export async function fetchFastNativeSeed(
+  excludeIds: string[] = []
+): Promise<ShortsApiResponse> {
+  const excludeSet = new Set(excludeIds);
   const rawItems = await fetchFastBootstrapRssWithAdapter((url) =>
-    nativeFetchXml(url, 3200)
+    nativeFetchXml(url, 2800)
   );
-  const diverseItems = buildDiverseFeed(rawItems, true);
+  const unseen = rawItems.filter((item) => !excludeSet.has(item.id));
+  const pool = unseen.length >= 12 ? unseen : rawItems;
+  const diverseItems = buildDiverseFeed(pool, true);
   return formatFilteredResponse(
     diverseItems,
     'curated_rss',
@@ -67,16 +72,18 @@ function nextNativeArchivePage(): number {
 
 export async function fetchShortsOnNativeDevice(
   forceRefresh = false,
-  pageIndex = 0
+  pageIndex = 0,
+  excludeIds: string[] = []
 ): Promise<ShortsApiResponse> {
+  const excludeSet = new Set(excludeIds);
   const archivePage = pageIndex === 0 ? nextNativeArchivePage() : pageIndex;
   const requests =
     archivePage > 0 && pageIndex === 0
       ? [
-          fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 4200), archivePage),
-          fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 4200), 0),
+          fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 3200), archivePage),
+          fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 3200), 0),
         ]
-      : [fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 4200), pageIndex)];
+      : [fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 3200), pageIndex)];
 
   const settled = await Promise.allSettled(requests);
   const merged = new Map<string, Awaited<ReturnType<typeof fetchCuratedRssWithAdapter>>[number]>();
@@ -89,7 +96,13 @@ export async function fetchShortsOnNativeDevice(
     }
   }
 
-  const diverseItems = buildDiverseFeed([...merged.values()], true || forceRefresh);
+  const allItems = [...merged.values()];
+  const unseenItems = allItems.filter((item) => !excludeSet.has(item.id));
+  const targetPool =
+    unseenItems.length >= 24
+      ? unseenItems
+      : [...unseenItems, ...allItems.filter((item) => excludeSet.has(item.id)).slice(0, 30)];
+  const diverseItems = buildDiverseFeed(targetPool, true || forceRefresh);
   const hasMore = pageIndex < 2;
   return formatFilteredResponse(
     diverseItems,

@@ -44,7 +44,7 @@ const LEGACY_FEED_CACHE_STORAGE_KEY = 'gracaplay_feed_cache_v1';
 const LEGACY_SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
 const MAX_SEEN_IDS = 5000;
-const MAX_SURFACED_TOP_IDS = 1200;
+const MAX_SURFACED_TOP_IDS = 2500;
 const MAX_CACHED_FEED_ITEMS = 220;
 
 const MAIN_ALL_CATEGORIES: ContentCategory[] = [
@@ -599,14 +599,16 @@ export function App() {
         let data: ShortsApiResponse | null = null;
         const nativeApp = isNativeCapacitorApp();
 
+        const excludeIds = Array.from(
+          new Set([
+            ...seenIdsRef.current.slice(0, 2200),
+            ...lastSessionTopRef.current.slice(0, 1400),
+            ...(forceRefresh ? allShortsRef.current.slice(0, 45).map((i) => i.id) : []),
+          ])
+        ).slice(0, 3600);
+
         if (!nativeApp || API_BASE_URL.length > 0) {
           try {
-            const excludeIds = Array.from(
-              new Set([
-                ...seenIdsRef.current.slice(0, 700),
-                ...lastSessionTopRef.current.slice(0, 450),
-              ])
-            ).slice(0, 1150);
             const res = await fetch(`${API_BASE_URL}/api/shorts`, {
               method: 'POST',
               headers: {
@@ -617,6 +619,7 @@ export function App() {
                 refresh: forceRefresh,
                 exclude: excludeIds,
               }),
+              signal: AbortSignal.timeout(12000),
             });
             const contentType = res.headers.get('content-type') || '';
             if (res.ok && contentType.includes('application/json')) {
@@ -632,18 +635,18 @@ export function App() {
         if (!data) {
           // Two-stage fast native bootstrap when APK starts cold without cached feed
           if (!forceRefresh && !hasInitialCache) {
-            const seedData = await fetchFastNativeSeed();
+            const seedData = await fetchFastNativeSeed(excludeIds);
             if (seedData.items.length > 0) {
               await applyFeedPayload(seedData, false, false);
               setLoading(false);
-              const fullData = await fetchShortsOnNativeDevice(false);
+              const fullData = await fetchShortsOnNativeDevice(false, 0, excludeIds);
               if (fullData.items.length > 0) {
                 await applyFeedPayload(fullData, false, true);
               }
               return;
             }
           }
-          data = await fetchShortsOnNativeDevice(forceRefresh);
+          data = await fetchShortsOnNativeDevice(forceRefresh, 0, excludeIds);
         }
 
         await applyFeedPayload(data, forceRefresh, hasInitialCache);
@@ -664,9 +667,9 @@ export function App() {
   );
 
   useEffect(() => {
-    // Rotate out any cached opening video immediately on mount so rapid reopen stays fresh
+    // Rotate out any cached opening videos immediately on mount so rapid reopen stays fresh
     if (allShortsRef.current.length > 0) {
-      const openingIds = allShortsRef.current.slice(0, 3).map((item) => item.id);
+      const openingIds = allShortsRef.current.slice(0, 8).map((item) => item.id);
       recordSurfacedTopIds(openingIds);
     }
     // Pre-warm YouTube IFrame Player API immediately on mount for faster first playback
@@ -915,21 +918,17 @@ export function App() {
       const nativeApp = isNativeCapacitorApp();
       const categoryCursor = categoryCursorsRef.current[activeCategory] ?? null;
 
+      const combinedExclude = Array.from(
+        new Set([
+          ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 1800)),
+          ...(isLiveSearch ? [] : lastSessionTopRef.current.slice(0, 1100)),
+          ...allShorts.slice(0, 350).map((i) => i.id),
+          ...allShorts.slice(-350).map((i) => i.id),
+        ])
+      ).slice(0, 3600);
+
       if (!nativeApp || API_BASE_URL.length > 0) {
         const cursorToUse = isLiveSearch ? searchCursor : categoryCursor;
-        const activePool = isLiveSearch
-          ? remoteSearchShorts ?? []
-          : activeCategory === 'all'
-          ? allShorts.filter((i) => i.category !== 'feliz7play')
-          : allShorts.filter((i) => i.category === activeCategory);
-        const combinedExclude = Array.from(
-          new Set([
-            ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 500)),
-            ...(isLiveSearch ? [] : lastSessionTopRef.current.slice(0, 350)),
-            ...activePool.slice(0, 150).map((i) => i.id),
-            ...activePool.slice(-150).map((i) => i.id),
-          ])
-        ).slice(0, 1150);
 
         const res = await fetch(`${API_BASE_URL}/api/shorts/more`, {
           method: 'POST',
@@ -942,6 +941,7 @@ export function App() {
             q: isLiveSearch ? trimmedQuery : undefined,
             exclude: combinedExclude,
           }),
+          signal: AbortSignal.timeout(12000),
         });
         const contentType = res.headers.get('content-type') || '';
         if (res.ok && contentType.includes('application/json')) {
@@ -950,7 +950,7 @@ export function App() {
       } else if (!isLiveSearch) {
         const pageNum = Number(categoryCursor || '1');
         if (Number.isFinite(pageNum) && pageNum > 0) {
-          data = await fetchShortsOnNativeDevice(false, pageNum);
+          data = await fetchShortsOnNativeDevice(false, pageNum, combinedExclude);
         }
       }
 
@@ -986,6 +986,7 @@ export function App() {
         setAllShorts((prev) => {
           const existing = new Set(prev.map((i) => i.id));
           const seenSet = seenIdsSetRef.current;
+          const surfacedSet = new Set(lastSessionTopRef.current);
           const fresh = data!.items.filter((i) => !existing.has(i.id));
           if (fresh.length === 0) return prev;
 
@@ -993,20 +994,23 @@ export function App() {
           const head = anchorIdx >= 0 ? prev.slice(0, anchorIdx + 1) : [];
           const tail = anchorIdx >= 0 ? prev.slice(anchorIdx + 1) : prev;
 
-          const unseen = fresh.filter((i) => !seenSet.has(i.id));
-          const seen = fresh.filter((i) => seenSet.has(i.id));
-          const tailUnseen = tail.filter((i) => !seenSet.has(i.id));
-          const tailSeen = tail.filter((i) => seenSet.has(i.id));
+          const unseenNew = fresh.filter((i) => !seenSet.has(i.id) && !surfacedSet.has(i.id));
+          const unseenTailFresh = tail.filter((i) => !seenSet.has(i.id) && !surfacedSet.has(i.id));
+          const unseenSurfaced = [...tail, ...fresh].filter(
+            (i) => !seenSet.has(i.id) && surfacedSet.has(i.id)
+          );
+          const seenAll = [...tail, ...fresh].filter((i) => seenSet.has(i.id));
 
           const nextAll = [
             ...head,
-            ...buildDiverseFeed([...tailUnseen, ...unseen], true),
-            ...orderByOldestHistoryFirst([...tailSeen, ...seen], seenIdsRef.current),
+            ...buildDiverseFeed([...unseenNew, ...unseenTailFresh], true),
+            ...orderByOldestHistoryFirst(unseenSurfaced, lastSessionTopRef.current),
+            ...orderByOldestHistoryFirst(seenAll, seenIdsRef.current),
           ];
           writeCachedFeedSnapshot(
             nextAll,
             seenIdsSetRef.current,
-            new Set(lastSessionTopRef.current)
+            surfacedSet
           );
           return nextAll;
         });
@@ -1255,12 +1259,21 @@ export function App() {
   }, [activeIndex, visibleShorts, markShortSeen]);
 
   const handleRefreshFeed = useCallback(() => {
-    const currentId = visibleShortsRef.current[activeIndexRef.current]?.id;
+    const currentIdx = activeIndexRef.current;
+    const currentVisible = visibleShortsRef.current;
+    const currentId = currentVisible[currentIdx]?.id;
     if (currentId) {
       markShortSeen(currentId);
     }
+    const surfacedInView = [
+      ...currentVisible.slice(0, Math.max(currentIdx + 8, 16)).map((i) => i.id),
+      ...allShortsRef.current.slice(0, 16).map((i) => i.id),
+    ];
+    if (surfacedInView.length > 0) {
+      recordSurfacedTopIds(surfacedInView);
+    }
     loadShorts(true);
-  }, [markShortSeen, loadShorts]);
+  }, [markShortSeen, recordSurfacedTopIds, loadShorts]);
 
   // Prefetch next 2 thumbnails so swiping feels instantaneous without keeping extra video iframes open
   useEffect(() => {
