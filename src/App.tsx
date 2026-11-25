@@ -32,7 +32,7 @@ import {
   isNativeCapacitorApp,
 } from './utils/nativeShortsFallback';
 import { getViewportOrientationState } from './utils/screenOrientation';
-import { buildDiverseFeed, buildTieredDiverseFeed } from './shared/curatorCore';
+import { buildDiverseFeed } from './shared/curatorCore';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -43,8 +43,8 @@ const FEED_CACHE_STORAGE_KEY = 'gracaplay_feed_cache_v1';
 const LEGACY_SAVED_STORAGE_KEY = 'luz_shorts_saved_ids_v1';
 const LEGACY_SEEN_STORAGE_KEY = 'luz_shorts_seen_ids_v1';
 const MAX_SEEN_IDS = 5000;
-const MAX_SURFACED_TOP_IDS = 120;
-const MAX_CACHED_FEED_ITEMS = 90;
+const MAX_SURFACED_TOP_IDS = 1200;
+const MAX_CACHED_FEED_ITEMS = 220;
 
 const MAIN_ALL_CATEGORIES: ContentCategory[] = [
   'pregacoes',
@@ -52,6 +52,25 @@ const MAIN_ALL_CATEGORIES: ContentCategory[] = [
   'louvores',
   'testemunhos',
 ];
+
+function orderByOldestHistoryFirst(
+  items: ChristianShort[],
+  historyIds: string[]
+): ChristianShort[] {
+  if (items.length <= 1 || historyIds.length === 0) return items;
+  const recencyRank = new Map<string, number>();
+  historyIds.forEach((id, idx) => {
+    if (!recencyRank.has(id)) {
+      recencyRank.set(id, idx);
+    }
+  });
+  // Higher index = surfaced/watched longer ago -> comes FIRST when recycling
+  return [...items].sort((a, b) => {
+    const rankA = recencyRank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const rankB = recencyRank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    return rankB - rankA;
+  });
+}
 
 function prioritizeAndShuffleFeed(
   source: ChristianShort[],
@@ -65,10 +84,14 @@ function prioritizeAndShuffleFeed(
   const unseenFresh = source.filter(
     (item) => !seenSet.has(item.id) && !surfacedSet.has(item.id)
   );
-  const unseenSurfaced = source.filter(
-    (item) => !seenSet.has(item.id) && surfacedSet.has(item.id)
+  const unseenSurfaced = orderByOldestHistoryFirst(
+    source.filter((item) => !seenSet.has(item.id) && surfacedSet.has(item.id)),
+    surfacedTopIds
   );
-  const seenItems = source.filter((item) => seenSet.has(item.id));
+  const seenItems = orderByOldestHistoryFirst(
+    source.filter((item) => seenSet.has(item.id)),
+    seenIds
+  );
 
   const targetHasFresh =
     targetCategory && targetCategory !== 'all' && targetCategory !== 'salvos'
@@ -78,25 +101,22 @@ function prioritizeAndShuffleFeed(
         : unseenFresh.length > 0;
 
   if (!targetHasFresh && unseenSurfaced.length > 0) {
-    const resetIds =
-      targetCategory && targetCategory !== 'all' && targetCategory !== 'salvos'
-        ? unseenSurfaced
-            .filter((item) => item.category === targetCategory)
-            .map((item) => item.id)
-        : unseenSurfaced
-            .filter((item) => targetCategory !== 'all' || item.category !== 'feliz7play')
-            .map((item) => item.id);
-    const allUnseen = source.filter((item) => !seenSet.has(item.id));
+    // Preserve surfaced history so recent videos stay at the end; only surface oldest-seen items first
     return {
-      items: [...buildDiverseFeed(allUnseen, true), ...buildDiverseFeed(seenItems, true)],
-      resetSurfacedIds: resetIds,
+      items: [
+        ...buildDiverseFeed(unseenFresh, true),
+        ...unseenSurfaced,
+        ...seenItems,
+      ],
+      resetSurfacedIds: [],
     };
   }
 
   return {
     items: [
-      ...buildTieredDiverseFeed([unseenFresh, unseenSurfaced], true),
-      ...buildDiverseFeed(seenItems, true),
+      ...buildDiverseFeed(unseenFresh, true),
+      ...unseenSurfaced,
+      ...seenItems,
     ],
     resetSurfacedIds: [],
   };
@@ -104,7 +124,7 @@ function prioritizeAndShuffleFeed(
 
 function extractSessionTopIds(items: ChristianShort[]): string[] {
   const picked = new Set<string>();
-  for (const item of items.filter((i) => i.category !== 'feliz7play').slice(0, 10)) {
+  for (const item of items.filter((i) => i.category !== 'feliz7play').slice(0, 12)) {
     picked.add(item.id);
   }
   const categories: ContentCategory[] = [
@@ -176,10 +196,23 @@ function readCachedFeedSnapshot(): ChristianShort[] {
   }
 }
 
-function writeCachedFeedSnapshot(items: ChristianShort[]): void {
+function writeCachedFeedSnapshot(
+  items: ChristianShort[],
+  seenSet?: Set<string>,
+  surfacedSet?: Set<string>
+): void {
   if (items.length === 0) return;
   try {
-    const compact = items.slice(0, MAX_CACHED_FEED_ITEMS).map((item) =>
+    // Store brand-new unseen & unsurfaced items first so the next cold launch always opens on fresh videos
+    const unseenFresh = items.filter(
+      (item) => !seenSet?.has(item.id) && !surfacedSet?.has(item.id)
+    );
+    const unseenBackup = items.filter(
+      (item) => !seenSet?.has(item.id) && surfacedSet?.has(item.id)
+    );
+    const preferred = [...unseenFresh, ...unseenBackup];
+    const source = preferred.length > 0 ? preferred : items;
+    const compact = source.slice(0, MAX_CACHED_FEED_ITEMS).map((item) =>
       item.description.length > 160
         ? { ...item, description: `${item.description.slice(0, 157)}...` }
         : item
@@ -405,10 +438,14 @@ export function App() {
     const unseenFresh = orderedSource.filter(
       (item) => !seenSet.has(item.id) && !lastTopSet.has(item.id)
     );
-    const unseenPrevTop = orderedSource.filter(
-      (item) => !seenSet.has(item.id) && lastTopSet.has(item.id)
+    const unseenPrevTop = orderByOldestHistoryFirst(
+      orderedSource.filter((item) => !seenSet.has(item.id) && lastTopSet.has(item.id)),
+      lastSessionTopRef.current
     );
-    const seenItems = orderedSource.filter((item) => seenSet.has(item.id));
+    const seenItems = orderByOldestHistoryFirst(
+      orderedSource.filter((item) => seenSet.has(item.id)),
+      seenIdsRef.current
+    );
 
     let items: ChristianShort[];
     if (unseenFresh.length === 0 && unseenPrevTop.length === 0 && seenItems.length > 0) {
@@ -424,12 +461,16 @@ export function App() {
       const recentSet = seenIdsSetRef.current;
       items = [
         ...buildDiverseFeed(orderedSource.filter((item) => !recentSet.has(item.id)), true),
-        ...buildDiverseFeed(orderedSource.filter((item) => recentSet.has(item.id)), true),
+        ...orderByOldestHistoryFirst(
+          orderedSource.filter((item) => recentSet.has(item.id)),
+          recentOnly
+        ),
       ];
     } else {
       items = [
-        ...buildTieredDiverseFeed([unseenFresh, unseenPrevTop], true),
-        ...buildDiverseFeed(seenItems, true),
+        ...buildDiverseFeed(unseenFresh, true),
+        ...unseenPrevTop,
+        ...seenItems,
       ];
     }
 
@@ -470,7 +511,11 @@ export function App() {
         }
       }
 
-      writeCachedFeedSnapshot(items);
+      writeCachedFeedSnapshot(
+        items,
+        seenIdsSetRef.current,
+        new Set(lastSessionTopRef.current)
+      );
 
       if (preserveActivePlayback && !forceRefresh && allShortsRef.current.length > 0) {
         const currentVisible = visibleShortsRef.current;
@@ -551,10 +596,10 @@ export function App() {
           try {
             const excludeIds = Array.from(
               new Set([
-                ...lastSessionTopRef.current.slice(0, 45),
-                ...seenIdsRef.current.slice(0, 600),
+                ...seenIdsRef.current.slice(0, 700),
+                ...lastSessionTopRef.current.slice(0, 450),
               ])
-            ).slice(0, 645);
+            ).slice(0, 1150);
             const res = await fetch(`${API_BASE_URL}/api/shorts`, {
               method: 'POST',
               headers: {
@@ -612,10 +657,15 @@ export function App() {
   );
 
   useEffect(() => {
+    // Rotate out any cached opening video immediately on mount so rapid reopen stays fresh
+    if (allShortsRef.current.length > 0) {
+      const openingIds = allShortsRef.current.slice(0, 3).map((item) => item.id);
+      recordSurfacedTopIds(openingIds);
+    }
     // Pre-warm YouTube IFrame Player API immediately on mount for faster first playback
     loadYouTubeIframeApi().catch(() => {});
     loadShorts(false);
-  }, [loadShorts]);
+  }, [loadShorts, recordSurfacedTopIds]);
 
   // Unlock Web autoplay audio seamlessly on the very first user gesture anywhere
   useEffect(() => {
@@ -720,18 +770,7 @@ export function App() {
     };
   }, [submittedSearchQuery, activeCategory, searchSubmitTick]);
 
-  useEffect(() => {
-    if (audioUnlocked) return;
-    const unlock = () => setAudioUnlocked(true);
-    window.addEventListener('pointerdown', unlock, { passive: true, once: true });
-    window.addEventListener('touchstart', unlock, { passive: true, once: true });
-    window.addEventListener('keydown', unlock, { passive: true, once: true });
-    return () => {
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('touchstart', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
-  }, [audioUnlocked]);
+  // Live YouTube search query handled above; audio unlock handled once at lines 621-638
 
   useEffect(() => {
     try {
@@ -878,11 +917,12 @@ export function App() {
           : allShorts.filter((i) => i.category === activeCategory);
         const combinedExclude = Array.from(
           new Set([
-            ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 400)),
+            ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 500)),
+            ...(isLiveSearch ? [] : lastSessionTopRef.current.slice(0, 350)),
             ...activePool.slice(0, 150).map((i) => i.id),
             ...activePool.slice(-150).map((i) => i.id),
           ])
-        ).slice(0, 700);
+        ).slice(0, 1150);
 
         const res = await fetch(`${API_BASE_URL}/api/shorts/more`, {
           method: 'POST',
@@ -951,11 +991,17 @@ export function App() {
           const tailUnseen = tail.filter((i) => !seenSet.has(i.id));
           const tailSeen = tail.filter((i) => seenSet.has(i.id));
 
-          return [
+          const nextAll = [
             ...head,
             ...buildDiverseFeed([...tailUnseen, ...unseen], true),
-            ...buildDiverseFeed([...tailSeen, ...seen], true),
+            ...orderByOldestHistoryFirst([...tailSeen, ...seen], seenIdsRef.current),
           ];
+          writeCachedFeedSnapshot(
+            nextAll,
+            seenIdsSetRef.current,
+            new Set(lastSessionTopRef.current)
+          );
+          return nextAll;
         });
         categoryCursorsRef.current[activeCategory] = data.nextCursor ?? null;
         const nextHasMore = Boolean(data.hasMore);

@@ -225,7 +225,7 @@ interface PaginationSessionState {
   allCycleIdx: number;
 }
 
-const MAX_CACHED_CATALOG_ITEMS = 1200;
+const MAX_CACHED_CATALOG_ITEMS = 2500;
 
 let cachedCatalog: {
   items: ChristianShort[];
@@ -241,6 +241,7 @@ let inFlightCatalogPromise: Promise<{
   playlistTokens: Record<string, string | null>;
 }> | null = null;
 let lastReopenReplenishAtMs = 0;
+let depthEnrichmentStarted = false;
 
 // Persistent server-side rotation cursors so new sessions and refreshes dig deeper
 // into YouTube rather than returning the exact same page-1 results every time.
@@ -1692,6 +1693,121 @@ async function buildBaseCatalog(
   };
 }
 
+async function enrichCatalogDepth(
+  apiKey: string,
+  apiKeyConfigured: boolean
+): Promise<void> {
+  if (!cachedCatalog) return;
+  try {
+    const existingIds = new Set(cachedCatalog.items.map((i) => i.id));
+    const additions: ChristianShort[] = [];
+
+    const rssArchivePromise = Promise.allSettled([
+      fetchFromCuratedRss(1, 4500),
+      fetchFromCuratedRss(2, 4500),
+    ]);
+
+    const extraDiscoveryCats: ContentCategory[] = [
+      'testemunhos',
+      'pregacoes',
+      'biblia',
+      'feliz7play',
+      'louvores',
+    ];
+    const extraQueries: Array<{ cat: ContentCategory; query: string; sortByDate: boolean }> = [];
+    for (const cat of extraDiscoveryCats) {
+      const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+      const count = cat === 'testemunhos' || cat === 'pregacoes' ? 3 : 2;
+      for (let k = 0; k < count; k++) {
+        const idx = globalDiscoveryOffsets[cat] % queries.length;
+        globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
+        extraQueries.push({ cat, query: queries[idx], sortByDate: idx % 2 === 1 });
+      }
+    }
+
+    const [rssArchiveResults, discoveryResults, deeperApiResult] = await Promise.all([
+      rssArchivePromise,
+      Promise.allSettled(
+        extraQueries.map((job) =>
+          fetchYoutubeWebSearch(apiKey, job.query, job.cat, job.sortByDate, existingIds)
+        )
+      ),
+      apiKeyConfigured
+        ? fetchFromYoutubeApi(apiKey, true).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    if (deeperApiResult) {
+      for (const item of deeperApiResult.items) {
+        if (!existingIds.has(item.id)) {
+          existingIds.add(item.id);
+          additions.push(item);
+        }
+      }
+      if (cachedCatalog) {
+        cachedCatalog.playlistTokens = {
+          ...cachedCatalog.playlistTokens,
+          ...deeperApiResult.playlistTokens,
+        };
+      }
+    }
+
+    for (let i = 0; i < discoveryResults.length; i++) {
+      const res = discoveryResults[i];
+      const targetCat = extraQueries[i].cat;
+      if (res.status !== 'fulfilled') continue;
+      for (const item of res.value) {
+        if (item.category === targetCat && !existingIds.has(item.id)) {
+          existingIds.add(item.id);
+          additions.push(item);
+        }
+      }
+    }
+
+    const rssArchiveCandidates = new Map<string, CandidateVideo>();
+    for (const r of rssArchiveResults) {
+      if (r.status !== 'fulfilled') continue;
+      for (const item of r.value) {
+        if (existingIds.has(item.id)) continue;
+        if (apiKeyConfigured) {
+          rssArchiveCandidates.set(item.id, {
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            channelId: item.channelId,
+            channelTitle: item.channelTitle,
+            publishedAt: item.publishedAt,
+            thumbnailUrl: item.thumbnailUrl,
+            hintCategory: item.category,
+          });
+        } else {
+          existingIds.add(item.id);
+          additions.push(item);
+        }
+      }
+    }
+
+    if (apiKeyConfigured && rssArchiveCandidates.size > 0) {
+      const verifiedArchive = await hydrateAndVerifyCandidates(apiKey, rssArchiveCandidates);
+      for (const item of verifiedArchive) {
+        if (!existingIds.has(item.id)) {
+          existingIds.add(item.id);
+          additions.push(item);
+        }
+      }
+    }
+
+    if (additions.length > 0 && cachedCatalog) {
+      cachedCatalog.items = [...cachedCatalog.items, ...additions].slice(
+        0,
+        MAX_CACHED_CATALOG_ITEMS
+      );
+    }
+  } catch {
+    // Non-fatal background depth enrichment
+  }
+}
+
 export function warmCatalogInBackground(): void {
   if (cachedCatalog && Date.now() - cachedCatalog.fetchedAtMs < CACHE_TTL_MS) {
     return;
@@ -1699,9 +1815,17 @@ export function warmCatalogInBackground(): void {
   if (inFlightCatalogPromise) return;
   const apiKey = process.env.YOUTUBE_API_KEY?.trim() || '';
   const apiKeyConfigured = apiKey.length > 0;
-  inFlightCatalogPromise = buildBaseCatalog(apiKey, apiKeyConfigured, false).finally(() => {
-    inFlightCatalogPromise = null;
-  });
+  inFlightCatalogPromise = buildBaseCatalog(apiKey, apiKeyConfigured, false)
+    .then((result) => {
+      if (!depthEnrichmentStarted) {
+        depthEnrichmentStarted = true;
+        void enrichCatalogDepth(apiKey, apiKeyConfigured);
+      }
+      return result;
+    })
+    .finally(() => {
+      inFlightCatalogPromise = null;
+    });
 }
 
 export async function getCuratedChristianShorts(options: {
@@ -1909,13 +2033,22 @@ export async function getCuratedChristianShorts(options: {
       return reopenAdditions;
     };
 
+    const mainAllCats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+    const lowMainCategoryStock = mainAllCats.some(
+      (c) => poolItems.filter((i) => i.category === c && !clientExcludeSet.has(i.id)).length < 5
+    );
+
     let reopenAdditions: ChristianShort[] = [];
-    if (totalUnseenInPool < 15 || options.forceRefresh) {
-      reopenAdditions = await runReopenReplenish();
+    if (totalUnseenInPool < 20 || lowMainCategoryStock || options.forceRefresh) {
+      reopenAdditions = await raceWithTimeout(
+        runReopenReplenish(),
+        options.forceRefresh ? 8000 : 2200,
+        [] as ChristianShort[]
+      );
       if (cachedCatalog) {
         poolItems = cachedCatalog.items;
       }
-    } else if (Date.now() - lastReopenReplenishAtMs > 20_000) {
+    } else if (Date.now() - lastReopenReplenishAtMs > 5_000) {
       lastReopenReplenishAtMs = Date.now();
       void runReopenReplenish();
     }
@@ -1925,7 +2058,9 @@ export async function getCuratedChristianShorts(options: {
     const olderUnseen = poolItems.filter(
       (item) => !clientExcludeSet.has(item.id) && !freshIds.has(item.id)
     );
-    const seenPool = poolItems.filter((item) => clientExcludeSet.has(item.id));
+    const seenPool = poolItems
+      .filter((item) => clientExcludeSet.has(item.id))
+      .slice(0, olderUnseen.length + freshUnseen.length >= 180 ? 80 : 250);
     poolItems = [
       ...buildTieredDiverseFeed([freshUnseen, olderUnseen], true),
       ...buildDiverseFeed(seenPool, true),

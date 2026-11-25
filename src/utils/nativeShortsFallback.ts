@@ -52,16 +52,44 @@ export async function fetchFastNativeSeed(): Promise<ShortsApiResponse> {
   );
 }
 
+const NATIVE_ROTATION_KEY = 'gracaplay_native_rss_rot_v1';
+
+function nextNativeArchivePage(): number {
+  try {
+    const prev = Number(localStorage.getItem(NATIVE_ROTATION_KEY) || '0');
+    const next = (Number.isFinite(prev) ? prev + 1 : 1) % 3;
+    localStorage.setItem(NATIVE_ROTATION_KEY, String(next));
+    return next;
+  } catch {
+    return 1;
+  }
+}
+
 export async function fetchShortsOnNativeDevice(
   forceRefresh = false,
   pageIndex = 0
 ): Promise<ShortsApiResponse> {
-  const rawItems = await fetchCuratedRssWithAdapter(
-    (url) => nativeFetchXml(url, 4200),
-    pageIndex
-  );
+  const archivePage = pageIndex === 0 ? nextNativeArchivePage() : pageIndex;
+  const requests =
+    archivePage > 0 && pageIndex === 0
+      ? [
+          fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 4200), archivePage),
+          fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 4200), 0),
+        ]
+      : [fetchCuratedRssWithAdapter((url) => nativeFetchXml(url, 4200), pageIndex)];
 
-  const diverseItems = buildDiverseFeed(rawItems, forceRefresh || pageIndex > 0);
+  const settled = await Promise.allSettled(requests);
+  const merged = new Map<string, Awaited<ReturnType<typeof fetchCuratedRssWithAdapter>>[number]>();
+  for (const r of settled) {
+    if (r.status !== 'fulfilled') continue;
+    for (const item of r.value) {
+      if (!merged.has(item.id)) {
+        merged.set(item.id, item);
+      }
+    }
+  }
+
+  const diverseItems = buildDiverseFeed([...merged.values()], true || forceRefresh);
   const hasMore = pageIndex < 2;
   return formatFilteredResponse(
     diverseItems,
