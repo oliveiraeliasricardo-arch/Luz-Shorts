@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bookmark,
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   Pause,
   PictureInPicture2,
@@ -28,6 +30,9 @@ interface ShortsFeedStageProps {
   isNativePipActive?: boolean;
   isHorizontalMode?: boolean;
   isCompactLandscape?: boolean;
+  prevCategoryLabel?: string | null;
+  nextCategoryLabel?: string | null;
+  categorySwitchBanner?: { label: string; direction: -1 | 1; nonce: number } | null;
   savedSet: Set<string>;
   feedRef: React.RefObject<HTMLDivElement | null>;
   onActiveIndexChange: (index: number) => void;
@@ -36,6 +41,7 @@ interface ShortsFeedStageProps {
   onShare: (short: ChristianShort) => void;
   onRefresh: () => void;
   onEnded: () => void;
+  onStepCategory?: (direction: -1 | 1) => void;
 }
 
 function formatViews(views: number | null): string | null {
@@ -68,6 +74,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   isNativePipActive = false,
   isHorizontalMode = false,
   isCompactLandscape = false,
+  prevCategoryLabel = null,
+  nextCategoryLabel = null,
+  categorySwitchBanner = null,
   savedSet,
   feedRef,
   onActiveIndexChange,
@@ -76,6 +85,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   onShare,
   onRefresh,
   onEnded,
+  onStepCategory,
 }) => {
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
   const playerHostElRef = useRef<HTMLDivElement | null>(null);
@@ -88,20 +98,31 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const currentVideoIdRef = useRef<string | null>(null);
   const autoplayCheckTimerRef = useRef<number | null>(null);
   const wheelLockUntilRef = useRef<number>(0);
+  const horizontalWheelLockUntilRef = useRef<number>(0);
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const touchStartTimeRef = useRef<number>(0);
+  const lastTouchXRef = useRef<number>(0);
   const lastTouchYRef = useRef<number>(0);
   const lastTouchTimeRef = useRef<number>(0);
   const gestureAxisRef = useRef<'pending' | 'vertical' | 'horizontal'>('pending');
+  const velocityXRef = useRef<number>(0);
   const velocityYRef = useRef<number>(0);
   const dragOffsetPxRef = useRef<number>(0);
+  const horizontalDragPxRef = useRef<number>(0);
+  const rawHorizontalDeltaRef = useRef<number>(0);
   const touchDraggedRef = useRef<boolean>(false);
   const pullDistanceRef = useRef<number>(0);
   const peakPullDistanceRef = useRef<number>(0);
   const longPullRefreshArmedRef = useRef<boolean>(false);
   const lastWheelTimeRef = useRef<number>(0);
   const lastWheelAbsDeltaRef = useRef<number>(0);
+  const mouseDragStartXRef = useRef<number | null>(null);
+  const mouseDragStartYRef = useRef<number | null>(null);
+  const mouseDragLastXRef = useRef<number>(0);
+  const mouseDragLastTimeRef = useRef<number>(0);
+  const mouseVelocityXRef = useRef<number>(0);
+  const mouseDragAxisRef = useRef<'pending' | 'horizontal' | 'ignored'>('pending');
   const slideTimerRef = useRef<number | null>(null);
   const renderedIndexRef = useRef<number>(activeIndex);
   const prevFirstItemIdRef = useRef<string | null>(items[0]?.id ?? null);
@@ -118,6 +139,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const [dragOffsetPx, setDragOffsetPx] = useState(0);
+  const [horizontalDragPx, setHorizontalDragPx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isSliding, setIsSliding] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -140,10 +162,13 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const effectiveDurationRef = useRef(effectiveDuration);
   const currentTimeRef = useRef(currentTime);
   const hasErrorRef = useRef(hasError);
+  const prevCategoryLabelRef = useRef<string | null>(prevCategoryLabel);
+  const nextCategoryLabelRef = useRef<string | null>(nextCategoryLabel);
   const onEndedRef = useRef(onEnded);
   const onRefreshRef = useRef(onRefresh);
   const onAudioUnlockedRef = useRef(onAudioUnlocked);
   const onActiveIndexChangeRef = useRef(onActiveIndexChange);
+  const onStepCategoryRef = useRef(onStepCategory);
 
   activeVideoIdRef.current = activeVideoId;
   activeIndexRef.current = activeIndex;
@@ -154,10 +179,13 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   effectiveDurationRef.current = effectiveDuration;
   currentTimeRef.current = currentTime;
   hasErrorRef.current = hasError;
+  prevCategoryLabelRef.current = prevCategoryLabel;
+  nextCategoryLabelRef.current = nextCategoryLabel;
   onEndedRef.current = onEnded;
   onRefreshRef.current = onRefresh;
   onAudioUnlockedRef.current = onAudioUnlocked;
   onActiveIndexChangeRef.current = onActiveIndexChange;
+  onStepCategoryRef.current = onStepCategory;
 
   const currentFirstItemId = items[0]?.id ?? null;
   const indexDeltaFromLastRender = activeIndex - renderedIndexRef.current;
@@ -516,23 +544,64 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
     }
   }, [activeIndex, items.length, feedRef]);
 
-  // Smooth TikTok-style wheel + real-time 1:1 finger drag swipe & velocity flick navigation
+  // Smooth TikTok-style wheel + real-time 1:1 finger drag swipe & horizontal category navigation
   useEffect(() => {
     const container = feedRef.current;
     if (!container) return;
 
+    const commitHorizontalStep = (direction: -1 | 1) => {
+      if (!onStepCategoryRef.current) return false;
+      const canStep =
+        direction === -1
+          ? Boolean(prevCategoryLabelRef.current)
+          : Boolean(nextCategoryLabelRef.current);
+      if (!canStep) return false;
+      silenceCurrentVideoImmediately();
+      onAudioUnlockedRef.current();
+      onStepCategoryRef.current(direction);
+      return true;
+    };
+
+    const computeHorizontalVisualOffset = (deltaX: number) => {
+      // Swiping right (deltaX > 0) reveals previous category (-1); swiping left (deltaX < 0) reveals next (+1)
+      const hasTarget =
+        deltaX > 0
+          ? Boolean(prevCategoryLabelRef.current)
+          : Boolean(nextCategoryLabelRef.current);
+      if (!hasTarget) {
+        return Math.max(-44, Math.min(44, Math.round(deltaX * 0.22)));
+      }
+      return Math.max(-132, Math.min(132, Math.round(deltaX * 0.56)));
+    };
+
     const handleWheel = (e: WheelEvent) => {
-      const absDelta = Math.abs(e.deltaY);
-      if (absDelta < 8) return;
+      const absY = Math.abs(e.deltaY);
+      const absX = Math.abs(e.deltaX);
+
+      // Two-finger horizontal trackpad swipe switches categories
+      if (absX >= 18 && absX > absY * 1.35 && onStepCategoryRef.current) {
+        e.preventDefault();
+        const now = Date.now();
+        if (now < horizontalWheelLockUntilRef.current) return;
+        horizontalWheelLockUntilRef.current = now + 480;
+        if (e.deltaX > 0) {
+          commitHorizontalStep(1);
+        } else {
+          commitHorizontalStep(-1);
+        }
+        return;
+      }
+
+      if (absY < 8) return;
       e.preventDefault();
 
       const now = Date.now();
       const timeSinceLastWheel = now - lastWheelTimeRef.current;
       const isDeceleratingTail =
-        timeSinceLastWheel < 85 && absDelta <= lastWheelAbsDeltaRef.current * 1.05;
+        timeSinceLastWheel < 85 && absY <= lastWheelAbsDeltaRef.current * 1.05;
 
       lastWheelTimeRef.current = now;
-      lastWheelAbsDeltaRef.current = absDelta;
+      lastWheelAbsDeltaRef.current = absY;
 
       if (now < wheelLockUntilRef.current || (isDeceleratingTail && now < wheelLockUntilRef.current + 180)) {
         return;
@@ -548,22 +617,35 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
+      const targetEl = e.target as HTMLElement | null;
+      if (
+        targetEl?.closest(
+          '[data-no-swipe="true"], [role="slider"], a, button:not([data-stage-surface="true"])'
+        )
+      ) {
+        return;
+      }
       const touch = e.touches[0];
       const now = performance.now();
       touchStartXRef.current = touch.clientX;
       touchStartYRef.current = touch.clientY;
       touchStartTimeRef.current = now;
+      lastTouchXRef.current = touch.clientX;
       lastTouchYRef.current = touch.clientY;
       lastTouchTimeRef.current = now;
       gestureAxisRef.current = 'pending';
+      velocityXRef.current = 0;
       velocityYRef.current = 0;
       dragOffsetPxRef.current = 0;
+      horizontalDragPxRef.current = 0;
+      rawHorizontalDeltaRef.current = 0;
       touchDraggedRef.current = false;
       pullDistanceRef.current = 0;
       peakPullDistanceRef.current = 0;
       longPullRefreshArmedRef.current = false;
       setPullDistance(0);
       setDragOffsetPx(0);
+      setHorizontalDragPx(0);
       setIsDragging(true);
     };
 
@@ -576,8 +658,11 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       const currentY = touch.clientY;
       const now = performance.now();
       const dt = Math.max(1, now - lastTouchTimeRef.current);
-      const instantVelocity = (currentY - lastTouchYRef.current) / dt;
-      velocityYRef.current = velocityYRef.current * 0.35 + instantVelocity * 0.65;
+      const instantVelocityX = (currentX - lastTouchXRef.current) / dt;
+      const instantVelocityY = (currentY - lastTouchYRef.current) / dt;
+      velocityXRef.current = velocityXRef.current * 0.35 + instantVelocityX * 0.65;
+      velocityYRef.current = velocityYRef.current * 0.35 + instantVelocityY * 0.65;
+      lastTouchXRef.current = currentX;
       lastTouchYRef.current = currentY;
       lastTouchTimeRef.current = now;
 
@@ -587,11 +672,19 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       if (gestureAxisRef.current === 'pending') {
         if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
           gestureAxisRef.current =
-            Math.abs(deltaX) > Math.abs(deltaY) * 1.25 ? 'horizontal' : 'vertical';
+            Math.abs(deltaX) > Math.abs(deltaY) * 1.2 ? 'horizontal' : 'vertical';
         }
       }
 
       if (gestureAxisRef.current === 'horizontal') {
+        if (Math.abs(deltaX) > 7) {
+          touchDraggedRef.current = true;
+          e.preventDefault();
+        }
+        rawHorizontalDeltaRef.current = deltaX;
+        const visualX = computeHorizontalVisualOffset(deltaX);
+        horizontalDragPxRef.current = visualX;
+        setHorizontalDragPx(visualX);
         return;
       }
 
@@ -673,15 +766,22 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       if (touchStartYRef.current === null) return;
 
       const currentOffset = dragOffsetPxRef.current;
+      const currentHorizontalOffset = horizontalDragPxRef.current;
+      const rawDeltaX = rawHorizontalDeltaRef.current;
       const pulled = pullDistanceRef.current;
       const peakPulled = peakPullDistanceRef.current;
       const wasLongPullArmed = longPullRefreshArmedRef.current;
       const wasHorizontal = gestureAxisRef.current === 'horizontal';
+      const velocityX = velocityXRef.current;
       const velocityY = velocityYRef.current;
       const idx = activeIndexRef.current;
       const total = itemsLengthRef.current;
+      const containerWidth = container.clientWidth || 360;
       const containerHeight = container.clientHeight || 640;
+      const distThresholdX = Math.max(52, Math.min(115, containerWidth * 0.16));
       const distThreshold = Math.max(56, containerHeight * 0.16);
+      const hasLeftFlick = velocityX < -0.32 && rawDeltaX < -22;
+      const hasRightFlick = velocityX > 0.32 && rawDeltaX > 22;
       const hasUpFlick = velocityY < -0.35 && currentOffset < -22;
       const hasDownFlick = velocityY > 0.35 && currentOffset > 22;
       const metRefreshPull =
@@ -690,11 +790,20 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
       setIsDragging(false);
       dragOffsetPxRef.current = 0;
+      horizontalDragPxRef.current = 0;
+      rawHorizontalDeltaRef.current = 0;
       setDragOffsetPx(0);
+      setHorizontalDragPx(0);
 
       if (wasHorizontal) {
-        if (Math.abs(currentOffset) > 2) {
-          triggerSlideWindow(280);
+        let switched = false;
+        if (rawDeltaX <= -distThresholdX || hasLeftFlick) {
+          switched = commitHorizontalStep(1);
+        } else if (rawDeltaX >= distThresholdX || hasRightFlick) {
+          switched = commitHorizontalStep(-1);
+        }
+        if (!switched && Math.abs(currentHorizontalOffset) > 2) {
+          triggerSlideWindow(240);
         }
       } else if (idx === 0 && pulled > 0) {
         if (!isRefreshingRef.current && metRefreshPull) {
@@ -728,7 +837,101 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       setPullDistance(0);
       touchStartXRef.current = null;
       touchStartYRef.current = null;
+      velocityXRef.current = 0;
       velocityYRef.current = 0;
+      window.setTimeout(() => {
+        touchDraggedRef.current = false;
+      }, 60);
+    };
+
+    // Desktop mouse horizontal click-and-drag category switching
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0 || !onStepCategoryRef.current) return;
+      const targetEl = e.target as HTMLElement | null;
+      if (
+        targetEl?.closest(
+          '[data-no-swipe="true"], [role="slider"], a, button:not([data-stage-surface="true"])'
+        )
+      ) {
+        return;
+      }
+      mouseDragStartXRef.current = e.clientX;
+      mouseDragStartYRef.current = e.clientY;
+      mouseDragLastXRef.current = e.clientX;
+      mouseDragLastTimeRef.current = performance.now();
+      mouseVelocityXRef.current = 0;
+      mouseDragAxisRef.current = 'pending';
+      rawHorizontalDeltaRef.current = 0;
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (
+        e.pointerType !== 'mouse' ||
+        mouseDragStartXRef.current === null ||
+        mouseDragStartYRef.current === null
+      ) {
+        return;
+      }
+      const deltaX = e.clientX - mouseDragStartXRef.current;
+      const deltaY = e.clientY - mouseDragStartYRef.current;
+      const now = performance.now();
+      const dt = Math.max(1, now - mouseDragLastTimeRef.current);
+      const instantVx = (e.clientX - mouseDragLastXRef.current) / dt;
+      mouseVelocityXRef.current = mouseVelocityXRef.current * 0.35 + instantVx * 0.65;
+      mouseDragLastXRef.current = e.clientX;
+      mouseDragLastTimeRef.current = now;
+
+      if (mouseDragAxisRef.current === 'pending') {
+        if (Math.abs(deltaX) > 12 || Math.abs(deltaY) > 12) {
+          if (Math.abs(deltaX) > Math.abs(deltaY) * 1.35) {
+            mouseDragAxisRef.current = 'horizontal';
+            touchDraggedRef.current = true;
+            setIsDragging(true);
+          } else {
+            mouseDragAxisRef.current = 'ignored';
+            return;
+          }
+        }
+      }
+
+      if (mouseDragAxisRef.current !== 'horizontal') return;
+
+      rawHorizontalDeltaRef.current = deltaX;
+      const visualX = computeHorizontalVisualOffset(deltaX);
+      horizontalDragPxRef.current = visualX;
+      setHorizontalDragPx(visualX);
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || mouseDragStartXRef.current === null) return;
+      const wasHorizontal = mouseDragAxisRef.current === 'horizontal';
+      const rawDeltaX = rawHorizontalDeltaRef.current;
+      const vx = mouseVelocityXRef.current;
+      const visualOffset = horizontalDragPxRef.current;
+      const containerWidth = container.clientWidth || 360;
+      const distThresholdX = Math.max(54, Math.min(120, containerWidth * 0.16));
+
+      mouseDragStartXRef.current = null;
+      mouseDragStartYRef.current = null;
+      mouseDragAxisRef.current = 'pending';
+      mouseVelocityXRef.current = 0;
+
+      if (!wasHorizontal) return;
+
+      setIsDragging(false);
+      horizontalDragPxRef.current = 0;
+      rawHorizontalDeltaRef.current = 0;
+      setHorizontalDragPx(0);
+
+      let switched = false;
+      if (rawDeltaX <= -distThresholdX || (vx < -0.35 && rawDeltaX < -24)) {
+        switched = commitHorizontalStep(1);
+      } else if (rawDeltaX >= distThresholdX || (vx > 0.35 && rawDeltaX > 24)) {
+        switched = commitHorizontalStep(-1);
+      }
+      if (!switched && Math.abs(visualOffset) > 2) {
+        triggerSlideWindow(220);
+      }
       window.setTimeout(() => {
         touchDraggedRef.current = false;
       }, 60);
@@ -739,6 +942,10 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
     container.addEventListener('touchend', handleTouchEnd, { passive: true });
     container.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+    container.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
 
     return () => {
       container.removeEventListener('wheel', handleWheel);
@@ -746,8 +953,12 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
+      container.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
     };
-  }, [feedRef, jumpToSlide, triggerSlideWindow]);
+  }, [feedRef, jumpToSlide, silenceCurrentVideoImmediately, triggerSlideWindow]);
 
   // Unmute automatically on first user gesture anywhere
   useEffect(() => {
@@ -1247,15 +1458,66 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const pullTranslateY = isRefreshing ? 14 : Math.min(64, Math.round(pullDistance * 0.45)) - 6;
 
   // Hide the stationary YouTube iframe layer while finger-dragging or mid-slide so outgoing & incoming posters glide together like TikTok
-  const isActivelyDisplaced = isDragging && Math.abs(dragOffsetPx) > 2;
+  const isActivelyDisplaced =
+    isDragging && (Math.abs(dragOffsetPx) > 2 || Math.abs(horizontalDragPx) > 2);
   const isScrollingMotion =
     isActivelyDisplaced || isSliding || indexDeltaFromLastRender !== 0;
   const shouldAnimateTrack = !isDragging && !isBigNonAdjacentJump;
   const showLivePlayer =
     isVideoVisible && !hasError && !isScrollingMotion && !isDocPipActive;
+  const horizontalPreviewDirection: -1 | 1 | null =
+    horizontalDragPx > 14 && prevCategoryLabel
+      ? -1
+      : horizontalDragPx < -14 && nextCategoryLabel
+      ? 1
+      : null;
+  const horizontalPreviewLabel =
+    horizontalPreviewDirection === -1
+      ? prevCategoryLabel
+      : horizontalPreviewDirection === 1
+      ? nextCategoryLabel
+      : null;
 
   return (
     <div className="relative w-full h-full bg-black overflow-hidden select-none overscroll-none">
+      {/* Horizontal category swipe drag preview */}
+      {!isCompactNativePip && horizontalPreviewDirection && horizontalPreviewLabel && (
+        <div
+          aria-live="polite"
+          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 z-40 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-950/90 backdrop-blur-md border border-white/20 text-xs font-semibold text-white shadow-xl ${
+            horizontalPreviewDirection === -1 ? 'left-3' : 'right-3'
+          }`}
+        >
+          {horizontalPreviewDirection === -1 && (
+            <ChevronLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
+          )}
+          <span className="whitespace-nowrap">{horizontalPreviewLabel}</span>
+          {horizontalPreviewDirection === 1 && (
+            <ChevronRight className="w-4 h-4 shrink-0" aria-hidden="true" />
+          )}
+        </div>
+      )}
+
+      {/* Brief confirmation banner when switching category horizontally */}
+      {!isCompactNativePip && !horizontalPreviewLabel && categorySwitchBanner && (
+        <div
+          key={categorySwitchBanner.nonce}
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 z-40"
+        >
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-950/90 backdrop-blur-md border border-white/15 text-xs font-semibold text-white shadow-xl whitespace-nowrap">
+            {categorySwitchBanner.direction === -1 && (
+              <ChevronLeft className="w-3.5 h-3.5 text-zinc-300 shrink-0" aria-hidden="true" />
+            )}
+            <span>{categorySwitchBanner.label}</span>
+            {categorySwitchBanner.direction === 1 && (
+              <ChevronRight className="w-3.5 h-3.5 text-zinc-300 shrink-0" aria-hidden="true" />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Pull-to-refresh floating indicator */}
       {!isCompactNativePip && (
         <div
@@ -1351,7 +1613,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
               : 'transition-none'
           }`}
           style={{
-            transform: `translate3d(0, calc(${-activeIndex * 100}% + ${dragOffsetPx}px), 0)`,
+            transform: `translate3d(${horizontalDragPx}px, calc(${-activeIndex * 100}% + ${dragOffsetPx}px), 0)`,
           }}
         >
         {items.map((short, idx) => {
@@ -1401,6 +1663,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
               {/* Tap-to-play/pause interactive surface */}
               <button
                 type="button"
+                data-stage-surface="true"
                 onClick={handleTapTogglePlayPause}
                 aria-label={isPlaying ? 'Pausar vídeo' : 'Reproduzir vídeo'}
                 className="absolute inset-0 z-10 w-full h-full cursor-pointer focus:outline-none"
@@ -1503,6 +1766,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
                   {/* Right-side thumb-zone actions */}
                   <div
+                    data-no-swipe="true"
                     className={`absolute z-30 flex items-center ${
                       isCompactLandscape
                         ? 'right-2.5 bottom-[54px] flex-row gap-1'
@@ -1572,6 +1836,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       {/* Interactive playback progress & seek bar (isolated from swipe gestures at z-40) */}
       {activeShort && !hasError && !isCompactNativePip && (
         <div
+          data-no-swipe="true"
           onTouchStart={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}

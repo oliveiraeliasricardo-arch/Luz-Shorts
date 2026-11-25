@@ -3,6 +3,8 @@ import {
   AlertCircle,
   ArrowLeft,
   Bookmark,
+  ChevronLeft,
+  ChevronRight,
   RefreshCw,
   Search,
   X,
@@ -354,6 +356,13 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ChristianShort | null>(null);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [categorySwitchBanner, setCategorySwitchBanner] = useState<{
+    label: string;
+    direction: -1 | 1;
+    nonce: number;
+  } | null>(null);
+  const [emptyDragX, setEmptyDragX] = useState(0);
+  const [isEmptyDragging, setIsEmptyDragging] = useState(false);
   const [viewportOrientation, setViewportOrientation] = useState(() =>
     getViewportOrientationState()
   );
@@ -371,6 +380,9 @@ export function App() {
   });
 
   const feedRef = useRef<HTMLDivElement | null>(null);
+  const emptyStageRef = useRef<HTMLDivElement | null>(null);
+  const mobileFilterTabRefs = useRef<Partial<Record<ShortCategory, HTMLButtonElement | null>>>({});
+  const categoryBannerTimerRef = useRef<number | null>(null);
   const seenIdsRef = useRef<string[]>(
     readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY)
   );
@@ -1332,6 +1344,63 @@ export function App() {
     [activeCategory, trimmedSubmittedSearch, markShortsSeenBatch, reshuffleUnseenFeed]
   );
 
+  const categoryNavigation = useMemo(() => {
+    const sequence =
+      trimmedSubmittedSearch.length >= 2 ? MOBILE_FILTERS.slice(0, 6) : MOBILE_FILTERS;
+    const currentIdx = sequence.findIndex((item) => item.id === activeCategory);
+    const resolvedIdx = currentIdx >= 0 ? currentIdx : 0;
+    const prevItem = resolvedIdx > 0 ? sequence[resolvedIdx - 1] : null;
+    const nextItem = resolvedIdx < sequence.length - 1 ? sequence[resolvedIdx + 1] : null;
+    return {
+      sequence,
+      currentIdx: resolvedIdx,
+      prevItem,
+      nextItem,
+    };
+  }, [activeCategory, trimmedSubmittedSearch]);
+
+  const handleStepCategory = useCallback(
+    (direction: -1 | 1) => {
+      const target =
+        direction === -1 ? categoryNavigation.prevItem : categoryNavigation.nextItem;
+      if (!target) return;
+      handleSelectCategory(target.id);
+      if (categoryBannerTimerRef.current) {
+        window.clearTimeout(categoryBannerTimerRef.current);
+      }
+      setCategorySwitchBanner({
+        label: target.label,
+        direction,
+        nonce: Date.now(),
+      });
+      categoryBannerTimerRef.current = window.setTimeout(() => {
+        categoryBannerTimerRef.current = null;
+        setCategorySwitchBanner(null);
+      }, 950);
+    },
+    [categoryNavigation.prevItem, categoryNavigation.nextItem, handleSelectCategory]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (categoryBannerTimerRef.current) {
+        window.clearTimeout(categoryBannerTimerRef.current);
+        categoryBannerTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const tabEl = mobileFilterTabRefs.current[activeCategory];
+    if (tabEl) {
+      tabEl.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest',
+      });
+    }
+  }, [activeCategory]);
+
   // Automatically re-prioritize and shuffle unseen videos when returning via browser history (pageshow)
   // or resuming the app/tab at the start of the feed after being away
   useEffect(() => {
@@ -1588,6 +1657,211 @@ export function App() {
   const showingSearchResults = isSearchActive && searchViewMode === 'results';
   const useCompactStageHud =
     isCompactLandscape || (isHorizontalMode && isNarrowScreen);
+  const stageShowsEmptyContainer =
+    loading ||
+    (Boolean(error) && visibleShorts.length === 0) ||
+    visibleShorts.length === 0;
+
+  // Allow horizontal category swipe/wheel/mouse-drag even when the active category has 0 videos (e.g. empty "Salvos")
+  useEffect(() => {
+    const el = emptyStageRef.current;
+    if (!el || !stageShowsEmptyContainer || showingSearchResults || isNativePipMode) {
+      setEmptyDragX(0);
+      setIsEmptyDragging(false);
+      return;
+    }
+
+    let startX: number | null = null;
+    let startY: number | null = null;
+    let lastX = 0;
+    let lastTime = 0;
+    let vx = 0;
+    let axis: 'pending' | 'horizontal' | 'ignored' = 'pending';
+    let rawDeltaX = 0;
+    let wheelLockUntil = 0;
+
+    let mouseStartX: number | null = null;
+    let mouseStartY: number | null = null;
+    let mouseLastX = 0;
+    let mouseLastTime = 0;
+    let mouseVx = 0;
+    let mouseAxis: 'pending' | 'horizontal' | 'ignored' = 'pending';
+
+    const computeOffset = (dx: number) => {
+      const hasTarget =
+        dx > 0
+          ? Boolean(categoryNavigation.prevItem)
+          : Boolean(categoryNavigation.nextItem);
+      if (!hasTarget) return Math.max(-44, Math.min(44, Math.round(dx * 0.22)));
+      return Math.max(-132, Math.min(132, Math.round(dx * 0.56)));
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+      if (absX >= 18 && absX > absY * 1.35) {
+        e.preventDefault();
+        const now = Date.now();
+        if (now < wheelLockUntil) return;
+        wheelLockUntil = now + 480;
+        handleStepCategory(e.deltaX > 0 ? 1 : -1);
+      }
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const targetEl = e.target as HTMLElement | null;
+      if (targetEl?.closest('button, a')) return;
+      const touch = e.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      lastX = touch.clientX;
+      lastTime = performance.now();
+      vx = 0;
+      axis = 'pending';
+      rawDeltaX = 0;
+      setEmptyDragX(0);
+      setIsEmptyDragging(true);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (startX === null || startY === null || e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const now = performance.now();
+      const dt = Math.max(1, now - lastTime);
+      const instVx = (touch.clientX - lastX) / dt;
+      vx = vx * 0.35 + instVx * 0.65;
+      lastX = touch.clientX;
+      lastTime = now;
+
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+
+      if (axis === 'pending') {
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+          axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'horizontal' : 'ignored';
+        }
+      }
+
+      if (axis !== 'horizontal') return;
+      if (Math.abs(dx) > 7) e.preventDefault();
+      rawDeltaX = dx;
+      setEmptyDragX(computeOffset(dx));
+    };
+
+    const onTouchEnd = () => {
+      if (startX === null) return;
+      const wasHorizontal = axis === 'horizontal';
+      const containerWidth = el.clientWidth || 360;
+      const threshold = Math.max(52, Math.min(115, containerWidth * 0.16));
+
+      startX = null;
+      startY = null;
+      axis = 'pending';
+      setIsEmptyDragging(false);
+      setEmptyDragX(0);
+
+      if (!wasHorizontal) return;
+      if (rawDeltaX <= -threshold || (vx < -0.32 && rawDeltaX < -22)) {
+        handleStepCategory(1);
+      } else if (rawDeltaX >= threshold || (vx > 0.32 && rawDeltaX > 22)) {
+        handleStepCategory(-1);
+      }
+      rawDeltaX = 0;
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      const targetEl = e.target as HTMLElement | null;
+      if (targetEl?.closest('button, a')) return;
+      mouseStartX = e.clientX;
+      mouseStartY = e.clientY;
+      mouseLastX = e.clientX;
+      mouseLastTime = performance.now();
+      mouseVx = 0;
+      mouseAxis = 'pending';
+      rawDeltaX = 0;
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || mouseStartX === null || mouseStartY === null) return;
+      const dx = e.clientX - mouseStartX;
+      const dy = e.clientY - mouseStartY;
+      const now = performance.now();
+      const dt = Math.max(1, now - mouseLastTime);
+      const instVx = (e.clientX - mouseLastX) / dt;
+      mouseVx = mouseVx * 0.35 + instVx * 0.65;
+      mouseLastX = e.clientX;
+      mouseLastTime = now;
+
+      if (mouseAxis === 'pending') {
+        if (Math.abs(dx) > 12 || Math.abs(dy) > 12) {
+          if (Math.abs(dx) > Math.abs(dy) * 1.35) {
+            mouseAxis = 'horizontal';
+            setIsEmptyDragging(true);
+          } else {
+            mouseAxis = 'ignored';
+            return;
+          }
+        }
+      }
+
+      if (mouseAxis !== 'horizontal') return;
+      rawDeltaX = dx;
+      setEmptyDragX(computeOffset(dx));
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || mouseStartX === null) return;
+      const wasHorizontal = mouseAxis === 'horizontal';
+      const containerWidth = el.clientWidth || 360;
+      const threshold = Math.max(54, Math.min(120, containerWidth * 0.16));
+
+      mouseStartX = null;
+      mouseStartY = null;
+      mouseAxis = 'pending';
+
+      if (!wasHorizontal) return;
+      setIsEmptyDragging(false);
+      setEmptyDragX(0);
+
+      if (rawDeltaX <= -threshold || (mouseVx < -0.35 && rawDeltaX < -24)) {
+        handleStepCategory(1);
+      } else if (rawDeltaX >= threshold || (mouseVx > 0.35 && rawDeltaX > 24)) {
+        handleStepCategory(-1);
+      }
+      rawDeltaX = 0;
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: true });
+    el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    el.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+      el.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [
+    stageShowsEmptyContainer,
+    showingSearchResults,
+    isNativePipMode,
+    categoryNavigation.prevItem,
+    categoryNavigation.nextItem,
+    handleStepCategory,
+  ]);
 
   return (
     <div
@@ -1691,6 +1965,9 @@ export function App() {
                   return (
                     <button
                       key={cat.id}
+                      ref={(el) => {
+                        mobileFilterTabRefs.current[cat.id] = el;
+                      }}
                       type="button"
                       onClick={() => handleSelectCategory(cat.id)}
                       className={`relative h-full px-2.5 flex items-center text-xs bg-transparent whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
@@ -1820,47 +2097,93 @@ export function App() {
                     : 'w-full h-full lg:w-auto lg:aspect-[9/16] lg:max-w-[438px] lg:h-[calc(100vh-8.75rem)] lg:max-h-[760px] bg-black lg:rounded-2xl overflow-hidden shadow-2xl border-0 lg:border lg:border-zinc-800/90 relative'
                 }
               >
-                {loading ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
-                    <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
-                    <p className="text-sm font-medium">
-                      Carregando vídeos cristãos selecionados...
-                    </p>
-                  </div>
-                ) : error && visibleShorts.length === 0 ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-white px-8 text-center">
-                    <AlertCircle className="w-8 h-8 text-amber-400" aria-hidden="true" />
-                    <p className="text-sm text-zinc-300">{error}</p>
-                    <button
-                      type="button"
-                      onClick={handleRefreshFeed}
-                      className="px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
+                {stageShowsEmptyContainer ? (
+                  <div
+                    ref={emptyStageRef}
+                    className="relative w-full h-full overflow-hidden touch-none select-none"
+                  >
+                    {emptyDragX > 14 && categoryNavigation.prevItem && (
+                      <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 z-30 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-950/90 backdrop-blur-md border border-white/20 text-xs font-semibold text-white shadow-xl">
+                        <ChevronLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        <span className="whitespace-nowrap">{categoryNavigation.prevItem.label}</span>
+                      </div>
+                    )}
+                    {emptyDragX < -14 && categoryNavigation.nextItem && (
+                      <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 z-30 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-950/90 backdrop-blur-md border border-white/20 text-xs font-semibold text-white shadow-xl">
+                        <span className="whitespace-nowrap">{categoryNavigation.nextItem.label}</span>
+                        <ChevronRight className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      </div>
+                    )}
+                    {Math.abs(emptyDragX) <= 14 && categorySwitchBanner && (
+                      <div
+                        key={categorySwitchBanner.nonce}
+                        role="status"
+                        aria-live="polite"
+                        className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 z-30"
+                      >
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-950/90 backdrop-blur-md border border-white/15 text-xs font-semibold text-white shadow-xl whitespace-nowrap">
+                          {categorySwitchBanner.direction === -1 && (
+                            <ChevronLeft className="w-3.5 h-3.5 text-zinc-300 shrink-0" aria-hidden="true" />
+                          )}
+                          <span>{categorySwitchBanner.label}</span>
+                          {categorySwitchBanner.direction === 1 && (
+                            <ChevronRight className="w-3.5 h-3.5 text-zinc-300 shrink-0" aria-hidden="true" />
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div
+                      className={`w-full h-full ${
+                        isEmptyDragging
+                          ? 'transition-none'
+                          : 'transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)]'
+                      }`}
+                      style={{ transform: `translate3d(${emptyDragX}px, 0, 0)` }}
                     >
-                      Tentar novamente
-                    </button>
-                  </div>
-                ) : visibleShorts.length === 0 && isSearching ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
-                    <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
-                    <p className="text-sm font-medium">
-                      Buscando vídeos no YouTube...
-                    </p>
-                  </div>
-                ) : visibleShorts.length === 0 ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white px-8 text-center">
-                    <Bookmark className="w-8 h-8 text-zinc-500" aria-hidden="true" />
-                    <p className="text-sm font-medium text-zinc-300">
-                      {activeCategory === 'salvos'
-                        ? 'Você ainda não salvou nenhum vídeo.'
-                        : 'Nenhum vídeo encontrado para este filtro.'}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={handleResetToAllVideos}
-                      className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
-                    >
-                      Ver todos os vídeos
-                    </button>
+                      {loading ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
+                          <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
+                          <p className="text-sm font-medium">
+                            Carregando vídeos cristãos selecionados...
+                          </p>
+                        </div>
+                      ) : error && visibleShorts.length === 0 ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-white px-8 text-center">
+                          <AlertCircle className="w-8 h-8 text-amber-400" aria-hidden="true" />
+                          <p className="text-sm text-zinc-300">{error}</p>
+                          <button
+                            type="button"
+                            onClick={handleRefreshFeed}
+                            className="px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
+                          >
+                            Tentar novamente
+                          </button>
+                        </div>
+                      ) : isSearching ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300 px-6 text-center">
+                          <RefreshCw className="w-6 h-6 animate-spin text-white" aria-hidden="true" />
+                          <p className="text-sm font-medium">
+                            Buscando vídeos no YouTube...
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white px-8 text-center">
+                          <Bookmark className="w-8 h-8 text-zinc-500" aria-hidden="true" />
+                          <p className="text-sm font-medium text-zinc-300">
+                            {activeCategory === 'salvos'
+                              ? 'Você ainda não salvou nenhum vídeo.'
+                              : 'Nenhum vídeo encontrado para este filtro.'}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleResetToAllVideos}
+                            className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-xs font-semibold text-black transition-colors cursor-pointer"
+                          >
+                            Ver todos os vídeos
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <ShortsFeedStage
@@ -1872,6 +2195,9 @@ export function App() {
                     isNativePipActive={isNativePipMode}
                     isHorizontalMode={isHorizontalMode}
                     isCompactLandscape={useCompactStageHud}
+                    prevCategoryLabel={categoryNavigation.prevItem?.label ?? null}
+                    nextCategoryLabel={categoryNavigation.nextItem?.label ?? null}
+                    categorySwitchBanner={categorySwitchBanner}
                     savedSet={savedSet}
                     feedRef={feedRef}
                     onActiveIndexChange={setActiveIndex}
@@ -1880,6 +2206,7 @@ export function App() {
                     onShare={handleOpenShareModal}
                     onRefresh={handleRefreshFeed}
                     onEnded={handleVideoEnded}
+                    onStepCategory={handleStepCategory}
                   />
                 )}
               </div>
