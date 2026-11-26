@@ -503,6 +503,7 @@ const ADVENTIST_IDENTITY_PATTERNS = [
   /\bminha vida [eé] uma viagem\b/i,
   /\bdefensores da b[ií]blia\b/i,
   /\bcamelo na agulha\b/i,
+  /\bellen(\s+g\.?)?\s+white\b/i,
 ];
 
 const SECULAR_OFF_CONTEXT_TITLE_RE =
@@ -1136,6 +1137,16 @@ export function classifyShort(
     isBibleDesc
   ) {
     detectedCategory = 'biblia';
+  } else if (
+    hintCategory === 'biblia' &&
+    adventist &&
+    !hasStrongMusicTag &&
+    !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
+    /\b(estudo|li[cç][aã]o|escola sabatina|na mira|arqueologia|apocalipse|profecia|vers[ií]culo|b[ií]bli|salmo|g[eê]nesis|daniel|s[aá]bado|mandamento|santu[aá]rio|par[aá]bola|evangelho|mil[eê]nio|cristo|jesus|deus)\b/i.test(
+      `${title} ${description.slice(0, 260)}`
+    )
+  ) {
+    detectedCategory = 'biblia';
   } else if (searchMode && adventist && !NON_SERMON_PATTERNS.some((re) => re.test(title))) {
     detectedCategory = hintCategory === 'biblia' ? 'biblia' : 'pregacoes';
   } else {
@@ -1333,6 +1344,7 @@ export function parseChannelRssXml(
         (allowFullLengthCategories &&
           (classified.category === 'louvores' ||
             classified.category === 'pregacoes' ||
+            classified.category === 'biblia' ||
             classified.category === 'feliz7play')) ||
         classified.category === 'testemunhos';
       if (!canIncludeFullVideo) {
@@ -1537,17 +1549,18 @@ export async function fetchFastBootstrapRssWithAdapter(
   for (const cat of categories) {
     const spec = ALL_CURATED_CHANNELS.find((c) => c.defaultCategory === cat);
     if (!spec) continue;
-    const suffix = spec.id.slice(2);
-    const url =
-      cat === 'biblia'
-        ? `https://www.youtube.com/feeds/videos.xml?playlist_id=UUSH${suffix}`
-        : `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
-    const allowFull = cat === 'louvores' || cat === 'feliz7play' || cat === 'pregacoes' || cat === 'testemunhos';
+    const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
+    const allowFull =
+      cat === 'louvores' ||
+      cat === 'feliz7play' ||
+      cat === 'pregacoes' ||
+      cat === 'testemunhos' ||
+      cat === 'biblia';
     tasks.push(
       (async () => {
         const xml = await fetchXml(url);
         if (!xml || !xml.includes('<entry>')) return [];
-        return parseChannelRssXml(xml, spec, cat === 'biblia', allowFull);
+        return parseChannelRssXml(xml, spec, false, allowFull);
       })()
     );
   }
@@ -1606,7 +1619,9 @@ export async function fetchCuratedRssWithAdapter(
       const allowFull =
         spec.defaultCategory === 'louvores' ||
         spec.defaultCategory === 'feliz7play' ||
+        spec.defaultCategory === 'biblia' ||
         spec.allowInCategories.includes('pregacoes') ||
+        spec.allowInCategories.includes('biblia') ||
         spec.allowInCategories.includes('testemunhos');
 
       tasks.push(
@@ -1632,17 +1647,20 @@ export async function fetchCuratedRssWithAdapter(
         })()
       );
     } else {
-      // Sermons, Bible, Testimonies: Shorts feed + main channel feed for full-length Adventist sermons & testimonies
+      // Sermons, Bible, Testimonies: Shorts feed + main channel feed for full-length Adventist studies, sermons & testimonies
       tasks.push(
         (async () => {
           const collected: ChristianShort[] = [];
           const uushUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uushPlaylistId}`;
           const channelUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
-          const includeFullSermons = spec.allowInCategories.includes('pregacoes');
+          const includeFullStudiesOrSermons =
+            spec.defaultCategory === 'biblia' ||
+            spec.allowInCategories.includes('pregacoes') ||
+            spec.allowInCategories.includes('biblia');
 
           const [uushRes, chRes] = await Promise.allSettled([
             fetchXml(uushUrl),
-            includeFullSermons || spec.allowInCategories.includes('testemunhos')
+            includeFullStudiesOrSermons || spec.allowInCategories.includes('testemunhos')
               ? fetchXml(channelUrl)
               : Promise.resolve(null),
           ]);
@@ -1654,11 +1672,12 @@ export async function fetchCuratedRssWithAdapter(
           }
 
           if (chRes.status === 'fulfilled' && chRes.value && chRes.value.includes('<entry>')) {
-            const parsed = parseChannelRssXml(chRes.value, spec, false, includeFullSermons);
+            const parsed = parseChannelRssXml(chRes.value, spec, false, includeFullStudiesOrSermons);
             for (const item of parsed) {
               if (
                 !gotUush ||
                 item.category === 'pregacoes' ||
+                item.category === 'biblia' ||
                 item.category === 'testemunhos'
               ) {
                 collected.push(item);

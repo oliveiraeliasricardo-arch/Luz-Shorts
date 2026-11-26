@@ -1104,10 +1104,11 @@ export function App() {
       const categoryCursor = categoryCursorsRef.current[activeCategory] ?? null;
       const { seed, randomOffset } = createFeedRequestSeed();
 
+      const includeSurfacedInExclude = !isLiveSearch && activeCategory === 'all';
       const combinedExclude = Array.from(
         new Set([
           ...(isLiveSearch ? [] : seenIdsRef.current.slice(0, 4800)),
-          ...(isLiveSearch ? [] : lastSessionTopRef.current.slice(0, 2200)),
+          ...(includeSurfacedInExclude ? lastSessionTopRef.current.slice(0, 2200) : []),
           ...allShorts.slice(0, 500).map((i) => i.id),
           ...allShorts.slice(-500).map((i) => i.id),
         ])
@@ -1134,6 +1135,35 @@ export function App() {
         const contentType = res.headers.get('content-type') || '';
         if (res.ok && contentType.includes('application/json')) {
           data = (await res.json()) as ShortsApiResponse;
+        }
+
+        if (
+          !isLiveSearch &&
+          activeCategory !== 'all' &&
+          visibleShortsRef.current.length === 0 &&
+          (!data || data.items.length === 0)
+        ) {
+          const fallbackRes = await fetch(`${API_BASE_URL}/api/shorts`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              category: activeCategory,
+              refresh: true,
+              exclude: seenIdsRef.current.slice(0, 5000),
+              seed,
+              random_offset: randomOffset,
+            }),
+            signal: AbortSignal.timeout(12000),
+          });
+          const fbType = fallbackRes.headers.get('content-type') || '';
+          if (fallbackRes.ok && fbType.includes('application/json')) {
+            const fbData = (await fallbackRes.json()) as ShortsApiResponse;
+            if (fbData.items.length > 0) {
+              data = fbData;
+            }
+          }
         }
       } else if (!isLiveSearch) {
         const pageNum = Number(categoryCursor || '1');
@@ -1170,7 +1200,10 @@ export function App() {
         }
       } else {
         const seenSet = seenIdsSetRef.current;
-        const surfacedSet = new Set(lastSessionTopRef.current);
+        const surfacedSet =
+          activeCategory === 'all' ? new Set(lastSessionTopRef.current) : new Set<string>();
+        const surfacedListForFilter =
+          activeCategory === 'all' ? lastSessionTopRef.current : [];
         const seenTitleSet = seenTitleKeysSetRef.current;
         const existingAll = new Set(allShorts.map((i) => i.id));
         const freshCount = data.items.filter(
@@ -1207,14 +1240,14 @@ export function App() {
           const tailUnseenCombined = filterFreshUnseenItems(
             [...filteredIncoming, ...filteredTail],
             seenIdsRef.current,
-            lastSessionTopRef.current,
+            surfacedListForFilter,
             seenTitleKeysRef.current
           );
           const nextAll = [...head, ...buildDiverseFeed(tailUnseenCombined, true)];
           writeCachedFeedSnapshot(
             nextAll,
             seenIdsSetRef.current,
-            surfacedSet,
+            new Set(lastSessionTopRef.current),
             seenTitleKeysSetRef.current
           );
           return nextAll;

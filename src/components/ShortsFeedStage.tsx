@@ -305,15 +305,15 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
           const alreadyStarted = YTStates
             ? initialState === YTStates.PLAYING || initialState === YTStates.BUFFERING
             : initialState === 1 || initialState === 3;
-          if (!alreadyStarted) {
+          // Let playerVars autoplay=1 proceed without restarting an active load; only kick CUED/PAUSED/UNSTARTED
+          if (!alreadyStarted && initialState !== -1) {
             player.playVideo();
           }
         } else {
-          player.stopVideo();
           player.loadVideoById({ videoId, startSeconds: 0 });
         }
 
-        // Fast fallback if browser blocks unmuted autoplay before first user gesture
+        // Fallback if browser blocks unmuted autoplay before first user gesture
         autoplayCheckTimerRef.current = window.setTimeout(() => {
           if (activeVideoIdRef.current !== videoId) return;
           try {
@@ -330,7 +330,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
           } catch {
             // Ignore transient state errors
           }
-        }, 100);
+        }, 550);
       } catch {
         // Ignore transient play errors
       }
@@ -1463,8 +1463,10 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const isScrollingMotion =
     isActivelyDisplaced || isSliding || indexDeltaFromLastRender !== 0;
   const shouldAnimateTrack = !isDragging && !isBigNonAdjacentJump;
-  const showLivePlayer =
-    isVideoVisible && !hasError && !isScrollingMotion && !isDocPipActive;
+  // Keep the persistent player container at opacity-100 while booting so browsers/WebViews never
+  // throttle iframe decode; the opaque thumbnail poster above it hides the player until BUFFERING/PLAYING.
+  const keepPlayerLayerPainted =
+    Boolean(activeVideoId) && !hasError && !isScrollingMotion && !isDocPipActive;
   const horizontalPreviewDirection: -1 | 1 | null =
     horizontalDragPx > 14 && prevCategoryLabel
       ? -1
@@ -1570,8 +1572,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
       {/* Persistent Single YouTube Player Layer */}
       <div
-        className={`absolute inset-0 z-10 pointer-events-none transition-opacity duration-200 ${
-          showLivePlayer ? 'opacity-100' : 'opacity-0'
+        className={`absolute inset-0 z-10 pointer-events-none transition-opacity duration-150 ${
+          keepPlayerLayerPainted ? 'opacity-100' : 'opacity-0'
         }`}
       >
         <div ref={playerSlotRef} className="w-full h-full" />
@@ -1668,6 +1670,18 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                 aria-label={isPlaying ? 'Pausar vídeo' : 'Reproduzir vídeo'}
                 className="absolute inset-0 z-10 w-full h-full cursor-pointer focus:outline-none"
               />
+
+              {/* Subtle buffering indicator while YouTube player connects */}
+              {isCurrent && !isVideoVisible && !hasError && !isScrollingMotion && !isDocPipActive && !feedbackState && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+                >
+                  <div className="w-11 h-11 rounded-full bg-black/55 backdrop-blur-sm text-white/90 flex items-center justify-center">
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                  </div>
+                </div>
+              )}
 
               {/* Snappy transient Play/Pause feedback */}
               {isCurrent && feedbackState && (

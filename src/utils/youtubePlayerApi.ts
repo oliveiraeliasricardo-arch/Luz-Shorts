@@ -68,6 +68,34 @@ export function loadYouTubeIframeApi(): Promise<YTNamespace> {
   }
 
   apiPromise = new Promise<YTNamespace>((resolve, reject) => {
+    let settled = false;
+    let pollTimer: number | null = null;
+    let timeoutTimer: number | null = null;
+
+    const cleanup = () => {
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      if (timeoutTimer !== null) {
+        window.clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+    };
+
+    const tryResolve = () => {
+      if (settled) return false;
+      if (window.YT && window.YT.Player) {
+        settled = true;
+        cleanup();
+        resolve(window.YT);
+        return true;
+      }
+      return false;
+    };
+
+    if (tryResolve()) return;
+
     const existingScript = document.querySelector<HTMLScriptElement>(
       'script[src="https://www.youtube.com/iframe_api"]'
     );
@@ -75,20 +103,50 @@ export function loadYouTubeIframeApi(): Promise<YTNamespace> {
     const prevCallback = window.onYouTubeIframeAPIReady;
     window.onYouTubeIframeAPIReady = () => {
       if (prevCallback) prevCallback();
-      if (window.YT && window.YT.Player) {
-        resolve(window.YT);
-      } else {
+      if (!tryResolve() && !settled) {
+        settled = true;
+        cleanup();
+        apiPromise = null;
         reject(new Error('YouTube IFrame API failed to initialize'));
       }
     };
 
-    if (!existingScript) {
+    pollTimer = window.setInterval(() => {
+      tryResolve();
+    }, 40);
+
+    timeoutTimer = window.setTimeout(() => {
+      if (!settled && !tryResolve()) {
+        settled = true;
+        cleanup();
+        apiPromise = null;
+        reject(new Error('YouTube IFrame API load timeout'));
+      }
+    }, 10000);
+
+    if (existingScript) {
+      existingScript.addEventListener('load', () => {
+        tryResolve();
+      }, { once: true });
+      existingScript.addEventListener('error', () => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          apiPromise = null;
+          reject(new Error('Failed to load YouTube IFrame API script'));
+        }
+      }, { once: true });
+    } else {
       const script = document.createElement('script');
       script.src = 'https://www.youtube.com/iframe_api';
       script.async = true;
       script.onerror = () => {
-        apiPromise = null;
-        reject(new Error('Failed to load YouTube IFrame API script'));
+        if (!settled) {
+          settled = true;
+          cleanup();
+          apiPromise = null;
+          reject(new Error('Failed to load YouTube IFrame API script'));
+        }
       };
       document.head.appendChild(script);
     }

@@ -838,7 +838,7 @@ function isWithinCategoryDuration(
     return durationSeconds >= 15 && durationSeconds <= 3600;
   }
   if (category === 'biblia') {
-    return durationSeconds <= 185;
+    return durationSeconds >= 15 && durationSeconds <= 7200;
   }
   return true;
 }
@@ -888,12 +888,18 @@ async function fetchFromYoutubeApi(
     const suffix = spec.id.slice(2);
     const primaryPid =
       spec.defaultCategory === 'biblia'
-        ? `UUSH${suffix}`
+        ? advancePlaylists && Math.random() < 0.5
+          ? `UU${suffix}`
+          : `UUSH${suffix}`
         : spec.defaultCategory === 'pregacoes' || spec.defaultCategory === 'feliz7play'
         ? `UULF${suffix}`
         : `UU${suffix}`;
     const altPid =
-      primaryPid === `UUPV${suffix}` ? `UU${suffix}` : `UUPV${suffix}`;
+      primaryPid === `UUSH${suffix}`
+        ? `UU${suffix}`
+        : primaryPid === `UUPV${suffix}`
+        ? `UU${suffix}`
+        : `UUPV${suffix}`;
     const playlistId =
       exhaustedPlaylistIds.has(primaryPid) || (advancePlaylists && Math.random() < 0.35)
         ? altPid
@@ -904,7 +910,7 @@ async function fetchFromYoutubeApi(
       hintCategory: spec.defaultCategory,
       playlistId,
       pageToken,
-      maxResults: 25,
+      maxResults: advancePlaylists ? 25 : 14,
     });
   }
 
@@ -913,20 +919,25 @@ async function fetchFromYoutubeApi(
   const specialBatch = [
     ...pickRotatedPlaylists(
       NOVO_HINARIO_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
-      2
+      advancePlaylists ? 2 : 1
     ),
     ...pickRotatedPlaylists(
       CD_JOVEM_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
-      3
+      advancePlaylists ? 3 : 2
     ),
     ...pickRotatedPlaylists(
       ADORADORES_PLAYLISTS.filter((p) => !exhaustedPlaylistIds.has(p)),
-      3
+      advancePlaylists ? 3 : 2
     ),
   ];
   for (const playlistId of specialBatch) {
     const pageToken = persistentPlaylistTokens[playlistId] ?? null;
-    requestMeta.push({ hintCategory: 'louvores', playlistId, pageToken, maxResults: 30 });
+    requestMeta.push({
+      hintCategory: 'louvores',
+      playlistId,
+      pageToken,
+      maxResults: advancePlaylists ? 30 : 15,
+    });
   }
 
   const responses = await Promise.allSettled(
@@ -1106,6 +1117,52 @@ async function fetchYoutubeWebSearch(
       }>;
     };
 
+    type WebShortsLockup = {
+      onTap?: {
+        innertubeCommand?: {
+          reelWatchEndpoint?: { videoId?: string };
+        };
+      };
+      accessibilityText?: string;
+      overlayMetadata?: {
+        primaryText?: { content?: string };
+      };
+      thumbnailViewModel?: {
+        thumbnailViewModel?: {
+          image?: { sources?: Array<{ url?: string }> };
+        };
+      };
+    };
+
+    type WebVideoLockup = {
+      contentId?: string;
+      contentType?: string;
+      contentImage?: {
+        thumbnailViewModel?: {
+          image?: { sources?: Array<{ url?: string }> };
+          overlays?: Array<{
+            thumbnailOverlayBadgeViewModel?: {
+              thumbnailBadges?: Array<{
+                thumbnailBadgeViewModel?: { text?: string };
+              }>;
+            };
+          }>;
+        };
+      };
+      metadata?: {
+        lockupMetadataViewModel?: {
+          title?: { content?: string };
+          metadata?: {
+            contentMetadataViewModel?: {
+              metadataRows?: Array<{
+                metadataParts?: Array<{ text?: { content?: string } }>;
+              }>;
+            };
+          };
+        };
+      };
+    };
+
     const data = JSON.parse(match[1]) as {
       contents?: {
         twoColumnSearchResultsRenderer?: {
@@ -1115,6 +1172,10 @@ async function fetchYoutubeWebSearch(
                 itemSectionRenderer?: {
                   contents?: Array<{
                     videoRenderer?: WebVideoRenderer;
+                    lockupViewModel?: WebVideoLockup;
+                    gridShelfViewModel?: {
+                      contents?: Array<{ shortsLockupViewModel?: WebShortsLockup }>;
+                    };
                     shelfRenderer?: {
                       content?: {
                         verticalListRenderer?: { items?: Array<{ videoRenderer?: WebVideoRenderer }> };
@@ -1145,6 +1206,64 @@ async function fetchYoutubeWebSearch(
         }
         for (const hItem of shelfItems?.horizontalListRenderer?.items ?? []) {
           if (hItem.videoRenderer) extractedRenderers.push(hItem.videoRenderer);
+        }
+        if (item.gridShelfViewModel?.contents) {
+          for (const gItem of item.gridShelfViewModel.contents) {
+            const sl = gItem.shortsLockupViewModel;
+            const vid = sl?.onTap?.innertubeCommand?.reelWatchEndpoint?.videoId;
+            if (!vid || excludeIds?.has(vid) || candidates.has(vid)) continue;
+            const rawTitle = decodeXmlEntities(
+              sl.overlayMetadata?.primaryText?.content || sl.accessibilityText || ''
+            );
+            if (!rawTitle || isUpcomingOrPremiereEntry(rawTitle, '', '')) continue;
+            const sources = sl.thumbnailViewModel?.thumbnailViewModel?.image?.sources ?? [];
+            candidates.set(vid, {
+              id: vid,
+              title: rawTitle,
+              description: decodeXmlEntities(sl.accessibilityText || ''),
+              channelId: '',
+              channelTitle: '',
+              publishedAt: new Date().toISOString(),
+              thumbnailUrl: sources[sources.length - 1]?.url,
+              hintCategory,
+              durationSeconds: 45,
+            });
+          }
+        }
+        const lv = item.lockupViewModel;
+        if (lv?.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO' && lv.contentId) {
+          const vid = lv.contentId;
+          if (!excludeIds?.has(vid) && !candidates.has(vid)) {
+            const lm = lv.metadata?.lockupMetadataViewModel;
+            const title = decodeXmlEntities(lm?.title?.content || '');
+            const rows = lm?.metadata?.contentMetadataViewModel?.metadataRows ?? [];
+            const channelTitle = decodeXmlEntities(
+              rows[0]?.metadataParts?.[0]?.text?.content || ''
+            );
+            let durText = '';
+            for (const ov of lv.contentImage?.thumbnailViewModel?.overlays ?? []) {
+              const t = ov.thumbnailOverlayBadgeViewModel?.thumbnailBadges?.[0]?.thumbnailBadgeViewModel?.text;
+              if (t && /\d+:\d+/.test(t)) {
+                durText = t;
+                break;
+              }
+            }
+            const durSec = parseDisplayDurationToSeconds(durText);
+            const sources = lv.contentImage?.thumbnailViewModel?.image?.sources ?? [];
+            if (title && durSec && durSec > 0 && !isUpcomingOrPremiereEntry(title, '', '')) {
+              candidates.set(vid, {
+                id: vid,
+                title,
+                description: '',
+                channelId: '',
+                channelTitle,
+                publishedAt: new Date().toISOString(),
+                thumbnailUrl: sources[sources.length - 1]?.url,
+                hintCategory,
+                durationSeconds: durSec,
+              });
+            }
+          }
         }
       }
     }
@@ -1606,9 +1725,6 @@ async function fetchPersistentApiDiscoveryPage(
     order: orderMode,
     q: query,
   });
-  if (targetCategory === 'biblia') {
-    params.set('videoDuration', 'short');
-  }
   if (cursor.pageToken) {
     params.set('pageToken', cursor.pageToken);
   }
@@ -1718,9 +1834,6 @@ async function fetchCategoryDiscoveryPage(
       order: orderMode,
       q: query,
     });
-    if (targetCategory === 'biblia') {
-      params.set('videoDuration', 'short');
-    }
     if (cursorEntry.pageToken) {
       params.set('pageToken', cursorEntry.pageToken);
     }
@@ -1806,7 +1919,24 @@ async function fetchCategoryDiscoveryPage(
     webFilter,
     state.seenIds
   );
-  return webFound.filter((item) => item.category === targetCategory);
+  let matched = webFound.filter((item) => item.category === targetCategory);
+  if (matched.length < 4 && webFilter !== 'relevance') {
+    const relFound = await fetchYoutubeWebSearch(
+      isYoutubeApiUsable(apiKey) ? apiKey : '',
+      query,
+      targetCategory,
+      'relevance',
+      state.seenIds
+    );
+    const seenIdsInMatched = new Set(matched.map((m) => m.id));
+    for (const item of relFound) {
+      if (item.category === targetCategory && !seenIdsInMatched.has(item.id)) {
+        seenIdsInMatched.add(item.id);
+        matched.push(item);
+      }
+    }
+  }
+  return matched;
 }
 
 async function fetchRecentApiDiscovery(
@@ -2094,33 +2224,36 @@ async function buildBaseCatalog(
         apiKey,
         new Set((cachedCatalog?.items ?? []).map((i) => i.id))
       );
-      const [{ items: apiItems, evaluatedIds, playlistTokens }, rssItems, fastDiscoveryExtras] =
+      const rssPromise = fetchFromCuratedRss(0, 2200);
+      const [{ items: apiItems, evaluatedIds, playlistTokens }, fastRssItems, fastDiscoveryExtras] =
         await Promise.all([
           fetchFromYoutubeApi(apiKey, forceRefresh || cachedCatalog !== null),
-          fetchFromCuratedRss(0, 4000),
-          raceWithTimeout(discoveryPromise, 3800, [] as ChristianShort[]),
+          raceWithTimeout(rssPromise, 1200, [] as ChristianShort[]),
+          raceWithTimeout(discoveryPromise, 1200, [] as ChristianShort[]),
         ]);
 
-      // Hydrate any extra RSS-discovered IDs through videos.list so upcoming premieres,
-      // live streams, or out-of-range durations can never bypass API verification.
-      const rssExtraCandidates = new Map<string, CandidateVideo>();
-      for (const item of rssItems) {
-        if (!evaluatedIds.has(item.id) && !rssExtraCandidates.has(item.id)) {
-          rssExtraCandidates.set(item.id, {
-            id: item.id,
-            title: item.title,
-            description: item.description,
-            channelId: item.channelId,
-            channelTitle: item.channelTitle,
-            publishedAt: item.publishedAt,
-            thumbnailUrl: item.thumbnailUrl,
-            hintCategory: item.category,
-          });
+      const buildRssExtraMap = (items: ChristianShort[]) => {
+        const map = new Map<string, CandidateVideo>();
+        for (const item of items) {
+          if (!evaluatedIds.has(item.id) && !map.has(item.id)) {
+            map.set(item.id, {
+              id: item.id,
+              title: item.title,
+              description: item.description,
+              channelId: item.channelId,
+              channelTitle: item.channelTitle,
+              publishedAt: item.publishedAt,
+              thumbnailUrl: item.thumbnailUrl,
+              hintCategory: item.category,
+            });
+          }
         }
-      }
+        return map;
+      };
+
       const verifiedRssExtras =
-        rssExtraCandidates.size > 0
-          ? await hydrateAndVerifyCandidates(apiKey, rssExtraCandidates)
+        apiItems.length < 40 && fastRssItems.length > 0
+          ? await hydrateAndVerifyCandidates(apiKey, buildRssExtraMap(fastRssItems))
           : [];
 
       const merged = new Map<string, ChristianShort>();
@@ -2135,7 +2268,7 @@ async function buildBaseCatalog(
       seedPlaylistTokens = { ...seedPlaylistTokens, ...playlistTokens };
       sourceMode = 'youtube_api';
 
-      // Merge any slower discovery results asynchronously once settled
+      // Merge any slower discovery & RSS results asynchronously once settled
       void discoveryPromise
         .then((allDiscovery) => {
           if (!cachedCatalog || allDiscovery.length === 0) return;
@@ -2146,14 +2279,29 @@ async function buildBaseCatalog(
           }
         })
         .catch(() => {});
+
+      if (apiItems.length >= 40) {
+        void rssPromise
+          .then(async (allRss) => {
+            if (!cachedCatalog || allRss.length === 0) return;
+            const existing = new Set(cachedCatalog.items.map((i) => i.id));
+            const extraMap = buildRssExtraMap(allRss.filter((i) => !existing.has(i.id)));
+            if (extraMap.size === 0) return;
+            const verified = await hydrateAndVerifyCandidates(apiKey, extraMap);
+            if (cachedCatalog && verified.length > 0) {
+              cachedCatalog.items = mergeIntoCatalogPool(verified, cachedCatalog.items);
+            }
+          })
+          .catch(() => {});
+      }
     } catch {
+      const discoveryPromise = fetchInitialDiscoveryExtras(
+        '',
+        new Set((cachedCatalog?.items ?? []).map((i) => i.id))
+      );
       const [rssFallback, fastDiscoveryExtras] = await Promise.all([
-        fetchFromCuratedRss(0, 4200),
-        raceWithTimeout(
-          fetchInitialDiscoveryExtras('', new Set((cachedCatalog?.items ?? []).map((i) => i.id))),
-          3600,
-          [] as ChristianShort[]
-        ),
+        fetchFromCuratedRss(0, 2200),
+        raceWithTimeout(discoveryPromise, 1400, [] as ChristianShort[]),
       ]);
       const merged = new Map<string, ChristianShort>();
       for (const item of fastDiscoveryExtras) merged.set(item.id, item);
@@ -2162,13 +2310,24 @@ async function buildBaseCatalog(
       }
       poolItems = mergeIntoCatalogPool([...merged.values()], cachedCatalog?.items ?? []);
       sourceMode = 'curated_rss';
+
+      void discoveryPromise
+        .then((allDiscovery) => {
+          if (!cachedCatalog || allDiscovery.length === 0) return;
+          const existing = new Set(cachedCatalog.items.map((i) => i.id));
+          const extra = allDiscovery.filter((i) => !existing.has(i.id));
+          if (extra.length > 0) {
+            cachedCatalog.items = mergeIntoCatalogPool(extra, cachedCatalog.items);
+          }
+        })
+        .catch(() => {});
     }
   } else {
-    const rssPromise = fetchFromCuratedRss(0, 3800);
+    const rssPromise = fetchFromCuratedRss(0, 2200);
     const discoveryPromise = fetchInitialDiscoveryExtras('', new Set());
     const [rssPage0, fastDiscoveryExtras] = await Promise.all([
       rssPromise,
-      raceWithTimeout(discoveryPromise, 3600, [] as ChristianShort[]),
+      raceWithTimeout(discoveryPromise, 1400, [] as ChristianShort[]),
     ]);
 
     const merged = new Map<string, ChristianShort>();
@@ -2436,9 +2595,18 @@ export async function getCuratedChristianShorts(options: {
     }
   }
 
+  const validReqCat: ContentCategory | null =
+    options.category === 'pregacoes' ||
+    options.category === 'biblia' ||
+    options.category === 'louvores' ||
+    options.category === 'testemunhos' ||
+    options.category === 'feliz7play'
+      ? options.category
+      : null;
+
   // On app reopen or pull-to-refresh, pull fresh rotated deep playlist pages + web discovery
   // within a tight latency budget (<=2.8s when sparse, <=1.6s on normal refresh).
-  if (!trimmedQuery && (clientExcludeSet.size > 0 || options.forceRefresh)) {
+  if (!trimmedQuery && (clientExcludeSet.size > 0 || options.forceRefresh || validReqCat)) {
     const cats: ContentCategory[] = [
       'pregacoes',
       'biblia',
@@ -2465,16 +2633,26 @@ export async function getCuratedChristianShorts(options: {
       return unseenCountByCat[c] < minNeeded || (c === 'pregacoes' && lowPreacherDiversity);
     });
     const reopenDiscoveryCats = new Set<ContentCategory>(
-      options.forceRefresh ? cats : lowUnseenCats
+      validReqCat
+        ? [validReqCat]
+        : options.forceRefresh
+        ? cats
+        : lowUnseenCats
     );
     const startRotate = (Math.floor(requestRng() * cats.length) + requestEntropy) % cats.length;
-    for (let k = 0; k < cats.length && reopenDiscoveryCats.size < 3; k++) {
-      reopenDiscoveryCats.add(cats[(startRotate + k) % cats.length]);
+    if (!validReqCat) {
+      for (let k = 0; k < cats.length && reopenDiscoveryCats.size < 3; k++) {
+        reopenDiscoveryCats.add(cats[(startRotate + k) % cats.length]);
+      }
     }
     const discoveryTargets = [...reopenDiscoveryCats];
-    const sparseApiCats = lowUnseenCats.filter(
-      (c) => unseenCountByCat[c] < 24 || (c === 'pregacoes' && lowPreacherDiversity)
-    );
+    const sparseApiCats = validReqCat
+      ? unseenCountByCat[validReqCat] < 24
+        ? [validReqCat]
+        : []
+      : lowUnseenCats.filter(
+          (c) => unseenCountByCat[c] < 24 || (c === 'pregacoes' && lowPreacherDiversity)
+        );
 
     const runReopenReplenish = async (): Promise<ChristianShort[]> => {
       const reopenAdditions: ChristianShort[] = [];
@@ -2503,14 +2681,17 @@ export async function getCuratedChristianShorts(options: {
           const tok = persistentPlaylistTokens[pid] ?? null;
           if (tok) rotateTargets.push({ pid, hint: 'louvores', token: tok });
         }
-        for (const cat of ['pregacoes', 'biblia', 'testemunhos', 'feliz7play'] as ContentCategory[]) {
+        const targetCats = validReqCat
+          ? ([validReqCat].filter((c) => c !== 'louvores') as ContentCategory[])
+          : (['pregacoes', 'biblia', 'testemunhos', 'feliz7play'] as ContentCategory[]);
+        for (const cat of targetCats) {
           const matchingChannels = ALL_CURATED_CHANNELS.filter(
             (ch) => ch.defaultCategory === cat || ch.allowInCategories.includes(cat)
           );
-          const targetForCat = options.forceRefresh ? 2 : cat === 'feliz7play' ? 2 : 3;
+          const targetForCat = validReqCat ? 5 : options.forceRefresh ? 2 : cat === 'feliz7play' ? 2 : 3;
           const shuffledCh = pickRotatedPlaylists(
             matchingChannels.map((c) => c.id),
-            targetForCat + 2,
+            targetForCat + 3,
             requestRng
           );
           let pickedForCat = 0;
@@ -2526,8 +2707,8 @@ export async function getCuratedChristianShorts(options: {
             for (const pid of candidatePids) {
               if (exhaustedPlaylistIds.has(pid)) continue;
               const tok = persistentPlaylistTokens[pid];
-              if (tok) {
-                rotateTargets.push({ pid, hint: cat, token: tok });
+              if (tok || (validReqCat === 'biblia' && pid === `UU${suffix}` && tok === undefined)) {
+                rotateTargets.push({ pid, hint: cat, token: tok ?? null });
                 pickedForCat += 1;
                 break;
               }
@@ -2666,25 +2847,26 @@ export async function getCuratedChristianShorts(options: {
     };
 
     const mainAllCats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
-    const lowMainCategoryStock = mainAllCats.some(
-      (c) => unseenCountByCat[c] < 16
-    );
+    const lowMainCategoryStock = validReqCat
+      ? unseenCountByCat[validReqCat] < 18
+      : mainAllCats.some((c) => unseenCountByCat[c] < 16);
+    const hasImmediateFeed = validReqCat
+      ? !options.forceRefresh && unseenCountByCat[validReqCat] >= 12
+      : !options.forceRefresh &&
+        totalUnseenInPool >= 24 &&
+        mainAllCats.every((c) => unseenCountByCat[c] >= (c === 'testemunhos' ? 2 : 5)) &&
+        unseenPregacoesActors >= 5;
 
     let reopenAdditions: ChristianShort[] = [];
-    if (
-      totalUnseenInPool < 60 ||
-      lowMainCategoryStock ||
-      lowPreacherDiversity ||
-      options.forceRefresh
-    ) {
+    if (!hasImmediateFeed && (totalUnseenInPool < 60 || lowMainCategoryStock || lowPreacherDiversity || options.forceRefresh)) {
       const waitBudgetMs =
-        lowMainCategoryStock || lowPreacherDiversity
-          ? 2900
-          : options.forceRefresh && totalUnseenInPool >= 120
+        validReqCat && unseenCountByCat[validReqCat] < 8
+          ? 3200
+          : options.forceRefresh && totalUnseenInPool >= 80
           ? 1100
-          : options.forceRefresh
-          ? 1850
-          : 2200;
+          : lowMainCategoryStock || lowPreacherDiversity
+          ? 2000
+          : 1400;
       reopenAdditions = await raceWithTimeout(
         runReopenReplenish(),
         waitBudgetMs,
@@ -2693,7 +2875,12 @@ export async function getCuratedChristianShorts(options: {
       if (cachedCatalog) {
         poolItems = cachedCatalog.items;
       }
-    } else if (Date.now() - lastReopenReplenishAtMs > 4_000) {
+    } else if (
+      lowMainCategoryStock ||
+      lowPreacherDiversity ||
+      totalUnseenInPool < 80 ||
+      Date.now() - lastReopenReplenishAtMs > 4_000
+    ) {
       lastReopenReplenishAtMs = Date.now();
       void runReopenReplenish();
     }
@@ -3007,7 +3194,13 @@ export async function getMoreChristianShorts(options: {
     ): string => {
       const suffix = ch.id.slice(2);
       if (hintCat === 'pregacoes' || hintCat === 'feliz7play') return `UULF${suffix}`;
-      if (hintCat === 'biblia' && ch.defaultCategory === 'biblia') return `UUSH${suffix}`;
+      if (hintCat === 'biblia' && ch.defaultCategory === 'biblia') {
+        const uushPid = `UUSH${suffix}`;
+        if (!state!.playlistStates[uushPid]?.done && !exhaustedPlaylistIds.has(uushPid)) {
+          return uushPid;
+        }
+        return `UU${suffix}`;
+      }
       return `UU${suffix}`;
     };
 
@@ -3051,6 +3244,15 @@ export async function getMoreChristianShorts(options: {
           playlistId: getPlaylistIdForChannel(ch, validCat),
           hintCategory: validCat,
         });
+        if (validCat === 'biblia' && ch.defaultCategory === 'biblia') {
+          const fullPid = `UU${ch.id.slice(2)}`;
+          if (!state.playlistStates[fullPid]?.done && !exhaustedPlaylistIds.has(fullPid)) {
+            playlistPool.push({
+              playlistId: fullPid,
+              hintCategory: 'biblia',
+            });
+          }
+        }
       }
     } else {
       // Interleave playlists across pregacoes, biblia, testemunhos, louvores so every batch
@@ -3230,14 +3432,15 @@ export async function getMoreChristianShorts(options: {
             pushDiversifiedItem(item);
           }
         }
-      } else if (validCat === 'pregacoes') {
-        const parallelQueries = needsSpeakerDiversity ? 3 : 2;
-        const settledPreachers = await Promise.allSettled(
+      } else if (validCat === 'pregacoes' || validCat === 'biblia') {
+        const parallelQueries =
+          (validCat === 'pregacoes' && needsSpeakerDiversity) || collected.length < 10 ? 3 : 2;
+        const settledCategory = await Promise.allSettled(
           Array.from({ length: parallelQueries }, () =>
-            fetchCategoryDiscoveryPage(apiKey, 'pregacoes', state)
+            fetchCategoryDiscoveryPage(apiKey, validCat, state)
           )
         );
-        for (const res of settledPreachers) {
+        for (const res of settledCategory) {
           if (res.status !== 'fulfilled') continue;
           for (const item of res.value) {
             pushDiversifiedItem(item);
@@ -3330,6 +3533,18 @@ export async function getMoreChristianShorts(options: {
       if (r.status !== 'fulfilled') continue;
       for (const item of r.value) {
         pushFallbackItem(item);
+      }
+    }
+    if (validCat && fresh.length < 8) {
+      const targetWaveCats: ContentCategory[] = [validCat, validCat, validCat] as ContentCategory[];
+      const secondWave = await Promise.allSettled(
+        targetWaveCats.map((cat) => fetchCategoryDiscoveryPage('', cat, state))
+      );
+      for (const r of secondWave) {
+        if (r.status !== 'fulfilled') continue;
+        for (const item of r.value) {
+          pushFallbackItem(item);
+        }
       }
     }
   }
