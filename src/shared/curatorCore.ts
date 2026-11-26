@@ -1885,6 +1885,102 @@ function classifyLouvorSubBucket(item: ChristianShort): LouvorSubBucket {
   return 'gospel_geral';
 }
 
+const CANONICAL_PREACHER_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
+  { id: 'alejandro_bullon', pattern: /\b(?:alejandro\s+)?bull[oó]n\b/ },
+  { id: 'arilton_oliveira', pattern: /\barilton(?:\s+oliveira)?\b/ },
+  { id: 'rodrigo_silva', pattern: /\brodrigo\s+silva\b/ },
+  { id: 'ivan_saraiva', pattern: /\bivan\s+saraiva\b/ },
+  { id: 'rafael_rossi', pattern: /\brafael\s+rossi\b/ },
+  { id: 'odailson_fonseca', pattern: /\bodailson(?:\s+fonseca)?\b/ },
+  { id: 'luis_goncalves', pattern: /\blu[ií]s\s+gon[cç]alves\b/ },
+  { id: 'erton_kohler', pattern: /\berton\s+k[oö]hler\b/ },
+  { id: 'michelson_borges', pattern: /\bmichelson\s+borges\b/ },
+  { id: 'felippe_amorim', pattern: /\bfelippe\s+amorim\b/ },
+  { id: 'manolo_damasio', pattern: /\bmanolo\s+dam[aá]sio\b/ },
+  { id: 'gilson_brito', pattern: /\bgilson\s+brito\b/ },
+  { id: 'kleber_goncalves', pattern: /\bkleber\s+gon[cç]alves\b/ },
+  { id: 'stanley_arco', pattern: /\bstanley\s+arco\b/ },
+  { id: 'henrique_goncalves', pattern: /\bhenrique\s+gon[cç]alves\b/ },
+  { id: 'gustavo_marques', pattern: /\bgustavo\s+marques\b/ },
+  { id: 'amilton_menezes', pattern: /\bamilton\s+menezes\b/ },
+  { id: 'leandro_quadros', pattern: /\bleandro\s+quadros\b/ },
+  { id: 'rafael_santos', pattern: /\brafael\s+santos\b/ },
+  { id: 'diego_barros', pattern: /\bdiego\s+barros\b/ },
+  { id: 'carlos_campitelli', pattern: /\bcarlos\s+campitelli\b/ },
+  { id: 'igor_costa', pattern: /\bigor\s+costa\b/ },
+  { id: 'alberto_timm', pattern: /\balberto\s+timm\b/ },
+  { id: 'dudu_batista', pattern: /\bdudu\s+batista\b/ },
+  { id: 'edmilson_nobreza', pattern: /\bedmilson\s+nobreza\b/ },
+  { id: 'lucas_alves', pattern: /\blucas\s+alves\b/ },
+  { id: 'marcelo_cardoso', pattern: /\bmarcelo\s+cardoso\b/ },
+  { id: 'jose_carlos_lima', pattern: /\bjos[eé]\s+carlos\s+lima\b/ },
+  { id: 'venefrides', pattern: /\bvenefrides\b/ },
+  { id: 'mauricio_lima', pattern: /\bmaur[ií]cio\s+lima\b/ },
+  { id: 'diogo_cavalcanti', pattern: /\bdiogo\s+cavalcanti\b/ },
+  { id: 'davi_tavares', pattern: /\bdavi\s+tavares\b/ },
+  { id: 'fernando_iglesias', pattern: /\bfernando\s+iglesias\b/ },
+  { id: 'roberto_cruz', pattern: /\broberto\s+cruz\b/ },
+  { id: 'pedro_penha', pattern: /\bpedro\s+penha\b/ },
+];
+
+const GENERIC_PREACHER_STOPWORDS = new Set([
+  'adventista',
+  'adventistas',
+  'brasil',
+  'canal',
+  'oficial',
+  'culto',
+  'online',
+  'jovem',
+  'sabado',
+  'live',
+  'ao',
+  'vivo',
+  'do',
+  'da',
+  'de',
+  'dos',
+  'das',
+  'em',
+  'e',
+]);
+
+export function getDiversityActorKey(item: ChristianShort): string {
+  const foldedChannelId = (item.channelId || '').trim();
+  const foldedChannelTitle = normalizeSearchFold(item.channelTitle || '').trim();
+  const fallbackChannelKey = foldedChannelId
+    ? `channel:${foldedChannelId}`
+    : `channel:${foldedChannelTitle || 'unknown'}`;
+
+  if (item.category !== 'pregacoes' && item.category !== 'biblia') {
+    return fallbackChannelKey;
+  }
+
+  const foldedTitle = normalizeSearchFold(item.title || '');
+  const combined = `${foldedTitle} ${foldedChannelTitle}`;
+
+  for (const entry of CANONICAL_PREACHER_PATTERNS) {
+    if (entry.pattern.test(combined)) {
+      return `speaker:${entry.id}`;
+    }
+  }
+
+  const titleMatch = foldedTitle.match(
+    /(?:^|[\s|\-:•/[(])(?:pr\.?|pastor(?:a)?)\s+([a-z]{3,}(?:\s+(?:de|da|do|dos|das)\s+[a-z]{2,}|\s+[a-z]{3,})?)/
+  );
+  if (titleMatch?.[1]) {
+    const words = titleMatch[1]
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length >= 2 && !GENERIC_PREACHER_STOPWORDS.has(w));
+    if (words.length > 0) {
+      return `speaker:${words.slice(0, 2).join('_')}`;
+    }
+  }
+
+  return fallbackChannelKey;
+}
+
 function getFreshnessBand(publishedAt: string, nowMs: number): 0 | 1 | 2 | 3 {
   const pubMs = Date.parse(publishedAt);
   if (!Number.isFinite(pubMs)) return 2;
@@ -1900,46 +1996,146 @@ function roundRobinAcrossChannels(
   randomize: boolean,
   rng: () => number = Math.random
 ): ChristianShort[] {
-  if (items.length === 0) return [];
-  const byChannel = new Map<string, ChristianShort[]>();
+  if (items.length <= 1) return [...items];
+  const nowMs = Date.now();
+  const byActor = new Map<string, ChristianShort[]>();
+  const distinctChannels = new Set<string>();
+
   for (const item of items) {
-    const list = byChannel.get(item.channelId) ?? [];
+    const actorKey = getDiversityActorKey(item);
+    const list = byActor.get(actorKey) ?? [];
     list.push(item);
-    byChannel.set(item.channelId, list);
+    byActor.set(actorKey, list);
+    if (item.channelId) distinctChannels.add(item.channelId);
   }
 
-  const channelQueues = [...byChannel.values()].map((list) => {
-    const ordered = [...list].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
-    return randomize ? shuffleInPlace(ordered, rng) : ordered;
+  const totalLen = items.length;
+  const actorEntries = [...byActor.entries()].map(([actorKey, list]) => {
+    const bands: [ChristianShort[], ChristianShort[], ChristianShort[], ChristianShort[]] = [
+      [],
+      [],
+      [],
+      [],
+    ];
+    for (const item of list) {
+      bands[getFreshnessBand(item.publishedAt, nowMs)].push(item);
+    }
+    const ordered: ChristianShort[] = [];
+    for (const b of bands) {
+      b.sort((a, bItem) => bItem.publishedAt.localeCompare(a.publishedAt));
+      if (randomize) shuffleInPlace(b, rng);
+      ordered.push(...b);
+    }
+    return {
+      actorKey,
+      items: ordered,
+      phase: randomize ? rng() : 0.25,
+    };
   });
 
   if (randomize) {
-    shuffleInPlace(channelQueues, rng);
+    shuffleInPlace(actorEntries, rng);
   } else {
-    channelQueues.sort((a, b) =>
-      (b[0]?.publishedAt || '').localeCompare(a[0]?.publishedAt || '')
+    actorEntries.sort((a, b) =>
+      (b.items[0]?.publishedAt || '').localeCompare(a.items[0]?.publishedAt || '')
     );
   }
 
-  const stream: ChristianShort[] = [];
-  let lastStreamChannelId: string | null = null;
-  let added = true;
-  while (added) {
-    added = false;
-    for (const queue of channelQueues) {
-      if (queue.length === 0) continue;
-      const activeQueues = channelQueues.filter((q) => q.length > 0);
-      if (activeQueues.length > 1 && queue[0].channelId === lastStreamChannelId) {
-        continue;
-      }
-      const next = queue.shift();
-      if (next) {
-        stream.push(next);
-        lastStreamChannelId = next.channelId;
-        added = true;
-      }
+  // Proportional ideal-slot placement: evenly spreads dominant actors/channels
+  // across the entire timeline instead of dumping their surplus consecutively at the end.
+  const scheduled: Array<{ item: ChristianShort; actorKey: string; slot: number }> = [];
+  for (let aIdx = 0; aIdx < actorEntries.length; aIdx++) {
+    const entry = actorEntries[aIdx];
+    const count = entry.items.length;
+    const step = 1 / count;
+    const actorJitter = (aIdx / Math.max(1, actorEntries.length)) * step * 0.45;
+    for (let k = 0; k < count; k++) {
+      const item = entry.items[k];
+      const bandBias = getFreshnessBand(item.publishedAt, nowMs) * 0.03;
+      const randomJitter = randomize ? (rng() - 0.5) * step * 0.35 : 0;
+      const slot = (k + entry.phase * 0.5) * step + actorJitter + bandBias + randomJitter;
+      scheduled.push({ item, actorKey: entry.actorKey, slot });
     }
   }
+  scheduled.sort((a, b) => a.slot - b.slot);
+
+  // Cooldown greedy pass: avoids back-to-back or close-window repeats of the same
+  // speaker/preacher OR same YouTube channel whenever any alternative exists.
+  const distinctActorCount = byActor.size;
+  const distinctChannelCount = Math.max(1, distinctChannels.size);
+  const actorCooldownWindow = Math.min(4, Math.max(0, distinctActorCount - 1));
+  const channelCooldownWindow = Math.min(3, Math.max(0, distinctChannelCount - 1));
+
+  const remaining = scheduled;
+  const stream: ChristianShort[] = [];
+  const lastSeenActorPos = new Map<string, number>();
+  const lastSeenChannelPos = new Map<string, number>();
+
+  while (remaining.length > 0) {
+    const pos = stream.length;
+    let chosenIdx = -1;
+
+    // 1) Respect both speaker/actor cooldown and channel cooldown
+    for (let i = 0; i < remaining.length; i++) {
+      const cand = remaining[i];
+      const prevActorPos = lastSeenActorPos.get(cand.actorKey);
+      const prevChanPos = cand.item.channelId
+        ? lastSeenChannelPos.get(cand.item.channelId)
+        : undefined;
+      const actorOk = prevActorPos === undefined || pos - prevActorPos > actorCooldownWindow;
+      const chanOk = prevChanPos === undefined || pos - prevChanPos > channelCooldownWindow;
+      if (actorOk && chanOk) {
+        chosenIdx = i;
+        break;
+      }
+    }
+
+    // 2) Relax to non-adjacent actor + non-adjacent channel
+    if (chosenIdx === -1) {
+      for (let i = 0; i < remaining.length; i++) {
+        const cand = remaining[i];
+        const prevActorPos = lastSeenActorPos.get(cand.actorKey);
+        const prevChanPos = cand.item.channelId
+          ? lastSeenChannelPos.get(cand.item.channelId)
+          : undefined;
+        const actorOk = prevActorPos === undefined || pos - prevActorPos > 1;
+        const chanOk = prevChanPos === undefined || pos - prevChanPos > 1;
+        if (actorOk && chanOk) {
+          chosenIdx = i;
+          break;
+        }
+      }
+    }
+
+    // 3) Maximize distance since last appearance of actor (and channel tiebreaker)
+    if (chosenIdx === -1) {
+      let bestScore = -1;
+      const scanLimit = Math.min(remaining.length, Math.max(24, totalLen));
+      for (let i = 0; i < scanLimit; i++) {
+        const cand = remaining[i];
+        const prevActorPos = lastSeenActorPos.get(cand.actorKey);
+        const prevChanPos = cand.item.channelId
+          ? lastSeenChannelPos.get(cand.item.channelId)
+          : undefined;
+        const actorGap = prevActorPos === undefined ? 10000 : pos - prevActorPos;
+        const chanGap = prevChanPos === undefined ? 10000 : pos - prevChanPos;
+        const score = actorGap * 10 + Math.min(chanGap, 50) - i * 0.01;
+        if (score > bestScore) {
+          bestScore = score;
+          chosenIdx = i;
+        }
+      }
+    }
+
+    if (chosenIdx < 0) chosenIdx = 0;
+    const [picked] = remaining.splice(chosenIdx, 1);
+    stream.push(picked.item);
+    lastSeenActorPos.set(picked.actorKey, pos);
+    if (picked.item.channelId) {
+      lastSeenChannelPos.set(picked.item.channelId, pos);
+    }
+  }
+
   return stream;
 }
 
@@ -1948,23 +2144,7 @@ function buildRoundRobinChannelQueue(
   randomize: boolean,
   rng: () => number = Math.random
 ): ChristianShort[] {
-  if (items.length === 0) return [];
-  const nowMs = Date.now();
-  const bands: [ChristianShort[], ChristianShort[], ChristianShort[], ChristianShort[]] = [
-    [],
-    [],
-    [],
-    [],
-  ];
-  for (const item of items) {
-    bands[getFreshnessBand(item.publishedAt, nowMs)].push(item);
-  }
-  return [
-    ...roundRobinAcrossChannels(bands[0], randomize, rng),
-    ...roundRobinAcrossChannels(bands[1], randomize, rng),
-    ...roundRobinAcrossChannels(bands[2], randomize, rng),
-    ...roundRobinAcrossChannels(bands[3], randomize, rng),
-  ];
+  return roundRobinAcrossChannels(items, randomize, rng);
 }
 
 function buildCategoryStream(

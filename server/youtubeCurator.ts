@@ -15,6 +15,7 @@ import {
   deduplicateShorts,
   fetchCuratedRssWithAdapter,
   formatFilteredResponse,
+  getDiversityActorKey,
   isSearchSuggestionSafe,
   isUpcomingOrPremiereEntry,
   parseIso8601DurationSeconds,
@@ -384,16 +385,107 @@ function selectBalancedFeedSlice(
 
   categories.forEach((cat, catIdx) => {
     const list = byCategory[cat];
-    if (list.length <= perCategoryLimit || entropy === 0) {
-      rotatedByCat[cat] = list.slice(0, perCategoryLimit);
+    if (list.length === 0) {
+      rotatedByCat[cat] = [];
       return;
     }
-    const startIdx = (entropy + catIdx * 17) % list.length;
-    const picked: ChristianShort[] = [];
-    for (let i = 0; i < perCategoryLimit; i++) {
-      picked.push(list[(startIdx + i) % list.length]);
+
+    // Group by speaker/channel so no single pastor or channel monopolizes a 45-item slice
+    const byActor = new Map<string, ChristianShort[]>();
+    for (const item of list) {
+      const actorKey = getDiversityActorKey(item);
+      const bucket = byActor.get(actorKey) ?? [];
+      bucket.push(item);
+      byActor.set(actorKey, bucket);
     }
-    rotatedByCat[cat] = picked;
+
+    const actorBuckets = [...byActor.values()];
+    if (actorBuckets.length > 1 && entropy > 0) {
+      const shift = (entropy + catIdx * 13) % actorBuckets.length;
+      actorBuckets.push(...actorBuckets.splice(0, shift));
+      for (let bIdx = 0; bIdx < actorBuckets.length; bIdx++) {
+        const b = actorBuckets[bIdx];
+        if (b.length > 1) {
+          const itemShift = (entropy + catIdx * 7 + bIdx * 5) % b.length;
+          b.push(...b.splice(0, itemShift));
+        }
+      }
+    }
+
+    const maxPrimaryPerActor =
+      cat === 'pregacoes'
+        ? actorBuckets.length >= 10
+          ? 3
+          : actorBuckets.length >= 5
+          ? 4
+          : 6
+        : actorBuckets.length >= 8
+        ? 5
+        : 7;
+
+    const picked: ChristianShort[] = [];
+    const overflow: ChristianShort[] = [];
+    const actorPickedCounts = new Map<number, number>();
+    const channelPickedCounts = new Map<string, number>();
+    const maxPrimaryPerChannel = cat === 'pregacoes' ? 4 : 7;
+
+    let addedRound = true;
+    while (picked.length < perCategoryLimit && addedRound) {
+      addedRound = false;
+      for (let bIdx = 0; bIdx < actorBuckets.length && picked.length < perCategoryLimit; bIdx++) {
+        const bucket = actorBuckets[bIdx];
+        const countForActor = actorPickedCounts.get(bIdx) ?? 0;
+        if (countForActor >= maxPrimaryPerActor) continue;
+        while (bucket.length > 0) {
+          const cand = bucket.shift()!;
+          const chKey = cand.channelId || cand.channelTitle;
+          const chCount = channelPickedCounts.get(chKey) ?? 0;
+          if (chCount >= maxPrimaryPerChannel && actorBuckets.length >= 6) {
+            overflow.push(cand);
+            continue;
+          }
+          picked.push(cand);
+          actorPickedCounts.set(bIdx, countForActor + 1);
+          channelPickedCounts.set(chKey, chCount + 1);
+          addedRound = true;
+          break;
+        }
+      }
+    }
+
+    // Drain unused bucket items round-robin only if primary fair pass didn't fill the slice,
+    // while keeping a ceiling per actor in pregacoes when multiple speakers exist so one pastor never dominates.
+    const maxTotalPerActor =
+      cat === 'pregacoes' && actorBuckets.length >= 6 ? 5 : perCategoryLimit;
+    if (picked.length < perCategoryLimit) {
+      let extraAdded = true;
+      while (picked.length < perCategoryLimit && extraAdded) {
+        extraAdded = false;
+        for (let bIdx = 0; bIdx < actorBuckets.length && picked.length < perCategoryLimit; bIdx++) {
+          const countForActor = actorPickedCounts.get(bIdx) ?? 0;
+          if (countForActor >= maxTotalPerActor) continue;
+          const bucket = actorBuckets[bIdx];
+          const next = bucket.shift();
+          if (next) {
+            picked.push(next);
+            actorPickedCounts.set(bIdx, countForActor + 1);
+            extraAdded = true;
+          }
+        }
+      }
+      if (picked.length < 18) {
+        for (const item of overflow) {
+          if (picked.length >= Math.min(perCategoryLimit, 24)) break;
+          picked.push(item);
+        }
+      }
+    }
+
+    rotatedByCat[cat] = buildDiverseFeed(
+      picked,
+      true,
+      seed !== undefined ? seed + catIdx * 31 : undefined
+    );
   });
 
   // Preserve the interleaved flow of categories with rotated/seeded subsets
@@ -1825,7 +1917,7 @@ async function fetchInitialDiscoveryExtras(
   const recencyCycle: YoutubeWebDateFilter[] = ['week', 'month', 'latest'];
   for (const cat of categories) {
     const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-    const extraCount = cat === 'testemunhos' ? 3 : 2;
+    const extraCount = cat === 'pregacoes' ? 4 : cat === 'testemunhos' ? 3 : 2;
     for (let k = 0; k < extraCount; k++) {
       const idx = globalDiscoveryOffsets[cat] % queries.length;
       globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
@@ -2362,9 +2454,15 @@ export async function getCuratedChristianShorts(options: {
       },
       {} as Record<ContentCategory, number>
     );
+    const unseenPregacoesActors = new Set(
+      poolItems
+        .filter((i) => i.category === 'pregacoes' && !clientExcludeSet.has(i.id))
+        .map(getDiversityActorKey)
+    ).size;
+    const lowPreacherDiversity = unseenPregacoesActors < 8;
     const lowUnseenCats = cats.filter((c) => {
       const minNeeded = c === 'louvores' ? 45 : 28;
-      return unseenCountByCat[c] < minNeeded;
+      return unseenCountByCat[c] < minNeeded || (c === 'pregacoes' && lowPreacherDiversity);
     });
     const reopenDiscoveryCats = new Set<ContentCategory>(
       options.forceRefresh ? cats : lowUnseenCats
@@ -2374,7 +2472,9 @@ export async function getCuratedChristianShorts(options: {
       reopenDiscoveryCats.add(cats[(startRotate + k) % cats.length]);
     }
     const discoveryTargets = [...reopenDiscoveryCats];
-    const sparseApiCats = lowUnseenCats.filter((c) => unseenCountByCat[c] < 24);
+    const sparseApiCats = lowUnseenCats.filter(
+      (c) => unseenCountByCat[c] < 24 || (c === 'pregacoes' && lowPreacherDiversity)
+    );
 
     const runReopenReplenish = async (): Promise<ChristianShort[]> => {
       const reopenAdditions: ChristianShort[] = [];
@@ -2461,7 +2561,12 @@ export async function getCuratedChristianShorts(options: {
           for (let dIdx = 0; dIdx < discoveryTargets.length; dIdx++) {
             const cat = discoveryTargets[dIdx];
             const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-            const jobCount = unseenCountByCat[cat] < 16 ? 2 : 1;
+            const jobCount =
+              cat === 'pregacoes' && lowPreacherDiversity
+                ? 3
+                : unseenCountByCat[cat] < 16
+                ? 2
+                : 1;
             for (let j = 0; j < jobCount; j++) {
               const idx = (globalDiscoveryOffsets[cat] + requestEntropy + j) % queries.length;
               globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
@@ -2566,14 +2671,20 @@ export async function getCuratedChristianShorts(options: {
     );
 
     let reopenAdditions: ChristianShort[] = [];
-    if (totalUnseenInPool < 60 || lowMainCategoryStock || options.forceRefresh) {
-      const waitBudgetMs = lowMainCategoryStock
-        ? 2900
-        : options.forceRefresh && totalUnseenInPool >= 120
-        ? 1100
-        : options.forceRefresh
-        ? 1850
-        : 2200;
+    if (
+      totalUnseenInPool < 60 ||
+      lowMainCategoryStock ||
+      lowPreacherDiversity ||
+      options.forceRefresh
+    ) {
+      const waitBudgetMs =
+        lowMainCategoryStock || lowPreacherDiversity
+          ? 2900
+          : options.forceRefresh && totalUnseenInPool >= 120
+          ? 1100
+          : options.forceRefresh
+          ? 1850
+          : 2200;
       reopenAdditions = await raceWithTimeout(
         runReopenReplenish(),
         waitBudgetMs,
@@ -2991,10 +3102,41 @@ export async function getMoreChristianShorts(options: {
     }
 
     const collected: ChristianShort[] = [];
-    const maxAttempts = 2;
-    const targetMin = validCat === 'pregacoes' || validCat === 'testemunhos' ? 12 : 18;
+    const overflowCollected: ChristianShort[] = [];
+    const actorCountsInBatch = new Map<string, number>();
+    const channelCountsInBatch = new Map<string, number>();
+    const maxActorPerPage = validCat === 'pregacoes' ? 3 : 6;
+    const maxChannelPerPage = validCat === 'pregacoes' ? 4 : 8;
 
-    for (let attempt = 0; attempt < maxAttempts && collected.length < targetMin; attempt++) {
+    const pushDiversifiedItem = (item: ChristianShort) => {
+      if (validCat && item.category !== validCat) return;
+      if (isAllFeed && item.category === 'feliz7play') return;
+      if (state!.seenIds.has(item.id)) return;
+      const actorKey = getDiversityActorKey(item);
+      const chKey = item.channelId || item.channelTitle;
+      const actorCount = actorCountsInBatch.get(actorKey) ?? 0;
+      const chCount = channelCountsInBatch.get(chKey) ?? 0;
+      if (actorCount < maxActorPerPage && chCount < maxChannelPerPage) {
+        state!.seenIds.add(item.id);
+        collected.push(item);
+        actorCountsInBatch.set(actorKey, actorCount + 1);
+        channelCountsInBatch.set(chKey, chCount + 1);
+      } else {
+        overflowCollected.push(item);
+      }
+    };
+
+    const maxAttempts = validCat === 'pregacoes' ? 3 : 2;
+    const targetMin = validCat === 'pregacoes' ? 20 : validCat === 'testemunhos' ? 14 : 18;
+    const minActorsTarget = validCat === 'pregacoes' ? 7 : 4;
+
+    for (
+      let attempt = 0;
+      attempt < maxAttempts &&
+      (collected.length < targetMin ||
+        (validCat === 'pregacoes' && actorCountsInBatch.size < minActorsTarget));
+      attempt++
+    ) {
       if (!isYoutubeApiUsable(apiKey)) break;
       const batchTargets: Array<{
         playlistId: string;
@@ -3052,12 +3194,7 @@ export async function getMoreChristianShorts(options: {
 
       const verified = await hydrateAndVerifyCandidates(apiKey, candidateMap);
       for (const item of verified) {
-        if (validCat && item.category !== validCat) continue;
-        if (isAllFeed && item.category === 'feliz7play') continue;
-        if (!state.seenIds.has(item.id)) {
-          state.seenIds.add(item.id);
-          collected.push(item);
-        }
+        pushDiversifiedItem(item);
       }
     }
 
@@ -3074,8 +3211,11 @@ export async function getMoreChristianShorts(options: {
       : [];
 
     // Run unlimited YouTube-wide discovery for EVERY category (always keeping strict category rules)
+    const needsSpeakerDiversity =
+      validCat === 'pregacoes' && actorCountsInBatch.size < minActorsTarget;
     const shouldSearchYoutube =
       collected.length < 18 ||
+      needsSpeakerDiversity ||
       missingAllCategories.length > 0 ||
       !anyPlaylistRemaining ||
       state.round % 2 === 1;
@@ -3087,11 +3227,20 @@ export async function getMoreChristianShorts(options: {
         for (const res of missingDiscovered) {
           if (res.status !== 'fulfilled') continue;
           for (const item of res.value) {
-            if (item.category === 'feliz7play') continue;
-            if (!state.seenIds.has(item.id)) {
-              state.seenIds.add(item.id);
-              collected.push(item);
-            }
+            pushDiversifiedItem(item);
+          }
+        }
+      } else if (validCat === 'pregacoes') {
+        const parallelQueries = needsSpeakerDiversity ? 3 : 2;
+        const settledPreachers = await Promise.allSettled(
+          Array.from({ length: parallelQueries }, () =>
+            fetchCategoryDiscoveryPage(apiKey, 'pregacoes', state)
+          )
+        );
+        for (const res of settledPreachers) {
+          if (res.status !== 'fulfilled') continue;
+          for (const item of res.value) {
+            pushDiversifiedItem(item);
           }
         }
       } else {
@@ -3102,13 +3251,21 @@ export async function getMoreChristianShorts(options: {
             ALL_DISCOVERY_ROTATION[(state.allCycleIdx++ + requestEntropy) % ALL_DISCOVERY_ROTATION.length];
           const discovered = await fetchCategoryDiscoveryPage(apiKey, discoveryCat, state);
           for (const item of discovered) {
-            if (validCat && item.category !== validCat) continue;
-            if (isAllFeed && item.category === 'feliz7play') continue;
-            if (!state.seenIds.has(item.id)) {
-              state.seenIds.add(item.id);
-              collected.push(item);
-            }
+            pushDiversifiedItem(item);
           }
+        }
+      }
+    }
+
+    if (overflowCollected.length > 0 && cachedCatalog) {
+      cachedCatalog.items = mergeIntoCatalogPool(overflowCollected, cachedCatalog.items);
+    }
+    if (collected.length < 8 && overflowCollected.length > 0) {
+      for (const item of overflowCollected) {
+        if (collected.length >= 16) break;
+        if (!state.seenIds.has(item.id)) {
+          state.seenIds.add(item.id);
+          collected.push(item);
         }
       }
     }
@@ -3132,17 +3289,37 @@ export async function getMoreChristianShorts(options: {
   const rssPage = state.rssPage;
   state.rssPage += 1;
   const fresh: ChristianShort[] = [];
+  const fallbackOverflow: ChristianShort[] = [];
+  const fallbackActorCounts = new Map<string, number>();
+  const fallbackChannelCounts = new Map<string, number>();
+  const fallbackMaxActor = validCat === 'pregacoes' ? 3 : 6;
+  const fallbackMaxChannel = validCat === 'pregacoes' ? 4 : 8;
+
+  const pushFallbackItem = (item: ChristianShort) => {
+    if (validCat && item.category !== validCat) return;
+    if (isAllFeed && item.category === 'feliz7play') return;
+    if (state!.seenIds.has(item.id)) return;
+    const actorKey = getDiversityActorKey(item);
+    const chKey = item.channelId || item.channelTitle;
+    const actorCount = fallbackActorCounts.get(actorKey) ?? 0;
+    const chCount = fallbackChannelCounts.get(chKey) ?? 0;
+    if (actorCount < fallbackMaxActor && chCount < fallbackMaxChannel) {
+      state!.seenIds.add(item.id);
+      fresh.push(item);
+      fallbackActorCounts.set(actorKey, actorCount + 1);
+      fallbackChannelCounts.set(chKey, chCount + 1);
+    } else {
+      fallbackOverflow.push(item);
+    }
+  };
+
   if (rssPage <= 2) {
     const rssItems = await fetchFromCuratedRss(rssPage);
     for (const item of rssItems) {
-      if (validCat && item.category !== validCat) continue;
-      if (isAllFeed && item.category === 'feliz7play') continue;
-      if (state.seenIds.has(item.id)) continue;
-      state.seenIds.add(item.id);
-      fresh.push(item);
+      pushFallbackItem(item);
     }
   }
-  if (fresh.length < 18 || rssPage > 2) {
+  if (fresh.length < 18 || rssPage > 2 || (validCat === 'pregacoes' && fallbackActorCounts.size < 6)) {
     const discoveryCats: ContentCategory[] = validCat
       ? [validCat, validCat, validCat]
       : [...ALL_DISCOVERY_ROTATION];
@@ -3152,9 +3329,14 @@ export async function getMoreChristianShorts(options: {
     for (const r of settledDiscovery) {
       if (r.status !== 'fulfilled') continue;
       for (const item of r.value) {
-        if (validCat && item.category !== validCat) continue;
-        if (isAllFeed && item.category === 'feliz7play') continue;
-        if (state.seenIds.has(item.id)) continue;
+        pushFallbackItem(item);
+      }
+    }
+  }
+  if (fresh.length < 8 && fallbackOverflow.length > 0) {
+    for (const item of fallbackOverflow) {
+      if (fresh.length >= 16) break;
+      if (!state.seenIds.has(item.id)) {
         state.seenIds.add(item.id);
         fresh.push(item);
       }
