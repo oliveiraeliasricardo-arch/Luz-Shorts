@@ -278,6 +278,23 @@ let inFlightCatalogPromise: Promise<{
 let lastReopenReplenishAtMs = 0;
 let lastApiSearchDiscoveryAtMs = 0;
 let depthEnrichmentStarted = false;
+let youtubeApiBlockedUntilMs = 0;
+
+function isYoutubeApiUsable(apiKey: string): boolean {
+  return Boolean(apiKey) && Date.now() >= youtubeApiBlockedUntilMs;
+}
+
+function markYoutubeApiHttpError(status: number, bodyText = ''): void {
+  if (
+    status === 400 ||
+    status === 401 ||
+    status === 403 ||
+    status === 429 ||
+    /quotaExceeded|dailyLimitExceeded|keyInvalid|forbidden/i.test(bodyText)
+  ) {
+    youtubeApiBlockedUntilMs = Date.now() + 10 * 60 * 1000;
+  }
+}
 
 // Persistent server-side rotation cursors so new sessions and refreshes dig deeper
 // into YouTube rather than returning the exact same page-1 results every time.
@@ -562,66 +579,82 @@ async function hydrateAndVerifyCandidates(
     }
   >();
 
-  for (let i = 0; i < candidateIds.length; i += 50) {
-    const chunk = candidateIds.slice(i, i + 50);
-    const params = new URLSearchParams({
-      key: apiKey,
-      part: 'snippet,contentDetails,statistics,status,liveStreamingDetails',
-      id: chunk.join(','),
-    });
-    try {
-      const res = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
-        { signal: AbortSignal.timeout(searchMode ? 6000 : 8500) }
-      );
-      if (!res.ok) continue;
+  let apiFallbackMode = !isYoutubeApiUsable(apiKey);
 
-      const data = (await res.json()) as {
-        items?: Array<{
-          id: string;
-          snippet?: {
-            description?: string;
-            liveBroadcastContent?: string;
-            publishedAt?: string;
-          };
-          contentDetails?: { duration?: string };
-          statistics?: { viewCount?: string };
-          status?: {
-            embeddable?: boolean;
-            privacyStatus?: string;
-            publishAt?: string;
-            uploadStatus?: string;
-          };
-          liveStreamingDetails?: {
-            scheduledStartTime?: string;
-            actualStartTime?: string;
-            actualEndTime?: string;
-          };
-        }>;
-      };
-      for (const v of data.items ?? []) {
-        const check = isYouTubeVideoPlayable(v);
-        videoMeta.set(v.id, {
-          playable: check.playable,
-          durationSeconds: check.durationSeconds,
-          viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
-          fullDescription: decodeXmlEntities(v.snippet?.description || ''),
-          publishedAt: v.snippet?.publishedAt || null,
-        });
+  if (!apiFallbackMode) {
+    for (let i = 0; i < candidateIds.length; i += 50) {
+      const chunk = candidateIds.slice(i, i + 50);
+      const params = new URLSearchParams({
+        key: apiKey,
+        part: 'snippet,contentDetails,statistics,status,liveStreamingDetails',
+        id: chunk.join(','),
+      });
+      try {
+        const res = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
+          { signal: AbortSignal.timeout(searchMode ? 6000 : 8500) }
+        );
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          markYoutubeApiHttpError(res.status, errBody);
+          if (!isYoutubeApiUsable(apiKey)) {
+            apiFallbackMode = true;
+            break;
+          }
+          continue;
+        }
+
+        const data = (await res.json()) as {
+          items?: Array<{
+            id: string;
+            snippet?: {
+              description?: string;
+              liveBroadcastContent?: string;
+              publishedAt?: string;
+            };
+            contentDetails?: { duration?: string };
+            statistics?: { viewCount?: string };
+            status?: {
+              embeddable?: boolean;
+              privacyStatus?: string;
+              publishAt?: string;
+              uploadStatus?: string;
+            };
+            liveStreamingDetails?: {
+              scheduledStartTime?: string;
+              actualStartTime?: string;
+              actualEndTime?: string;
+            };
+          }>;
+        };
+        for (const v of data.items ?? []) {
+          const check = isYouTubeVideoPlayable(v);
+          videoMeta.set(v.id, {
+            playable: check.playable,
+            durationSeconds: check.durationSeconds,
+            viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
+            fullDescription: decodeXmlEntities(v.snippet?.description || ''),
+            publishedAt: v.snippet?.publishedAt || null,
+          });
+        }
+      } catch {
+        // Unverified chunks are excluded below unless API quota is blocked
       }
-    } catch {
-      // Unverified chunks are excluded below rather than crashing or letting premieres leak
     }
   }
 
   const verifiedShorts: ChristianShort[] = [];
   for (const c of candidates.values()) {
     const meta = videoMeta.get(c.id);
-    // Strict API verification: never allow unverified, upcoming, or premiere candidates
-    if (!meta || !meta.playable) continue;
+    if (meta) {
+      if (!meta.playable) continue;
+    } else if (!apiFallbackMode) {
+      // Strict API verification when API is healthy
+      continue;
+    }
 
-    const fullDesc = meta.fullDescription || c.description;
-    const effectivePublishedAt = meta.publishedAt || c.publishedAt;
+    const fullDesc = meta?.fullDescription || c.description;
+    const effectivePublishedAt = meta?.publishedAt || c.publishedAt;
     if (isUpcomingOrPremiereEntry(c.title, fullDesc, effectivePublishedAt)) {
       continue;
     }
@@ -636,10 +669,11 @@ async function hydrateAndVerifyCandidates(
     );
     if (!classified) continue;
 
+    const effectiveDuration = meta?.durationSeconds ?? c.durationSeconds ?? null;
     if (
       !isWithinCategoryDuration(
         classified.category,
-        meta?.durationSeconds ?? null,
+        effectiveDuration,
         c.title,
         c.channelId,
         searchMode
@@ -659,7 +693,7 @@ async function hydrateAndVerifyCandidates(
         thumbnailUrl: c.thumbnailUrl,
         category: classified.category,
         doctrineScope: classified.doctrineScope,
-        durationSeconds: meta?.durationSeconds ?? c.durationSeconds ?? null,
+        durationSeconds: effectiveDuration,
         viewCount: meta?.viewCount ?? null,
       })
     );
@@ -738,6 +772,10 @@ async function fetchFromYoutubeApi(
   evaluatedIds: Set<string>;
   playlistTokens: Record<string, string | null>;
 }> {
+  if (!isYoutubeApiUsable(apiKey)) {
+    throw new Error('YouTube API temporarily cooling down after quota/auth error');
+  }
+
   // Fetch initial catalog using playlistItems.list (1 quota unit per call)
   // across all curated verified channels + guaranteed Novo Hinário, CD Jovem, and Adoradores playlists,
   // rotating saved page tokens so reopening/refreshing continuously discovers deeper songs & hymns.
@@ -841,6 +879,9 @@ async function fetchChannelPlaylistPage(
   pageToken?: string | null,
   maxResults = 25
 ): Promise<{ candidates: CandidateVideo[]; nextPageToken: string | null }> {
+  if (!isYoutubeApiUsable(apiKey)) {
+    return { candidates: [], nextPageToken: null };
+  }
   const params = new URLSearchParams({
     key: apiKey,
     part: 'snippet,contentDetails',
@@ -856,6 +897,8 @@ async function fetchChannelPlaylistPage(
     { signal: AbortSignal.timeout(9000) }
   );
   if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    markYoutubeApiHttpError(res.status, errBody);
     return { candidates: [], nextPageToken: null };
   }
 
@@ -1100,7 +1143,7 @@ async function fetchYoutubeWebSearch(
     }
 
     if (candidates.size === 0) return [];
-    if (apiKey) {
+    if (isYoutubeApiUsable(apiKey)) {
       return hydrateAndVerifyCandidates(apiKey, candidates, { searchMode });
     }
 
@@ -1342,7 +1385,7 @@ async function fetchLiveYoutubeSearch(
     }
   }
 
-  const apiPromise = apiKey
+  const apiPromise = isYoutubeApiUsable(apiKey)
     ? (async () => {
         const params = new URLSearchParams({
           key: apiKey,
@@ -1362,7 +1405,11 @@ async function fetchLiveYoutubeSearch(
           `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
           { signal: AbortSignal.timeout(5500) }
         );
-        if (!res.ok) return null;
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          markYoutubeApiHttpError(res.status, errBody);
+          return null;
+        }
         return (await res.json()) as {
           nextPageToken?: string;
           items?: Array<{
@@ -1442,12 +1489,18 @@ async function fetchPersistentApiDiscoveryPage(
   targetCategory: ContentCategory,
   excludeIds: Set<string>
 ): Promise<ChristianShort[]> {
-  if (!apiKey) return [];
   const queries = DISCOVERY_QUERIES_BY_CATEGORY[targetCategory];
   const cursor = persistentDiscoveryCursors[targetCategory];
   const query = queries[cursor.queryIdx % queries.length];
   const orderCycle: Array<'date' | 'relevance' | 'viewCount'> = ['relevance', 'date', 'viewCount'];
   const orderMode = orderCycle[cursor.queryIdx % orderCycle.length];
+
+  if (!isYoutubeApiUsable(apiKey)) {
+    cursor.queryIdx = (cursor.queryIdx + 1) % queries.length;
+    cursor.pageToken = null;
+    globalDiscoveryOffsets[targetCategory] = cursor.queryIdx;
+    return fetchYoutubeWebSearch('', query, targetCategory, 'month', excludeIds);
+  }
 
   const params = new URLSearchParams({
     key: apiKey,
@@ -1474,9 +1527,12 @@ async function fetchPersistentApiDiscoveryPage(
       { signal: AbortSignal.timeout(7000) }
     );
     if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      markYoutubeApiHttpError(res.status, errBody);
       cursor.queryIdx = (cursor.queryIdx + 1) % queries.length;
       cursor.pageToken = null;
-      return [];
+      globalDiscoveryOffsets[targetCategory] = cursor.queryIdx;
+      return fetchYoutubeWebSearch('', query, targetCategory, 'month', excludeIds);
     }
     const data = (await res.json()) as {
       nextPageToken?: string;
@@ -1523,9 +1579,17 @@ async function fetchPersistentApiDiscoveryPage(
     }
 
     const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
-    return verified.filter((item) => item.category === targetCategory);
+    const matching = verified.filter((item) => item.category === targetCategory);
+    if (matching.length > 0) return matching;
+    return fetchYoutubeWebSearch(
+      isYoutubeApiUsable(apiKey) ? apiKey : '',
+      query,
+      targetCategory,
+      'month',
+      excludeIds
+    );
   } catch {
-    return [];
+    return fetchYoutubeWebSearch('', query, targetCategory, 'month', excludeIds);
   }
 }
 
@@ -1549,7 +1613,7 @@ async function fetchCategoryDiscoveryPage(
   const webFilterCycle: YoutubeWebDateFilter[] = ['week', 'month', 'year', 'relevance', 'latest'];
   const webFilter = webFilterCycle[queryIdx % webFilterCycle.length];
 
-  if (apiKey) {
+  if (isYoutubeApiUsable(apiKey)) {
     const params = new URLSearchParams({
       key: apiKey,
       part: 'snippet',
@@ -1569,62 +1633,72 @@ async function fetchCategoryDiscoveryPage(
       params.set('pageToken', cursorEntry.pageToken);
     }
 
-    const res = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
-      { signal: AbortSignal.timeout(9000) }
-    );
-    if (res.ok) {
-      const data = (await res.json()) as {
-        nextPageToken?: string;
-        items?: Array<{
-          id?: { videoId?: string };
-          snippet?: {
-            title?: string;
-            description?: string;
-            channelId?: string;
-            channelTitle?: string;
-            publishedAt?: string;
-            liveBroadcastContent?: string;
-            thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
-          };
-        }>;
-      };
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
+        { signal: AbortSignal.timeout(9000) }
+      );
+      if (res.ok) {
+        const data = (await res.json()) as {
+          nextPageToken?: string;
+          items?: Array<{
+            id?: { videoId?: string };
+            snippet?: {
+              title?: string;
+              description?: string;
+              channelId?: string;
+              channelTitle?: string;
+              publishedAt?: string;
+              liveBroadcastContent?: string;
+              thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
+            };
+          }>;
+        };
 
-      if (data.nextPageToken) {
-        cursorEntry.pageToken = data.nextPageToken;
-        persistentDiscoveryCursors[targetCategory].pageToken = data.nextPageToken;
-        persistentDiscoveryCursors[targetCategory].queryIdx = queryIdx % queries.length;
-      } else {
-        cursorEntry.queryIdx += 1;
-        cursorEntry.pageToken = null;
-        globalDiscoveryOffsets[targetCategory] =
-          (globalDiscoveryOffsets[targetCategory] + 1) % queries.length;
-        persistentDiscoveryCursors[targetCategory].queryIdx = globalDiscoveryOffsets[targetCategory];
-        persistentDiscoveryCursors[targetCategory].pageToken = null;
-      }
-
-      const candidates = new Map<string, CandidateVideo>();
-      for (const item of data.items ?? []) {
-        const id = item.id?.videoId;
-        const s = item.snippet;
-        if (!id || !s || s.liveBroadcastContent === 'live' || s.liveBroadcastContent === 'upcoming') {
-          continue;
+        if (data.nextPageToken) {
+          cursorEntry.pageToken = data.nextPageToken;
+          persistentDiscoveryCursors[targetCategory].pageToken = data.nextPageToken;
+          persistentDiscoveryCursors[targetCategory].queryIdx = queryIdx % queries.length;
+        } else {
+          cursorEntry.queryIdx += 1;
+          cursorEntry.pageToken = null;
+          globalDiscoveryOffsets[targetCategory] =
+            (globalDiscoveryOffsets[targetCategory] + 1) % queries.length;
+          persistentDiscoveryCursors[targetCategory].queryIdx = globalDiscoveryOffsets[targetCategory];
+          persistentDiscoveryCursors[targetCategory].pageToken = null;
         }
-        if (state.seenIds.has(id)) continue;
-        candidates.set(id, {
-          id,
-          title: decodeXmlEntities(s.title || ''),
-          description: decodeXmlEntities(s.description || ''),
-          channelId: s.channelId || '',
-          channelTitle: decodeXmlEntities(s.channelTitle || ''),
-          publishedAt: s.publishedAt || new Date().toISOString(),
-          thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
-          hintCategory: targetCategory,
-        });
-      }
 
-      const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
-      return verified.filter((item) => item.category === targetCategory);
+        const candidates = new Map<string, CandidateVideo>();
+        for (const item of data.items ?? []) {
+          const id = item.id?.videoId;
+          const s = item.snippet;
+          if (!id || !s || s.liveBroadcastContent === 'live' || s.liveBroadcastContent === 'upcoming') {
+            continue;
+          }
+          if (state.seenIds.has(id)) continue;
+          candidates.set(id, {
+            id,
+            title: decodeXmlEntities(s.title || ''),
+            description: decodeXmlEntities(s.description || ''),
+            channelId: s.channelId || '',
+            channelTitle: decodeXmlEntities(s.channelTitle || ''),
+            publishedAt: s.publishedAt || new Date().toISOString(),
+            thumbnailUrl: s.thumbnails?.high?.url || s.thumbnails?.medium?.url,
+            hintCategory: targetCategory,
+          });
+        }
+
+        const verified = await hydrateAndVerifyCandidates(apiKey, candidates);
+        const matching = verified.filter((item) => item.category === targetCategory);
+        if (matching.length > 0) {
+          return matching;
+        }
+      } else {
+        const errBody = await res.text().catch(() => '');
+        markYoutubeApiHttpError(res.status, errBody);
+      }
+    } catch {
+      // Fall through cleanly to zero-quota web discovery
     }
   }
 
@@ -1634,7 +1708,7 @@ async function fetchCategoryDiscoveryPage(
   globalDiscoveryOffsets[targetCategory] =
     (globalDiscoveryOffsets[targetCategory] + 1) % queries.length;
   const webFound = await fetchYoutubeWebSearch(
-    apiKey,
+    isYoutubeApiUsable(apiKey) ? apiKey : '',
     query,
     targetCategory,
     webFilter,
@@ -1922,7 +1996,7 @@ async function buildBaseCatalog(
   let sourceMode: 'youtube_api' | 'curated_rss' = 'curated_rss';
   let seedPlaylistTokens: Record<string, string | null> = cachedCatalog?.playlistTokens ?? {};
 
-  if (apiKeyConfigured) {
+  if (isYoutubeApiUsable(apiKey)) {
     try {
       const discoveryPromise = fetchInitialDiscoveryExtras(
         apiKey,
@@ -1981,30 +2055,21 @@ async function buildBaseCatalog(
         })
         .catch(() => {});
     } catch {
-      const rssFallback = await fetchFromCuratedRss(0, 4200);
-      if (rssFallback.length > 0) {
-        const rssCandidates = new Map<string, CandidateVideo>(
-          rssFallback.map((item) => [
-            item.id,
-            {
-              id: item.id,
-              title: item.title,
-              description: item.description,
-              channelId: item.channelId,
-              channelTitle: item.channelTitle,
-              publishedAt: item.publishedAt,
-              thumbnailUrl: item.thumbnailUrl,
-              hintCategory: item.category,
-            },
-          ])
-        );
-        const verifiedFallback = await hydrateAndVerifyCandidates(apiKey, rssCandidates);
-        poolItems = verifiedFallback.length > 0 ? verifiedFallback : rssFallback;
-        sourceMode = verifiedFallback.length > 0 ? 'youtube_api' : 'curated_rss';
-      } else {
-        poolItems = cachedCatalog?.items ?? [];
-        sourceMode = cachedCatalog?.sourceMode ?? 'curated_rss';
+      const [rssFallback, fastDiscoveryExtras] = await Promise.all([
+        fetchFromCuratedRss(0, 4200),
+        raceWithTimeout(
+          fetchInitialDiscoveryExtras('', new Set((cachedCatalog?.items ?? []).map((i) => i.id))),
+          3600,
+          [] as ChristianShort[]
+        ),
+      ]);
+      const merged = new Map<string, ChristianShort>();
+      for (const item of fastDiscoveryExtras) merged.set(item.id, item);
+      for (const item of rssFallback) {
+        if (!merged.has(item.id)) merged.set(item.id, item);
       }
+      poolItems = mergeIntoCatalogPool([...merged.values()], cachedCatalog?.items ?? []);
+      sourceMode = 'curated_rss';
     }
   } else {
     const rssPromise = fetchFromCuratedRss(0, 3800);
@@ -2092,20 +2157,21 @@ async function enrichCatalogDepth(
     }
 
     const canRunApiRecentSearch =
-      apiKeyConfigured && Date.now() - lastApiSearchDiscoveryAtMs > 30 * 60 * 1000;
+      isYoutubeApiUsable(apiKey) && Date.now() - lastApiSearchDiscoveryAtMs > 30 * 60 * 1000;
     if (canRunApiRecentSearch) {
       lastApiSearchDiscoveryAtMs = Date.now();
     }
 
+    const effectiveKey = isYoutubeApiUsable(apiKey) ? apiKey : '';
     const [rssArchiveResults, discoveryResults, deeperApiResult, apiRecentDiscovery] =
       await Promise.all([
         rssArchivePromise,
         Promise.allSettled(
           extraQueries.map((job) =>
-            fetchYoutubeWebSearch(apiKey, job.query, job.cat, job.dateFilter, existingIds)
+            fetchYoutubeWebSearch(effectiveKey, job.query, job.cat, job.dateFilter, existingIds)
           )
         ),
-        apiKeyConfigured
+        isYoutubeApiUsable(apiKey)
           ? fetchFromYoutubeApi(apiKey, true).catch(() => null)
           : Promise.resolve(null),
         canRunApiRecentSearch
@@ -2272,10 +2338,14 @@ export async function getCuratedChristianShorts(options: {
     sourceMode = built.sourceMode;
     fetchedAt = built.fetchedAt;
     seedPlaylistTokens = built.playlistTokens;
+    if (!depthEnrichmentStarted) {
+      depthEnrichmentStarted = true;
+      void enrichCatalogDepth(apiKey, isYoutubeApiUsable(apiKey));
+    }
   }
 
   // On app reopen or pull-to-refresh, pull fresh rotated deep playlist pages + web discovery
-  // within a tight latency budget (<=1.6s on refresh, instant background on warm reopen).
+  // within a tight latency budget (<=2.8s when sparse, <=1.6s on normal refresh).
   if (!trimmedQuery && (clientExcludeSet.size > 0 || options.forceRefresh)) {
     const cats: ContentCategory[] = [
       'pregacoes',
@@ -2309,7 +2379,8 @@ export async function getCuratedChristianShorts(options: {
     const runReopenReplenish = async (): Promise<ChristianShort[]> => {
       const reopenAdditions: ChristianShort[] = [];
       const reopenPlaylistPromises: Array<Promise<CandidateVideo[]>> = [];
-      if (apiKeyConfigured) {
+      const canUseApi = isYoutubeApiUsable(apiKey);
+      if (canUseApi) {
         const rotateTargets: Array<{ pid: string; hint: ContentCategory; token: string | null }> = [];
         const rotateSpecial = [
           ...pickRotatedPlaylists(
@@ -2390,7 +2461,7 @@ export async function getCuratedChristianShorts(options: {
           for (let dIdx = 0; dIdx < discoveryTargets.length; dIdx++) {
             const cat = discoveryTargets[dIdx];
             const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-            const jobCount = unseenCountByCat[cat] < 24 ? 2 : 1;
+            const jobCount = unseenCountByCat[cat] < 16 ? 2 : 1;
             for (let j = 0; j < jobCount; j++) {
               const idx = (globalDiscoveryOffsets[cat] + requestEntropy + j) % queries.length;
               globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
@@ -2403,6 +2474,7 @@ export async function getCuratedChristianShorts(options: {
           }
 
           const combinedExcludeForDiscovery = new Set([...clientExcludeSet, ...poolIdSet]);
+          const webApiKey = isYoutubeApiUsable(apiKey) ? apiKey : '';
           const [playlistRes, discoveryRes, sparseApiRes] = await Promise.all([
             reopenPlaylistPromises.length > 0
               ? Promise.allSettled(reopenPlaylistPromises)
@@ -2411,7 +2483,7 @@ export async function getCuratedChristianShorts(options: {
               ? Promise.allSettled(
                   webSearchJobs.map((job) =>
                     fetchYoutubeWebSearch(
-                      apiKey,
+                      webApiKey,
                       job.query,
                       job.cat,
                       job.filter,
@@ -2420,7 +2492,7 @@ export async function getCuratedChristianShorts(options: {
                   )
                 )
               : Promise.resolve([]),
-            apiKeyConfigured && sparseApiCats.length > 0
+            isYoutubeApiUsable(apiKey) && sparseApiCats.length > 0
               ? Promise.allSettled(
                   sparseApiCats.map((cat) =>
                     fetchPersistentApiDiscoveryPage(apiKey, cat, combinedExcludeForDiscovery)
@@ -2439,7 +2511,7 @@ export async function getCuratedChristianShorts(options: {
             }
           }
           const hydratedPlaylists =
-            apiKeyConfigured && extraCandidates.size > 0
+            isYoutubeApiUsable(apiKey) && extraCandidates.size > 0
               ? await hydrateAndVerifyCandidates(apiKey, extraCandidates)
               : [];
 
@@ -2495,12 +2567,13 @@ export async function getCuratedChristianShorts(options: {
 
     let reopenAdditions: ChristianShort[] = [];
     if (totalUnseenInPool < 60 || lowMainCategoryStock || options.forceRefresh) {
-      const waitBudgetMs =
-        options.forceRefresh && totalUnseenInPool >= 120 && !lowMainCategoryStock
-          ? 950
-          : options.forceRefresh
-          ? 1650
-          : 1900;
+      const waitBudgetMs = lowMainCategoryStock
+        ? 2900
+        : options.forceRefresh && totalUnseenInPool >= 120
+        ? 1100
+        : options.forceRefresh
+        ? 1850
+        : 2200;
       reopenAdditions = await raceWithTimeout(
         runReopenReplenish(),
         waitBudgetMs,
@@ -2800,7 +2873,7 @@ export async function getMoreChristianShorts(options: {
   const isAllFeed = !validCat;
 
   // Unlimited YouTube pagination via playlistItems.list + YouTube-wide discovery for EVERY category
-  if (apiKeyConfigured) {
+  if (isYoutubeApiUsable(apiKey)) {
     const MAIN_ALL_CATS: Array<'pregacoes' | 'biblia' | 'testemunhos' | 'louvores'> = [
       'pregacoes',
       'biblia',
@@ -2922,6 +2995,7 @@ export async function getMoreChristianShorts(options: {
     const targetMin = validCat === 'pregacoes' || validCat === 'testemunhos' ? 12 : 18;
 
     for (let attempt = 0; attempt < maxAttempts && collected.length < targetMin; attempt++) {
+      if (!isYoutubeApiUsable(apiKey)) break;
       const batchTargets: Array<{
         playlistId: string;
         hintCategory: ContentCategory;
@@ -2954,7 +3028,7 @@ export async function getMoreChristianShorts(options: {
               nextPageToken: res.nextPageToken,
               done: false,
             };
-          } else {
+          } else if (isYoutubeApiUsable(apiKey)) {
             state!.playlistStates[target.playlistId] = {
               nextPageToken: null,
               done: true,
@@ -2963,6 +3037,8 @@ export async function getMoreChristianShorts(options: {
           return res.candidates;
         })
       );
+
+      if (!isYoutubeApiUsable(apiKey)) break;
 
       const candidateMap = new Map<string, CandidateVideo>();
       for (const r of pageResults) {
@@ -2993,41 +3069,66 @@ export async function getMoreChristianShorts(options: {
       }
     }
 
+    const missingAllCategories = isAllFeed
+      ? MAIN_ALL_CATS.filter((cat) => !collected.some((item) => item.category === cat))
+      : [];
+
     // Run unlimited YouTube-wide discovery for EVERY category (always keeping strict category rules)
     const shouldSearchYoutube =
-      collected.length < 18 || !anyPlaylistRemaining || state.round % 2 === 1;
+      collected.length < 18 ||
+      missingAllCategories.length > 0 ||
+      !anyPlaylistRemaining ||
+      state.round % 2 === 1;
     if (shouldSearchYoutube) {
-      const searchTries = collected.length === 0 ? 4 : collected.length < 10 ? 3 : 2;
-      for (let sTry = 0; sTry < searchTries && collected.length < 24; sTry++) {
-        const discoveryCat =
-          validCat ??
-          ALL_DISCOVERY_ROTATION[state.allCycleIdx++ % ALL_DISCOVERY_ROTATION.length];
-        const discovered = await fetchCategoryDiscoveryPage(apiKey, discoveryCat, state);
-        for (const item of discovered) {
-          if (validCat && item.category !== validCat) continue;
-          if (isAllFeed && item.category === 'feliz7play') continue;
-          if (!state.seenIds.has(item.id)) {
-            state.seenIds.add(item.id);
-            collected.push(item);
+      if (isAllFeed && missingAllCategories.length > 0) {
+        const missingDiscovered = await Promise.allSettled(
+          missingAllCategories.map((cat) => fetchCategoryDiscoveryPage(apiKey, cat, state))
+        );
+        for (const res of missingDiscovered) {
+          if (res.status !== 'fulfilled') continue;
+          for (const item of res.value) {
+            if (item.category === 'feliz7play') continue;
+            if (!state.seenIds.has(item.id)) {
+              state.seenIds.add(item.id);
+              collected.push(item);
+            }
+          }
+        }
+      } else {
+        const searchTries = collected.length === 0 ? 4 : collected.length < 10 ? 3 : 2;
+        for (let sTry = 0; sTry < searchTries && collected.length < 24; sTry++) {
+          const discoveryCat =
+            validCat ??
+            ALL_DISCOVERY_ROTATION[(state.allCycleIdx++ + requestEntropy) % ALL_DISCOVERY_ROTATION.length];
+          const discovered = await fetchCategoryDiscoveryPage(apiKey, discoveryCat, state);
+          for (const item of discovered) {
+            if (validCat && item.category !== validCat) continue;
+            if (isAllFeed && item.category === 'feliz7play') continue;
+            if (!state.seenIds.has(item.id)) {
+              state.seenIds.add(item.id);
+              collected.push(item);
+            }
           }
         }
       }
     }
 
-    const diverse = buildDiverseFeed(collected, true, effectiveSeed);
-    return formatFilteredResponse(
-      diverse,
-      'youtube_api',
-      true,
-      fetchedAt,
-      options.category,
-      '',
-      true,
-      cursor
-    );
+    if (collected.length > 0) {
+      const diverse = buildDiverseFeed(collected, true, effectiveSeed);
+      return formatFilteredResponse(
+        diverse,
+        isYoutubeApiUsable(apiKey) ? 'youtube_api' : 'curated_rss',
+        apiKeyConfigured,
+        fetchedAt,
+        options.category,
+        '',
+        true,
+        cursor
+      );
+    }
   }
 
-  // RSS archive fallback pagination + unlimited YouTube web discovery for EVERY category
+  // RSS archive fallback pagination + parallel zero-quota YouTube web discovery for EVERY category
   const rssPage = state.rssPage;
   state.rssPage += 1;
   const fresh: ChristianShort[] = [];
@@ -3041,14 +3142,16 @@ export async function getMoreChristianShorts(options: {
       fresh.push(item);
     }
   }
-  if (fresh.length < 10 || rssPage > 2) {
-    const tries = fresh.length === 0 ? 2 : 1;
-    for (let t = 0; t < tries && fresh.length < 16; t++) {
-      const discoveryCat =
-        validCat ??
-        ALL_DISCOVERY_ROTATION[(state.allCycleIdx++ + requestEntropy) % ALL_DISCOVERY_ROTATION.length];
-      const discovered = await fetchCategoryDiscoveryPage('', discoveryCat, state);
-      for (const item of discovered) {
+  if (fresh.length < 18 || rssPage > 2) {
+    const discoveryCats: ContentCategory[] = validCat
+      ? [validCat, validCat, validCat]
+      : [...ALL_DISCOVERY_ROTATION];
+    const settledDiscovery = await Promise.allSettled(
+      discoveryCats.map((cat) => fetchCategoryDiscoveryPage('', cat, state))
+    );
+    for (const r of settledDiscovery) {
+      if (r.status !== 'fulfilled') continue;
+      for (const item of r.value) {
         if (validCat && item.category !== validCat) continue;
         if (isAllFeed && item.category === 'feliz7play') continue;
         if (state.seenIds.has(item.id)) continue;
