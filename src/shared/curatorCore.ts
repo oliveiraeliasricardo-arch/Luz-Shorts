@@ -1278,12 +1278,18 @@ export function isUpcomingOrPremiereEntry(
     return true;
   }
 
-  const descHead = description.slice(0, 300);
+  const descHead = description.slice(0, 350);
   const text = `${title} ${descHead}`;
   if (
-    /\b(aguardando estreia|estreia em breve|estreia hoje|estreia amanh[ãa]|estreia dia \d|estreia [àa]s \d|estr[eé]ia em|vai estrear|estrear[áa]|assista [àa] estreia|come[cç]a em breve|dispon[ií]vel em \d|dispon[ií]vel dia \d|lan[cç]amento dia \d|live especial .* neste (domingo|s[aá]bado|sexta)|premieres in|premiere at|upcoming premiere|scheduled for)\b/i.test(
+    /^\s*(?:[\[({#]*\s*)?(?:pr[eé]-?)?estr[eé]ia\b/i.test(title) ||
+    /(?:^|\s)(?:🔴|🚨)\s*(ao\s+vivo|culto|estr[eé]ia|live)/i.test(title) ||
+    /\b(aguardando(\s+a)?\s*estr[eé]ia|pr[eé]-?estr[eé]ia|em\s+estr[eé]ia|vai\s+estrear|estrear[áa]|estreando|assista\s+[àa]\s+estr[eé]ia|come[cç]a\s+em\s+breve|dispon[ií]vel\s+(em|dia|a\s+partir)|lan[cç]amento\s+(dia|em)\s+\d|programad[oa]\s+(para|em)|ao\s+vivo\s+(em|hoje|amanh[ãa]|[àa]s|agora)|live\s+especial\s+.*\s+neste\s+(domingo|s[aá]bado|sexta)|definir\s+lembrete|notificar-me|upcoming\s+premiere|scheduled\s+for)\b/i.test(
       text
-    )
+    ) ||
+    /\bestr[eé]ia\s*(?:em\s+breve|hoje|amanh[ãa]|dia|às|[àa]s|no\s+youtube|oficial|exclusiva|nacional|mundial|[:|\-!])/i.test(
+      text
+    ) ||
+    /\bpremieres?(?:\s+(?:in|on|at|soon)\b|\s*[:|\-!])/i.test(text)
   ) {
     return true;
   }

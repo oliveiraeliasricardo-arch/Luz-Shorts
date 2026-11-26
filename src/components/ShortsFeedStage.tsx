@@ -41,6 +41,7 @@ interface ShortsFeedStageProps {
   onShare: (short: ChristianShort) => void;
   onRefresh: () => void;
   onEnded: () => void;
+  onUnplayableVideo?: (videoId: string) => void;
   onStepCategory?: (direction: -1 | 1) => void;
 }
 
@@ -85,6 +86,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   onShare,
   onRefresh,
   onEnded,
+  onUnplayableVideo,
   onStepCategory,
 }) => {
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
@@ -97,6 +99,9 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const trackRef = useRef<HTMLDivElement | null>(null);
   const currentVideoIdRef = useRef<string | null>(null);
   const autoplayCheckTimerRef = useRef<number | null>(null);
+  const premiereGuardTimerRef = useRef<number | null>(null);
+  const errorSkipTimerRef = useRef<number | null>(null);
+  const hasEnteredPlayableStateRef = useRef<boolean>(false);
   const wheelLockUntilRef = useRef<number>(0);
   const horizontalWheelLockUntilRef = useRef<number>(0);
   const touchStartXRef = useRef<number | null>(null);
@@ -165,6 +170,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const prevCategoryLabelRef = useRef<string | null>(prevCategoryLabel);
   const nextCategoryLabelRef = useRef<string | null>(nextCategoryLabel);
   const onEndedRef = useRef(onEnded);
+  const onUnplayableVideoRef = useRef(onUnplayableVideo);
   const onRefreshRef = useRef(onRefresh);
   const onAudioUnlockedRef = useRef(onAudioUnlocked);
   const onActiveIndexChangeRef = useRef(onActiveIndexChange);
@@ -182,6 +188,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   prevCategoryLabelRef.current = prevCategoryLabel;
   nextCategoryLabelRef.current = nextCategoryLabel;
   onEndedRef.current = onEnded;
+  onUnplayableVideoRef.current = onUnplayableVideo;
   onRefreshRef.current = onRefresh;
   onAudioUnlockedRef.current = onAudioUnlocked;
   onActiveIndexChangeRef.current = onActiveIndexChange;
@@ -226,12 +233,21 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   }, []);
 
   const silenceCurrentVideoImmediately = useCallback(() => {
+    hasEnteredPlayableStateRef.current = false;
     setIsVideoVisible(false);
     setIsPlaying(false);
     resetPlaybackClock(0);
     if (autoplayCheckTimerRef.current) {
       window.clearTimeout(autoplayCheckTimerRef.current);
       autoplayCheckTimerRef.current = null;
+    }
+    if (premiereGuardTimerRef.current) {
+      window.clearTimeout(premiereGuardTimerRef.current);
+      premiereGuardTimerRef.current = null;
+    }
+    if (errorSkipTimerRef.current) {
+      window.clearTimeout(errorSkipTimerRef.current);
+      errorSkipTimerRef.current = null;
     }
     const player = playerRef.current;
     if (!player) return;
@@ -283,6 +299,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       YTStates?: { PLAYING: number; BUFFERING: number }
     ) => {
       currentVideoIdRef.current = videoId;
+      hasEnteredPlayableStateRef.current = false;
       setHasError(false);
       setIsVideoVisible(false);
       resetPlaybackClock(effectiveDurationRef.current);
@@ -290,6 +307,14 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       if (autoplayCheckTimerRef.current) {
         window.clearTimeout(autoplayCheckTimerRef.current);
         autoplayCheckTimerRef.current = null;
+      }
+      if (premiereGuardTimerRef.current) {
+        window.clearTimeout(premiereGuardTimerRef.current);
+        premiereGuardTimerRef.current = null;
+      }
+      if (errorSkipTimerRef.current) {
+        window.clearTimeout(errorSkipTimerRef.current);
+        errorSkipTimerRef.current = null;
       }
 
       try {
@@ -331,6 +356,63 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
             // Ignore transient state errors
           }
         }, 550);
+
+        // Guard against upcoming Premieres/lives that render a countdown screen
+        // (stays UNSTARTED=-1 or CUED=5 with duration 0 and never enters BUFFERING/PLAYING)
+        premiereGuardTimerRef.current = window.setTimeout(() => {
+          premiereGuardTimerRef.current = null;
+          if (
+            activeVideoIdRef.current !== videoId ||
+            hasEnteredPlayableStateRef.current ||
+            hasErrorRef.current
+          ) {
+            return;
+          }
+          try {
+            const state = player.getPlayerState();
+            const liveDur = player.getDuration();
+            if (state === 1 || state === 3 || (Number.isFinite(liveDur) && liveDur > 0)) {
+              hasEnteredPlayableStateRef.current = true;
+              return;
+            }
+            if (state === -1 || state === 5) {
+              player.mute();
+              player.playVideo();
+              premiereGuardTimerRef.current = window.setTimeout(() => {
+                premiereGuardTimerRef.current = null;
+                if (
+                  activeVideoIdRef.current !== videoId ||
+                  hasEnteredPlayableStateRef.current ||
+                  hasErrorRef.current
+                ) {
+                  return;
+                }
+                try {
+                  const finalState = player.getPlayerState();
+                  const finalDur = player.getDuration();
+                  const online =
+                    typeof navigator === 'undefined' || navigator.onLine !== false;
+                  if (
+                    online &&
+                    itemsLengthRef.current > 1 &&
+                    (!Number.isFinite(finalDur) || finalDur <= 0) &&
+                    (finalState === -1 || finalState === 5)
+                  ) {
+                    if (onUnplayableVideoRef.current) {
+                      onUnplayableVideoRef.current(videoId);
+                    } else {
+                      onEndedRef.current();
+                    }
+                  }
+                } catch {
+                  // Ignore transient state reads
+                }
+              }, 1600);
+            }
+          } catch {
+            // Ignore transient state errors
+          }
+        }, 3800);
       } catch {
         // Ignore transient play errors
       }
@@ -416,6 +498,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
               try {
                 const liveDuration = event.target.getDuration();
                 if (Number.isFinite(liveDuration) && liveDuration > 0) {
+                  hasEnteredPlayableStateRef.current = true;
                   setDuration(liveDuration);
                 }
                 const liveCurrent = event.target.getCurrentTime();
@@ -439,8 +522,18 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
               }
 
               if (event.data === YT.PlayerState.BUFFERING) {
+                hasEnteredPlayableStateRef.current = true;
+                if (premiereGuardTimerRef.current) {
+                  window.clearTimeout(premiereGuardTimerRef.current);
+                  premiereGuardTimerRef.current = null;
+                }
                 setIsVideoVisible(true);
               } else if (event.data === YT.PlayerState.PLAYING) {
+                hasEnteredPlayableStateRef.current = true;
+                if (premiereGuardTimerRef.current) {
+                  window.clearTimeout(premiereGuardTimerRef.current);
+                  premiereGuardTimerRef.current = null;
+                }
                 setIsPlaying(true);
                 setIsVideoVisible(true);
                 if (audioUnlockedRef.current) {
@@ -474,6 +567,27 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
               if (!cancelled) {
                 setIsVideoVisible(false);
                 setHasError(true);
+                if (premiereGuardTimerRef.current) {
+                  window.clearTimeout(premiereGuardTimerRef.current);
+                  premiereGuardTimerRef.current = null;
+                }
+                const erroredId = activeVideoIdRef.current;
+                const online =
+                  typeof navigator === 'undefined' || navigator.onLine !== false;
+                if (erroredId && online && itemsLengthRef.current > 1) {
+                  if (errorSkipTimerRef.current) {
+                    window.clearTimeout(errorSkipTimerRef.current);
+                  }
+                  errorSkipTimerRef.current = window.setTimeout(() => {
+                    errorSkipTimerRef.current = null;
+                    if (cancelled || activeVideoIdRef.current !== erroredId) return;
+                    if (onUnplayableVideoRef.current) {
+                      onUnplayableVideoRef.current(erroredId);
+                    } else {
+                      onEndedRef.current();
+                    }
+                  }, 750);
+                }
               }
             },
           },
@@ -490,6 +604,14 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       if (autoplayCheckTimerRef.current) {
         window.clearTimeout(autoplayCheckTimerRef.current);
         autoplayCheckTimerRef.current = null;
+      }
+      if (premiereGuardTimerRef.current) {
+        window.clearTimeout(premiereGuardTimerRef.current);
+        premiereGuardTimerRef.current = null;
+      }
+      if (errorSkipTimerRef.current) {
+        window.clearTimeout(errorSkipTimerRef.current);
+        errorSkipTimerRef.current = null;
       }
       if (pipWindowRef.current) {
         try {

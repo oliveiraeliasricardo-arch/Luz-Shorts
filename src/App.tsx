@@ -37,6 +37,7 @@ import { getViewportOrientationState } from './utils/screenOrientation';
 import {
   buildDiverseFeed,
   extractFuzzyContentKey,
+  isUpcomingOrPremiereEntry,
   normalizeTitleKey,
 } from './shared/curatorCore';
 import type { ChristianShort, ContentCategory, ShortCategory, ShortsApiResponse } from './types/shorts';
@@ -298,7 +299,9 @@ function foldSearchText(text: string): string {
 
 export function App() {
   const [allShorts, setAllShorts] = useState<ChristianShort[]>(() => {
-    const cachedRaw = readCachedFeedSnapshot();
+    const cachedRaw = readCachedFeedSnapshot().filter(
+      (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
+    );
     if (cachedRaw.length === 0) return [];
     const initialSeen = readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY);
     const initialTop = readStoredIdList(LAST_SESSION_TOP_KEY);
@@ -400,6 +403,7 @@ export function App() {
   const fetchedCategoryBatchRef = useRef<Set<string>>(new Set());
   const emptyRetryCountRef = useRef(0);
   const allBalanceRetryCountRef = useRef(0);
+  const consecutiveUnplayableRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
   const activeSearchTermRef = useRef('');
   const remoteSearchQueryRef = useRef('');
@@ -549,8 +553,11 @@ export function App() {
   }, []);
 
   const orderResponseItems = useCallback((orderedSource: ChristianShort[]) => {
+    const playableOnly = orderedSource.filter(
+      (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
+    );
     const unseenFresh = filterFreshUnseenItems(
-      orderedSource,
+      playableOnly,
       seenIdsRef.current,
       lastSessionTopRef.current,
       seenTitleKeysRef.current
@@ -685,6 +692,7 @@ export function App() {
       setError(null);
       fetchedCategoryBatchRef.current.clear();
       allBalanceRetryCountRef.current = 0;
+      consecutiveUnplayableRef.current = 0;
 
       try {
         let data: ShortsApiResponse | null = null;
@@ -1568,10 +1576,15 @@ export function App() {
         flushVisible();
       }
     };
+    const verifiedTimer = window.setTimeout(() => {
+      consecutiveUnplayableRef.current = 0;
+    }, 7000);
+
     window.addEventListener('pagehide', flushVisible);
     window.addEventListener('beforeunload', flushVisible);
     document.addEventListener('visibilitychange', handleVisibilityOrHide);
     return () => {
+      window.clearTimeout(verifiedTimer);
       window.removeEventListener('pagehide', flushVisible);
       window.removeEventListener('beforeunload', flushVisible);
       document.removeEventListener('visibilitychange', handleVisibilityOrHide);
@@ -1617,6 +1630,62 @@ export function App() {
       scrollToIndex(0);
     }
   }, [scrollToIndex, activeCategory, loadMoreShorts]);
+
+  const handleUnplayableVideo = useCallback(
+    (videoId: string) => {
+      if (!videoId) return;
+      const targetItem =
+        visibleShortsRef.current.find((i) => i.id === videoId) ??
+        allShortsRef.current.find((i) => i.id === videoId);
+      markShortSeen(videoId, targetItem?.title);
+      persistNextSessionTopIds([videoId], true);
+
+      if (consecutiveUnplayableRef.current >= 4) {
+        return;
+      }
+      consecutiveUnplayableRef.current += 1;
+
+      setRemoteSearchShorts((prev) =>
+        prev ? prev.filter((item) => item.id !== videoId) : prev
+      );
+
+      const currentAll = allShortsRef.current;
+      const nextAll = currentAll.filter((item) => item.id !== videoId);
+      if (nextAll.length !== currentAll.length) {
+        allShortsRef.current = nextAll;
+        setAllShorts(nextAll);
+        writeCachedFeedSnapshot(
+          nextAll,
+          seenIdsSetRef.current,
+          new Set(lastSessionTopRef.current),
+          seenTitleKeysSetRef.current
+        );
+      }
+
+      const remainingTotal = Math.max(0, visibleShortsRef.current.length - 1);
+      if (remainingTotal === 0) {
+        if ((hasMoreByCategoryRef.current[activeCategory] ?? true) && activeCategory !== 'salvos') {
+          loadMoreShorts();
+        }
+        return;
+      }
+
+      const currentIdx = activeIndexRef.current;
+      const clampedNextIdx = Math.min(currentIdx, remainingTotal - 1);
+      if (clampedNextIdx !== currentIdx) {
+        setActiveIndex(clampedNextIdx);
+      }
+
+      if (
+        remainingTotal - clampedNextIdx <= 3 &&
+        (hasMoreByCategoryRef.current[activeCategory] ?? true) &&
+        activeCategory !== 'salvos'
+      ) {
+        loadMoreShorts();
+      }
+    },
+    [activeCategory, loadMoreShorts, markShortSeen, persistNextSessionTopIds]
+  );
 
   const handleSubmitSearch = useCallback((rawTerm: string) => {
     const clean = rawTerm.trim();
@@ -2239,6 +2308,7 @@ export function App() {
                     onShare={handleOpenShareModal}
                     onRefresh={handleRefreshFeed}
                     onEnded={handleVideoEnded}
+                    onUnplayableVideo={handleUnplayableVideo}
                     onStepCategory={handleStepCategory}
                   />
                 )}

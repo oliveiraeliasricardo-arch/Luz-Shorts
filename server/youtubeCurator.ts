@@ -1221,8 +1221,12 @@ async function fetchYoutubeWebSearch(
           overlays?: Array<{
             thumbnailOverlayBadgeViewModel?: {
               thumbnailBadges?: Array<{
-                thumbnailBadgeViewModel?: { text?: string };
+                thumbnailBadgeViewModel?: { text?: string; badgeStyle?: string };
               }>;
+            };
+            thumbnailOverlayTimeStatusRenderer?: {
+              style?: string;
+              text?: { simpleText?: string; runs?: Array<{ text?: string }> };
             };
           }>;
         };
@@ -1290,15 +1294,24 @@ async function fetchYoutubeWebSearch(
             const sl = gItem.shortsLockupViewModel;
             const vid = sl?.onTap?.innertubeCommand?.reelWatchEndpoint?.videoId;
             if (!vid || excludeIds?.has(vid) || candidates.has(vid)) continue;
+            const a11y = decodeXmlEntities(sl.accessibilityText || '');
             const rawTitle = decodeXmlEntities(
-              sl.overlayMetadata?.primaryText?.content || sl.accessibilityText || ''
+              sl.overlayMetadata?.primaryText?.content || a11y
             );
-            if (!rawTitle || isUpcomingOrPremiereEntry(rawTitle, '', '')) continue;
+            if (
+              !rawTitle ||
+              isUpcomingOrPremiereEntry(rawTitle, a11y, '') ||
+              /\b(estr[eé]ia|em breve|premieres?|upcoming|programad[oa]|aguardando|ao vivo)\b/i.test(
+                a11y
+              )
+            ) {
+              continue;
+            }
             const sources = sl.thumbnailViewModel?.thumbnailViewModel?.image?.sources ?? [];
             candidates.set(vid, {
               id: vid,
               title: rawTitle,
-              description: decodeXmlEntities(sl.accessibilityText || ''),
+              description: a11y,
               channelId: '',
               channelTitle: '',
               publishedAt: parseRelativePublishedAt(undefined, sortByDateOrFilter),
@@ -1321,18 +1334,45 @@ async function fetchYoutubeWebSearch(
             const allMetaTexts = rows.flatMap((r) =>
               (r.metadataParts ?? []).map((p) => p.text?.content || '')
             );
-            const relPubText = allMetaTexts.find((t) => /\b(h[aá]\s+\d+|\d+\s+\w+\s+ago)\b/i.test(t));
+            const hasUpcomingMeta = allMetaTexts.some((t) =>
+              /\b(estr[eé]ia|em breve|premieres?|upcoming|programad[oa]|aguardando|ao vivo|scheduled|notificar)\b/i.test(
+                t
+              )
+            );
             let durText = '';
+            let hasUpcomingBadge = false;
             for (const ov of lv.contentImage?.thumbnailViewModel?.overlays ?? []) {
-              const t = ov.thumbnailOverlayBadgeViewModel?.thumbnailBadges?.[0]?.thumbnailBadgeViewModel?.text;
-              if (t && /\d+:\d+/.test(t)) {
-                durText = t;
+              const badge = ov.thumbnailOverlayBadgeViewModel?.thumbnailBadges?.[0]?.thumbnailBadgeViewModel;
+              const t = badge?.text || '';
+              if (
+                badge?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' ||
+                /\b(estr[eé]ia|em breve|premieres?|upcoming|programad[oa]|aguardando|ao vivo|live)\b/i.test(
+                  t
+                )
+              ) {
+                hasUpcomingBadge = true;
                 break;
               }
+              const ts = ov.thumbnailOverlayTimeStatusRenderer;
+              if (ts?.style === 'UPCOMING' || ts?.style === 'LIVE') {
+                hasUpcomingBadge = true;
+                break;
+              }
+              if (t && /\d+:\d+/.test(t)) {
+                durText = t;
+              }
             }
+            const relPubText = allMetaTexts.find((t) => /\b(h[aá]\s+\d+|\d+\s+\w+\s+ago)\b/i.test(t));
             const durSec = parseDisplayDurationToSeconds(durText);
             const sources = lv.contentImage?.thumbnailViewModel?.image?.sources ?? [];
-            if (title && durSec && durSec > 0 && !isUpcomingOrPremiereEntry(title, '', '')) {
+            if (
+              title &&
+              durSec &&
+              durSec > 0 &&
+              !hasUpcomingMeta &&
+              !hasUpcomingBadge &&
+              !isUpcomingOrPremiereEntry(title, allMetaTexts.join(' '), '')
+            ) {
               candidates.set(vid, {
                 id: vid,
                 title,
@@ -1364,11 +1404,13 @@ async function fetchYoutubeWebSearch(
               b.includes('ao vivo') ||
               b === 'live' ||
               b.includes('estreia') ||
-              b.includes('estr') ||
+              b.includes('estrei') ||
+              b.includes('estréi') ||
               b.includes('em breve') ||
               b.includes('premiere') ||
               b.includes('upcoming') ||
-              b.includes('aguardando')
+              b.includes('aguardando') ||
+              b.includes('programad')
           )
         ) {
           continue;
@@ -1384,17 +1426,22 @@ async function fetchYoutubeWebSearch(
           ).toLowerCase();
           return (
             ovText.includes('estreia') ||
+            ovText.includes('estrei') ||
+            ovText.includes('estréi') ||
             ovText.includes('em breve') ||
             ovText.includes('ao vivo') ||
             ovText.includes('premiere') ||
-            ovText.includes('upcoming')
+            ovText.includes('upcoming') ||
+            ovText.includes('programad')
           );
         });
         if (hasUpcomingOverlay) continue;
 
         const pubTimeText = (vr.publishedTimeText?.simpleText || '').toLowerCase();
         if (
-          /\b(estreia|em breve|premieres|aguardando|scheduled)\b/i.test(pubTimeText)
+          /\b(estr[eé]ia|em breve|premieres?|aguardando|scheduled|programad[oa]|ao vivo|upcoming)\b/i.test(
+            pubTimeText
+          )
         ) {
           continue;
         }
@@ -3033,14 +3080,17 @@ export async function getCuratedChristianShorts(options: {
   }
 
   // Always vary the opening order across categories and channels on every entry,
-  // and strictly exclude anything the user already displayed or watched.
+  // strictly exclude anything already displayed/watched, and filter any premiere/upcoming entry.
+  const sanitizedPoolItems = poolItems.filter(
+    (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
+  );
   const baseItems =
     !trimmedQuery && (clientExcludeSet.size > 0 || options.forceRefresh)
-      ? poolItems
+      ? sanitizedPoolItems
       : buildDiverseFeed(
           trimmedQuery.length >= 2
-            ? poolItems
-            : poolItems.filter((item) => !clientExcludeSet.has(item.id)),
+            ? sanitizedPoolItems
+            : sanitizedPoolItems.filter((item) => !clientExcludeSet.has(item.id)),
           true,
           effectiveSeed
         );
@@ -3696,7 +3746,10 @@ export async function getMoreChristianShorts(options: {
       }
     }
   }
-  const diverse = buildDiverseFeed(fresh, true, effectiveSeed);
+  const safeFresh = fresh.filter(
+    (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
+  );
+  const diverse = buildDiverseFeed(safeFresh, true, effectiveSeed);
 
   return formatFilteredResponse(
     diverse,
