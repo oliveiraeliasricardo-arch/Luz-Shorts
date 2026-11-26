@@ -2000,14 +2000,15 @@ export function getDiversityActorKey(item: ChristianShort): string {
   return fallbackChannelKey;
 }
 
-function getFreshnessBand(publishedAt: string, nowMs: number): 0 | 1 | 2 | 3 {
+function getFreshnessBand(publishedAt: string, nowMs: number): 0 | 1 | 2 | 3 | 4 {
   const pubMs = Date.parse(publishedAt);
-  if (!Number.isFinite(pubMs)) return 2;
+  if (!Number.isFinite(pubMs)) return 3;
   const ageDays = (nowMs - pubMs) / (24 * 60 * 60 * 1000);
-  if (ageDays <= 30) return 0; // Fresh (last 30 days)
-  if (ageDays <= 180) return 1; // Current (last 6 months)
-  if (ageDays <= 540) return 2; // Recent (last ~18 months)
-  return 3; // Older archive / classics
+  if (ageDays <= 14) return 0; // Ultra-recent (last 2 weeks)
+  if (ageDays <= 45) return 1; // Fresh (last ~1.5 months)
+  if (ageDays <= 180) return 2; // Current (last 6 months)
+  if (ageDays <= 540) return 3; // Recent archive (last ~18 months)
+  return 4; // Older archive / classics
 }
 
 function roundRobinAcrossChannels(
@@ -2030,14 +2031,18 @@ function roundRobinAcrossChannels(
 
   const totalLen = items.length;
   const actorEntries = [...byActor.entries()].map(([actorKey, list]) => {
-    const bands: [ChristianShort[], ChristianShort[], ChristianShort[], ChristianShort[]] = [
-      [],
-      [],
-      [],
-      [],
-    ];
+    const bands: [
+      ChristianShort[],
+      ChristianShort[],
+      ChristianShort[],
+      ChristianShort[],
+      ChristianShort[],
+    ] = [[], [], [], [], []];
+    let freshestBand: 0 | 1 | 2 | 3 | 4 = 4;
     for (const item of list) {
-      bands[getFreshnessBand(item.publishedAt, nowMs)].push(item);
+      const band = getFreshnessBand(item.publishedAt, nowMs);
+      if (band < freshestBand) freshestBand = band;
+      bands[band].push(item);
     }
     const ordered: ChristianShort[] = [];
     for (const b of bands) {
@@ -2048,20 +2053,37 @@ function roundRobinAcrossChannels(
     return {
       actorKey,
       items: ordered,
+      freshestBand,
+      newestPublishedAt: ordered[0]?.publishedAt || '',
       phase: randomize ? rng() : 0.25,
     };
   });
 
   if (randomize) {
-    shuffleInPlace(actorEntries, rng);
+    // Shuffle actors ONLY within their freshest recency band so current 2026 creators
+    // always stay ahead of archive-only channels while still varying per seed.
+    const byFreshestBand: [
+      typeof actorEntries,
+      typeof actorEntries,
+      typeof actorEntries,
+      typeof actorEntries,
+      typeof actorEntries,
+    ] = [[], [], [], [], []];
+    for (const entry of actorEntries) {
+      byFreshestBand[entry.freshestBand].push(entry);
+    }
+    actorEntries.length = 0;
+    for (const group of byFreshestBand) {
+      shuffleInPlace(group, rng);
+      actorEntries.push(...group);
+    }
   } else {
-    actorEntries.sort((a, b) =>
-      (b.items[0]?.publishedAt || '').localeCompare(a.items[0]?.publishedAt || '')
-    );
+    actorEntries.sort((a, b) => b.newestPublishedAt.localeCompare(a.newestPublishedAt));
   }
 
-  // Proportional ideal-slot placement: evenly spreads dominant actors/channels
-  // across the entire timeline instead of dumping their surplus consecutively at the end.
+  // Proportional ideal-slot placement weighted strongly by freshness band:
+  // keeps ultra-recent & current content leading ahead of older archive items while
+  // evenly spacing dominant actors/channels.
   const scheduled: Array<{ item: ChristianShort; actorKey: string; slot: number }> = [];
   for (let aIdx = 0; aIdx < actorEntries.length; aIdx++) {
     const entry = actorEntries[aIdx];
@@ -2070,9 +2092,9 @@ function roundRobinAcrossChannels(
     const actorJitter = (aIdx / Math.max(1, actorEntries.length)) * step * 0.45;
     for (let k = 0; k < count; k++) {
       const item = entry.items[k];
-      const bandBias = getFreshnessBand(item.publishedAt, nowMs) * 0.03;
-      const randomJitter = randomize ? (rng() - 0.5) * step * 0.35 : 0;
-      const slot = (k + entry.phase * 0.5) * step + actorJitter + bandBias + randomJitter;
+      const bandBias = getFreshnessBand(item.publishedAt, nowMs) * 0.45;
+      const randomJitter = randomize ? (rng() - 0.5) * step * 0.25 : 0;
+      const slot = (k + entry.phase * 0.4) * step + actorJitter + bandBias + randomJitter;
       scheduled.push({ item, actorKey: entry.actorKey, slot });
     }
   }
