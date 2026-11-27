@@ -1,6 +1,6 @@
 export type ContentCategory =
   | 'pregacoes'
-  | 'biblia'
+  | 'escola_sabatina'
   | 'louvores'
   | 'testemunhos'
   | 'feliz7play';

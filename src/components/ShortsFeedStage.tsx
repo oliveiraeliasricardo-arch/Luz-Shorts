@@ -1777,7 +1777,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                   referrerPolicy="no-referrer"
                   className={`w-full h-full ${
                     isHorizontalMode &&
-                    (short.category === 'biblia' || short.category === 'testemunhos')
+                    (short.category === 'escola_sabatina' || short.category === 'testemunhos')
                       ? 'object-contain'
                       : 'object-cover'
                   }`}
@@ -1831,6 +1831,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                     href={
                       short.category === 'louvores' ||
                       short.category === 'pregacoes' ||
+                      short.category === 'escola_sabatina' ||
                       short.category === 'feliz7play'
                         ? short.youtubeUrl
                         : short.shortsUrl
@@ -1946,6 +1947,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                       href={
                         short.category === 'louvores' ||
                         short.category === 'pregacoes' ||
+                        short.category === 'escola_sabatina' ||
                         short.category === 'feliz7play'
                           ? short.youtubeUrl
                           : short.shortsUrl

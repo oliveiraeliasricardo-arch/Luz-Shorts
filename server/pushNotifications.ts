@@ -11,15 +11,15 @@ const webpush = require('web-push') as typeof import('web-push');
 
 const ALL_CATEGORIES: ContentCategory[] = [
   'pregacoes',
-  'biblia',
+  'escola_sabatina',
   'louvores',
   'testemunhos',
   'feliz7play',
 ];
 
 const CATEGORY_LABELS: Record<ContentCategory, string> = {
-  pregacoes: 'Pregações',
-  biblia: 'Bíblia',
+  pregacoes: 'Pregações e Bíblia',
+  escola_sabatina: 'Escola Sabatina',
   louvores: 'Louvores',
   testemunhos: 'Testemunhos',
   feliz7play: 'Feliz7Play',
@@ -58,11 +58,13 @@ function hashEndpoint(endpoint: string): string {
 
 function sanitizeCategories(raw: unknown): ContentCategory[] {
   if (!Array.isArray(raw)) return [...ALL_CATEGORIES];
-  const valid = raw.filter(
-    (c): c is ContentCategory =>
-      typeof c === 'string' && ALL_CATEGORIES.includes(c as ContentCategory)
-  );
-  return valid.length > 0 ? Array.from(new Set(valid)) : [...ALL_CATEGORIES];
+  const mapped = raw
+    .map((c) => (c === 'biblia' ? 'pregacoes' : c))
+    .filter(
+      (c): c is ContentCategory =>
+        typeof c === 'string' && ALL_CATEGORIES.includes(c as ContentCategory)
+    );
+  return mapped.length > 0 ? Array.from(new Set(mapped)) : [...ALL_CATEGORIES];
 }
 
 function isValidPushSubscription(raw: unknown): raw is PushSubscription {

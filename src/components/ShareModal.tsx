@@ -29,6 +29,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ short, isOpen, onClose }
   const youtubeDirectUrl =
     short.category === 'louvores' ||
     short.category === 'pregacoes' ||
+    short.category === 'escola_sabatina' ||
     short.category === 'feliz7play'
       ? short.youtubeUrl
       : short.shortsUrl;

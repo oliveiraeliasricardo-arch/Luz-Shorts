@@ -139,7 +139,10 @@ export const RightQueuePanel: React.FC<RightQueuePanelProps> = React.memo(({
             </button>
             <a
               href={
-                activeShort.category === 'louvores' || activeShort.category === 'pregacoes'
+                activeShort.category === 'louvores' ||
+                activeShort.category === 'pregacoes' ||
+                activeShort.category === 'escola_sabatina' ||
+                activeShort.category === 'feliz7play'
                   ? activeShort.youtubeUrl
                   : activeShort.shortsUrl
               }

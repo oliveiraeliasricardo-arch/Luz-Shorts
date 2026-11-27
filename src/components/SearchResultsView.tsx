@@ -19,8 +19,8 @@ interface SearchResultsViewProps {
 
 const FILTER_TABS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'all', label: 'Todos' },
-  { id: 'pregacoes', label: 'Pregações' },
-  { id: 'biblia', label: 'Bíblia' },
+  { id: 'pregacoes', label: 'Pregações e Bíblia' },
+  { id: 'escola_sabatina', label: 'Escola Sabatina' },
   { id: 'louvores', label: 'Louvores' },
   { id: 'testemunhos', label: 'Testemunhos' },
   { id: 'feliz7play', label: 'Feliz7Play' },

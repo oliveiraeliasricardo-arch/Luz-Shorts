@@ -63,7 +63,7 @@ const MAX_CACHED_FEED_ITEMS = 220;
 
 const MAIN_ALL_CATEGORIES: ContentCategory[] = [
   'pregacoes',
-  'biblia',
+  'escola_sabatina',
   'louvores',
   'testemunhos',
 ];
@@ -153,7 +153,7 @@ function extractSessionTopIds(items: ChristianShort[]): string[] {
   }
   const categories: ContentCategory[] = [
     'pregacoes',
-    'biblia',
+    'escola_sabatina',
     'louvores',
     'testemunhos',
     'feliz7play',
@@ -169,8 +169,8 @@ function extractSessionTopIds(items: ChristianShort[]): string[] {
 
 const MOBILE_FILTERS: Array<{ id: ShortCategory; label: string }> = [
   { id: 'all', label: 'Todos' },
-  { id: 'pregacoes', label: 'Pregações' },
-  { id: 'biblia', label: 'Bíblia' },
+  { id: 'pregacoes', label: 'Pregações e Bíblia' },
+  { id: 'escola_sabatina', label: 'Escola Sabatina' },
   { id: 'louvores', label: 'Louvores' },
   { id: 'testemunhos', label: 'Testemunhos' },
   { id: 'feliz7play', label: 'Feliz7Play' },
@@ -200,6 +200,26 @@ function getSharedVideoIdFromUrl(): string {
   }
 }
 
+function normalizeLegacySnapshotItem(raw: unknown): ChristianShort | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Record<string, unknown>;
+  if (
+    typeof item.id !== 'string' ||
+    typeof item.title !== 'string' ||
+    typeof item.category !== 'string'
+  ) {
+    return null;
+  }
+  if (item.category === 'biblia') {
+    return {
+      ...(item as unknown as ChristianShort),
+      category: 'pregacoes',
+      categoryLabel: 'Pregações e Bíblia',
+    };
+  }
+  return item as unknown as ChristianShort;
+}
+
 function readCachedFeedSnapshot(): ChristianShort[] {
   try {
     try {
@@ -211,15 +231,19 @@ function readCachedFeedSnapshot(): ChristianShort[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is ChristianShort =>
-        Boolean(item) &&
-        typeof item === 'object' &&
-        typeof item.id === 'string' &&
-        typeof item.title === 'string' &&
-        typeof item.category === 'string' &&
-        typeof item.embedUrl === 'string'
-    );
+    const result: ChristianShort[] = [];
+    for (const entry of parsed) {
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        (typeof (entry as { youtubeUrl?: unknown }).youtubeUrl === 'string' ||
+          typeof (entry as { embedUrl?: unknown }).embedUrl === 'string')
+      ) {
+        const normalized = normalizeLegacySnapshotItem(entry);
+        if (normalized) result.push(normalized);
+      }
+    }
+    return result;
   } catch {
     return [];
   }
@@ -232,15 +256,10 @@ function readSavedShortsSnapshot(): Record<string, ChristianShort> {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const result: Record<string, ChristianShort> = {};
-    for (const [id, item] of Object.entries(parsed as Record<string, unknown>)) {
-      if (
-        item &&
-        typeof item === 'object' &&
-        typeof (item as ChristianShort).id === 'string' &&
-        typeof (item as ChristianShort).title === 'string' &&
-        typeof (item as ChristianShort).category === 'string'
-      ) {
-        result[id] = item as ChristianShort;
+    for (const [id, entry] of Object.entries(parsed as Record<string, unknown>)) {
+      const normalized = normalizeLegacySnapshotItem(entry);
+      if (normalized) {
+        result[id] = normalized;
       }
     }
     return result;
@@ -349,7 +368,7 @@ export function App() {
   const [hasMoreByCategory, setHasMoreByCategory] = useState<Record<string, boolean>>({
     all: true,
     pregacoes: true,
-    biblia: true,
+    escola_sabatina: true,
     louvores: true,
     testemunhos: true,
     feliz7play: true,
@@ -721,7 +740,7 @@ export function App() {
       setHasMoreByCategory({
         all: canPaginate,
         pregacoes: true,
-        biblia: true,
+        escola_sabatina: true,
         louvores: true,
         testemunhos: true,
         feliz7play: true,
@@ -1074,14 +1093,14 @@ export function App() {
   const filteredCatalog = useMemo(() => {
     const counts: Record<ContentCategory, number> = {
       pregacoes: 0,
-      biblia: 0,
+      escola_sabatina: 0,
       louvores: 0,
       testemunhos: 0,
       feliz7play: 0,
     };
     const byCategory: Record<ContentCategory, ChristianShort[]> = {
       pregacoes: [],
-      biblia: [],
+      escola_sabatina: [],
       louvores: [],
       testemunhos: [],
       feliz7play: [],
@@ -1349,7 +1368,7 @@ export function App() {
     let unseenCount = 0;
     const perMainCat: Record<ContentCategory, number> = {
       pregacoes: 0,
-      biblia: 0,
+      escola_sabatina: 0,
       louvores: 0,
       testemunhos: 0,
       feliz7play: 0,

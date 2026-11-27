@@ -18,6 +18,7 @@ import {
   getDiversityActorKey,
   isSearchSuggestionSafe,
   isUpcomingOrPremiereEntry,
+  normalizeContentCategory,
   parseIso8601DurationSeconds,
 } from '../src/shared/curatorCore.ts';
 
@@ -30,13 +31,18 @@ const MAX_CURSORS = 60;
 const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
   pregacoes: [
     'pregação adventista 2026 culto',
+    'estudo bíblico adventista 2026',
     'sermão adventista novo tempo 2026',
+    'na mira da verdade 2026',
     'culto adventista recente sábado',
+    'rodrigo silva arqueologia bíblica',
     'pregação adventista culto',
     'sermão adventista completo',
+    'arilton oliveira estudo bíblico',
+    'novo tempo apocalipse profecia',
     'culto divino adventista pregação',
     'semana de oração adventista pregação',
-    'culto sábado adventista pregação',
+    'terceiro anjo profecias bíblicas',
     'pr alejandro bullon pregação',
     'pr arilton oliveira pregação',
     'pr ivan saraiva pregação',
@@ -46,6 +52,10 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'pr kleber gonçalves pregação',
     'pr luís gonçalves evangelismo pregação',
     'pr stanley arco pregação adventista',
+    'michelson borges bíblia criação',
+    'daniel apocalipse adventista profecia',
+    'sábado na bíblia adventista',
+    'leandro quadros resposta bíblica',
     'unasp igreja culto pregação adventista',
     'mensagem adventista sábado culto',
     'pr rafael santos pregação adventista',
@@ -54,6 +64,8 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'pr erton köhler sermão adventista',
     'pr gustavo marques pregação adventista',
     'meditação pôr do sol adventista mensagem',
+    'santuário na bíblia adventista',
+    'evidências bíblicas rodrigo silva',
     'evangelismo adventista colheita pregação',
     'igreja adventista culto jovem pregação',
     'pastor adventista mensagem bíblica culto',
@@ -62,39 +74,27 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'pr marcelo cardoso pregação adventista',
     'pr amilton menezes sermão adventista',
     'pr josé carlos lima pregação adventista',
-  ],
-  biblia: [
-    'estudo bíblico adventista 2026',
-    'lição escola sabatina 2026 comentário',
-    'na mira da verdade 2026',
-    'estudo bíblico adventista',
-    'rodrigo silva arqueologia bíblica',
-    'na mira da verdade bíblia',
-    'arilton oliveira estudo bíblico',
-    'novo tempo apocalipse profecia',
-    'escola sabatina lição bíblia',
-    'terceiro anjo profecias bíblicas',
-    'michelson borges bíblia criação',
-    'sábado na bíblia adventista',
-    'ivan saraiva bíblia versículo',
-    'daniel apocalipse adventista profecia',
-    'evangelho adventista reflexão bíblica',
-    'comtexto diário bíblia adventista',
-    'adventistas brasil estudo bíblico',
-    'evidências bíblicas rodrigo silva',
-    'curiosidades bíblicas adventista',
-    'santuário na bíblia adventista',
     'volta de jesus profecia adventista',
-    'lição escola sabatina comentário bíblico',
-    'leandro quadros resposta bíblica',
-    'salmo 23 estudo bíblico adventista',
     'salmo 91 reflexão adventista',
-    'três mensagens angélicas apocalipse 14',
-    'juízo investigativo estudo bíblico adventista',
-    'estado dos mortos bíblia adventista',
-    'espírito de profecia estudo adventista',
-    'reforma de saúde bíblia adventista',
     'parábolas de jesus estudo adventista',
+  ],
+  escola_sabatina: [
+    'lição escola sabatina adultos 2026',
+    'lição escola sabatina jovens 2026',
+    'comtexto bíblico lição escola sabatina 2026',
+    'lições da bíblia novo tempo escola sabatina 2026',
+    'resumo da lição escola sabatina arilton oliveira',
+    'comtexto diário lição jovens adventista 2026',
+    'estudo diário lição escola sabatina adultos 2026',
+    'lição escola sabatina adultos adventismo vivo 2026',
+    'pr dudu batista lição escola sabatina 2026',
+    'podcast nocomtexto lição jovens escola sabatina',
+    'comentário lição escola sabatina adultos adventista',
+    'estudo lição jovens comtexto bíblico adventista',
+    'escola sabatina adultos trimestre 2026 iasd',
+    'escola sabatina jovens iasd lição comentário',
+    'lição dos jovens adventista comtexto diário',
+    'escola sabatina adultos comentário bíblico semanal',
   ],
   louvores: [
     'lançamento gospel 2026 clipe oficial',
@@ -315,7 +315,7 @@ const persistentPlaylistTokens: Record<string, string | null> = {};
 const exhaustedPlaylistIds = new Set<string>();
 const globalDiscoveryOffsets: Record<ContentCategory, number> = {
   pregacoes: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.pregacoes.length),
-  biblia: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.biblia.length),
+  escola_sabatina: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.escola_sabatina.length),
   louvores: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.louvores.length),
   testemunhos: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.testemunhos.length),
   feliz7play: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.feliz7play.length),
@@ -323,7 +323,7 @@ const globalDiscoveryOffsets: Record<ContentCategory, number> = {
 
 const persistentDiscoveryCursors: Record<ContentCategory, CategoryDiscoveryCursor> = {
   pregacoes: { queryIdx: globalDiscoveryOffsets.pregacoes, pageToken: null },
-  biblia: { queryIdx: globalDiscoveryOffsets.biblia, pageToken: null },
+  escola_sabatina: { queryIdx: globalDiscoveryOffsets.escola_sabatina, pageToken: null },
   louvores: { queryIdx: globalDiscoveryOffsets.louvores, pageToken: null },
   testemunhos: { queryIdx: globalDiscoveryOffsets.testemunhos, pageToken: null },
   feliz7play: { queryIdx: globalDiscoveryOffsets.feliz7play, pageToken: null },
@@ -368,14 +368,14 @@ function selectBalancedFeedSlice(
 ): ChristianShort[] {
   const categories: ContentCategory[] = [
     'pregacoes',
-    'biblia',
+    'escola_sabatina',
     'louvores',
     'testemunhos',
     'feliz7play',
   ];
   const byCategory: Record<ContentCategory, ChristianShort[]> = {
     pregacoes: [],
-    biblia: [],
+    escola_sabatina: [],
     louvores: [],
     testemunhos: [],
     feliz7play: [],
@@ -389,7 +389,7 @@ function selectBalancedFeedSlice(
   const entropy = Math.abs((randomOffset || 0) + (seed ?? 0));
   const rotatedByCat: Record<ContentCategory, ChristianShort[]> = {
     pregacoes: [],
-    biblia: [],
+    escola_sabatina: [],
     louvores: [],
     testemunhos: [],
     feliz7play: [],
@@ -536,7 +536,7 @@ function selectBalancedFeedSlice(
   const selected: ChristianShort[] = [];
   const cursors: Record<ContentCategory, number> = {
     pregacoes: 0,
-    biblia: 0,
+    escola_sabatina: 0,
     louvores: 0,
     testemunhos: 0,
     feliz7play: 0,
@@ -597,7 +597,7 @@ function createPaginationCursor(
   const discoveryByCategory: Partial<Record<ContentCategory, CategoryDiscoveryCursor>> = {};
   const cats: ContentCategory[] = [
     'pregacoes',
-    'biblia',
+    'escola_sabatina',
     'louvores',
     'testemunhos',
     'feliz7play',
@@ -849,8 +849,8 @@ function isWithinCategoryDuration(
   if (searchMode) {
     // Live search allows broader durations across all categories (including full albums & 3h worship sets)
     if (category === 'louvores') return durationSeconds >= 20 && durationSeconds <= 14400;
-    if (category === 'pregacoes') return durationSeconds >= 25 && durationSeconds <= 10800;
-    if (category === 'biblia') return durationSeconds >= 15 && durationSeconds <= 10800;
+    if (category === 'pregacoes') return durationSeconds >= 20 && durationSeconds <= 10800;
+    if (category === 'escola_sabatina') return durationSeconds >= 15 && durationSeconds <= 10800;
     if (category === 'testemunhos') return durationSeconds >= 15 && durationSeconds <= 10800;
     if (category === 'feliz7play') return durationSeconds >= 20 && durationSeconds <= 10800;
     return true;
@@ -876,13 +876,13 @@ function isWithinCategoryDuration(
     return durationSeconds >= minSec && durationSeconds <= maxSec;
   }
   if (category === 'pregacoes') {
-    return durationSeconds >= 45;
+    return durationSeconds >= 30;
   }
   if (category === 'testemunhos') {
     return durationSeconds >= 15 && durationSeconds <= 3600;
   }
-  if (category === 'biblia') {
-    return durationSeconds >= 15 && durationSeconds <= 7200;
+  if (category === 'escola_sabatina') {
+    return durationSeconds >= 20 && durationSeconds <= 7200;
   }
   return true;
 }
@@ -931,19 +931,17 @@ async function fetchFromYoutubeApi(
   for (const spec of channels) {
     const suffix = spec.id.slice(2);
     const primaryPid =
-      spec.defaultCategory === 'biblia'
-        ? advancePlaylists && Math.random() < 0.5
-          ? `UU${suffix}`
-          : `UUSH${suffix}`
+      spec.defaultCategory === 'escola_sabatina'
+        ? `UU${suffix}`
         : spec.defaultCategory === 'pregacoes' || spec.defaultCategory === 'feliz7play'
         ? `UULF${suffix}`
         : `UU${suffix}`;
     const altPid =
-      primaryPid === `UUSH${suffix}`
+      primaryPid === `UULF${suffix}`
         ? `UU${suffix}`
         : primaryPid === `UUPV${suffix}`
         ? `UU${suffix}`
-        : `UUPV${suffix}`;
+        : `UULF${suffix}`;
     const playlistId =
       exhaustedPlaylistIds.has(primaryPid) || (advancePlaylists && Math.random() < 0.35)
         ? altPid
@@ -1642,30 +1640,23 @@ async function fetchLiveYoutubeSearch(
   const cleanQuery = rawQuery.trim();
   if (!cleanQuery) return { items: [], nextPageToken: null };
 
-  const validCat =
-    rawCategory === 'pregacoes' ||
-    rawCategory === 'biblia' ||
-    rawCategory === 'louvores' ||
-    rawCategory === 'testemunhos' ||
-    rawCategory === 'feliz7play'
-      ? rawCategory
-      : undefined;
+  const validCat = normalizeContentCategory(rawCategory);
 
   let effectiveQuery = cleanQuery;
   if (validCat === 'pregacoes') {
-    const hasAdvWord = /\b(adventista|iasd|novo tempo|arilton|bullon|ivan saraiva|odailson|rafael rossi|stanley arco|gilson brito|rodrigo silva)\b/i.test(
+    const hasAdvWord = /\b(adventista|iasd|novo tempo|arilton|bullon|ivan saraiva|odailson|rafael rossi|stanley arco|gilson brito|rodrigo silva|na mira|terceiro anjo)\b/i.test(
       cleanQuery
     );
     if (!hasAdvWord) {
       effectiveQuery = `${cleanQuery} adventista`;
     }
   } else if (
-    validCat === 'biblia' &&
-    !/\b(adventista|iasd|novo tempo|rodrigo silva|na mira|terceiro anjo|arilton)\b/i.test(
+    validCat === 'escola_sabatina' &&
+    !/\b(escola sabatina|li[cç][oõ]es da b[ií]blia|comtexto|nocomtexto|adventista|iasd|novo tempo|arilton|dudu)\b/i.test(
       cleanQuery
     )
   ) {
-    effectiveQuery = `${cleanQuery} adventista`;
+    effectiveQuery = `${cleanQuery} escola sabatina adventista`;
   } else if (
     validCat === 'feliz7play' &&
     !/\b(feliz7play|feliz7kids|nt kids|nosso amiguinho|adventista|novo tempo|camelo na agulha|defensores da b[ií]blia)\b/i.test(
@@ -1706,12 +1697,12 @@ async function fetchLiveYoutubeSearch(
       webFanQueries.push({ q: cleanQuery, hint: 'testemunhos', sortByDate: false });
     } else if (validCat === 'pregacoes') {
       webFanQueries.push({ q: `${cleanQuery} pregação adventista`, hint: 'pregacoes', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} sermão adventista`, hint: 'pregacoes', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} estudo bíblico adventista`, hint: 'pregacoes', sortByDate: false });
       webFanQueries.push({ q: effectiveQuery, hint: 'pregacoes', sortByDate: false });
-    } else if (validCat === 'biblia') {
-      webFanQueries.push({ q: `${cleanQuery} estudo bíblico adventista`, hint: 'biblia', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} bíblia adventista`, hint: 'biblia', sortByDate: false });
-      webFanQueries.push({ q: effectiveQuery, hint: 'biblia', sortByDate: false });
+    } else if (validCat === 'escola_sabatina') {
+      webFanQueries.push({ q: `${cleanQuery} escola sabatina adultos`, hint: 'escola_sabatina', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} escola sabatina jovens comtexto`, hint: 'escola_sabatina', sortByDate: false });
+      webFanQueries.push({ q: effectiveQuery, hint: 'escola_sabatina', sortByDate: false });
     } else if (validCat === 'feliz7play') {
       webFanQueries.push({ q: `${cleanQuery} feliz7play`, hint: 'feliz7play', sortByDate: false });
       webFanQueries.push({ q: `${cleanQuery} animação bíblica adventista`, hint: 'feliz7play', sortByDate: false });
@@ -2166,7 +2157,7 @@ async function fetchInitialDiscoveryExtras(
 ): Promise<ChristianShort[]> {
   const categories: ContentCategory[] = [
     'pregacoes',
-    'biblia',
+    'escola_sabatina',
     'louvores',
     'testemunhos',
     'feliz7play',
@@ -2189,7 +2180,7 @@ async function fetchInitialDiscoveryExtras(
   const recencyCycle: YoutubeWebDateFilter[] = ['week', 'month', 'latest'];
   for (const cat of categories) {
     const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-    const extraCount = cat === 'pregacoes' ? 4 : cat === 'testemunhos' ? 3 : 2;
+    const extraCount = cat === 'pregacoes' ? 4 : cat === 'escola_sabatina' || cat === 'testemunhos' ? 3 : 2;
     for (let k = 0; k < extraCount; k++) {
       const idx = globalDiscoveryOffsets[cat] % queries.length;
       globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
@@ -2231,6 +2222,10 @@ const suggestResponseCache = new Map<
 >();
 
 const CURATED_SUGGEST_SEEDS = [
+  'Escola Sabatina Adultos',
+  'Escola Sabatina Jovens',
+  'ComTexto Bíblico',
+  'Lições da Bíblia',
   'Novo Hinário Adventista',
   'CD Jovem Adventista',
   'Adoradores Novo Tempo',
@@ -2366,7 +2361,7 @@ async function buildBaseCatalog(
       const discoveryPromise = fetchInitialDiscoveryExtras(apiKey, existingCatalogIds);
       const recentApiPromise = fetchRecentApiDiscovery(
         apiKey,
-        ['pregacoes', 'biblia', 'louvores', 'testemunhos', 'feliz7play'],
+        ['pregacoes', 'escola_sabatina', 'louvores', 'testemunhos', 'feliz7play'],
         existingCatalogIds
       );
       const rssPromise = fetchFromCuratedRss(0, 2200);
@@ -2545,9 +2540,9 @@ async function enrichCatalogDepth(
     ]);
 
     const extraDiscoveryCats: ContentCategory[] = [
+      'escola_sabatina',
       'testemunhos',
       'pregacoes',
-      'biblia',
       'feliz7play',
       'louvores',
     ];
@@ -2590,7 +2585,7 @@ async function enrichCatalogDepth(
           ? fetchFromYoutubeApi(apiKey, true).catch(() => null)
           : Promise.resolve(null),
         canRunApiRecentSearch
-          ? fetchRecentApiDiscovery(apiKey, ['pregacoes', 'louvores'], existingIds).catch(
+          ? fetchRecentApiDiscovery(apiKey, ['pregacoes', 'escola_sabatina', 'louvores'], existingIds).catch(
               () => [] as ChristianShort[]
             )
           : Promise.resolve([] as ChristianShort[]),
@@ -2818,20 +2813,14 @@ export async function getCuratedChristianShorts(options: {
   }
 
   const validReqCat: ContentCategory | null =
-    options.category === 'pregacoes' ||
-    options.category === 'biblia' ||
-    options.category === 'louvores' ||
-    options.category === 'testemunhos' ||
-    options.category === 'feliz7play'
-      ? options.category
-      : null;
+    normalizeContentCategory(options.category) ?? null;
 
   // On app reopen or pull-to-refresh, pull fresh rotated deep playlist pages + web discovery
   // within a tight latency budget (<=2.8s when sparse, <=1.6s on normal refresh).
   if (!trimmedQuery && (clientExcludeSet.size > 0 || options.forceRefresh || validReqCat)) {
     const cats: ContentCategory[] = [
       'pregacoes',
-      'biblia',
+      'escola_sabatina',
       'louvores',
       'testemunhos',
       'feliz7play',
@@ -2905,7 +2894,7 @@ export async function getCuratedChristianShorts(options: {
         }
         const targetCats = validReqCat
           ? ([validReqCat].filter((c) => c !== 'louvores') as ContentCategory[])
-          : (['pregacoes', 'biblia', 'testemunhos', 'feliz7play'] as ContentCategory[]);
+          : (['pregacoes', 'escola_sabatina', 'testemunhos', 'feliz7play'] as ContentCategory[]);
         for (const cat of targetCats) {
           const matchingChannels = ALL_CURATED_CHANNELS.filter(
             (ch) => ch.defaultCategory === cat || ch.allowInCategories.includes(cat)
@@ -2921,15 +2910,15 @@ export async function getCuratedChristianShorts(options: {
             if (pickedForCat >= targetForCat) break;
             const suffix = chId.slice(2);
             const candidatePids =
-              cat === 'biblia'
-                ? [`UUSH${suffix}`, `UU${suffix}`, `UUPV${suffix}`]
+              cat === 'escola_sabatina'
+                ? [`UU${suffix}`, `UULF${suffix}`, `UUPV${suffix}`]
                 : cat === 'pregacoes' || cat === 'feliz7play'
                 ? [`UULF${suffix}`, `UUPV${suffix}`, `UU${suffix}`]
                 : [`UU${suffix}`, `UUPV${suffix}`];
             for (const pid of candidatePids) {
               if (exhaustedPlaylistIds.has(pid)) continue;
               const tok = persistentPlaylistTokens[pid];
-              if (tok || (validReqCat === 'biblia' && pid === `UU${suffix}` && tok === undefined)) {
+              if (tok || (validReqCat === 'escola_sabatina' && pid === `UU${suffix}` && tok === undefined)) {
                 rotateTargets.push({ pid, hint: cat, token: tok ?? null });
                 pickedForCat += 1;
                 break;
@@ -3075,7 +3064,7 @@ export async function getCuratedChristianShorts(options: {
       return reopenAdditions;
     };
 
-    const mainAllCats: ContentCategory[] = ['pregacoes', 'biblia', 'louvores', 'testemunhos'];
+    const mainAllCats: ContentCategory[] = ['pregacoes', 'escola_sabatina', 'louvores', 'testemunhos'];
     const lowMainCategoryStock = validReqCat
       ? unseenCountByCat[validReqCat] < 18
       : mainAllCats.some((c) => unseenCountByCat[c] < 16);
@@ -3167,14 +3156,7 @@ export async function getCuratedChristianShorts(options: {
       );
       searchToken = liveSearch.nextPageToken;
       const liveCollected = [...liveSearch.items];
-      const validCat =
-        options.category === 'pregacoes' ||
-        options.category === 'biblia' ||
-        options.category === 'louvores' ||
-        options.category === 'testemunhos' ||
-        options.category === 'feliz7play'
-          ? options.category
-          : null;
+      const validCat = normalizeContentCategory(options.category) ?? null;
       const catHits = validCat
         ? liveCollected.filter((i) => i.category === validCat).length
         : liveCollected.length;
@@ -3214,16 +3196,8 @@ export async function getCuratedChristianShorts(options: {
   // When searching live on YouTube, merge live YouTube hits + accent-folded token catalog matches,
   // ranked by direct relevance to the user's query (not scrambled by channel publish date).
   if (trimmedQuery.length >= 2) {
-    const validCategories = new Set([
-      'all',
-      'pregacoes',
-      'biblia',
-      'louvores',
-      'testemunhos',
-      'feliz7play',
-    ]);
-    const category =
-      options.category && validCategories.has(options.category) ? options.category : 'all';
+    const normalizedSearchCat = normalizeContentCategory(options.category);
+    const category = options.category === 'all' ? 'all' : normalizedSearchCat ?? 'all';
     const queryTokens = foldSearchText(trimmedQuery).split(/\s+/).filter(Boolean);
     const matchedCached = baseItems.filter((item) => {
       const haystack = foldSearchText(
@@ -3243,21 +3217,14 @@ export async function getCuratedChristianShorts(options: {
       if (!mergedSearch.has(item.id)) mergedSearch.set(item.id, item);
     }
 
-    const validPrefCat =
-      category === 'pregacoes' ||
-      category === 'biblia' ||
-      category === 'louvores' ||
-      category === 'testemunhos' ||
-      category === 'feliz7play'
-        ? (category as ContentCategory)
-        : undefined;
+    const validPrefCat = normalizedSearchCat;
     const orderedSearch = deduplicateShorts(
       rankSearchResults([...mergedSearch.values()], trimmedQuery, validPrefCat),
       { allowSameSongVariants: true }
     );
     const counts: Record<ContentCategory, number> = {
       pregacoes: 0,
-      biblia: 0,
+      escola_sabatina: 0,
       louvores: 0,
       testemunhos: 0,
       feliz7play: 0,
@@ -3320,14 +3287,7 @@ export async function getMoreChristianShorts(options: {
   const apiKey = process.env.YOUTUBE_API_KEY?.trim() || '';
   const apiKeyConfigured = apiKey.length > 0;
   const fetchedAt = new Date().toISOString();
-  const validCat =
-    options.category === 'pregacoes' ||
-    options.category === 'biblia' ||
-    options.category === 'louvores' ||
-    options.category === 'testemunhos' ||
-    options.category === 'feliz7play'
-      ? options.category
-      : undefined;
+  const validCat = normalizeContentCategory(options.category);
   const trimmedQuery = (options.q || '').trim();
   const seedParam = options.seed;
   const randomOffsetParam = options.randomOffset ?? 0;
@@ -3389,7 +3349,7 @@ export async function getMoreChristianShorts(options: {
     );
     const counts: Record<ContentCategory, number> = {
       pregacoes: 0,
-      biblia: 0,
+      escola_sabatina: 0,
       louvores: 0,
       testemunhos: 0,
       feliz7play: 0,
@@ -3411,7 +3371,7 @@ export async function getMoreChristianShorts(options: {
 
   const ALL_DISCOVERY_ROTATION: ContentCategory[] = [
     'pregacoes',
-    'biblia',
+    'escola_sabatina',
     'testemunhos',
     'louvores',
   ];
@@ -3419,9 +3379,9 @@ export async function getMoreChristianShorts(options: {
 
   // Unlimited YouTube pagination via playlistItems.list + YouTube-wide discovery for EVERY category
   if (isYoutubeApiUsable(apiKey)) {
-    const MAIN_ALL_CATS: Array<'pregacoes' | 'biblia' | 'testemunhos' | 'louvores'> = [
+    const MAIN_ALL_CATS: Array<'pregacoes' | 'escola_sabatina' | 'testemunhos' | 'louvores'> = [
       'pregacoes',
-      'biblia',
+      'escola_sabatina',
       'testemunhos',
       'louvores',
     ];
@@ -3441,13 +3401,7 @@ export async function getMoreChristianShorts(options: {
     ): string => {
       const suffix = ch.id.slice(2);
       if (hintCat === 'pregacoes' || hintCat === 'feliz7play') return `UULF${suffix}`;
-      if (hintCat === 'biblia' && ch.defaultCategory === 'biblia') {
-        const uushPid = `UUSH${suffix}`;
-        if (!state!.playlistStates[uushPid]?.done && !exhaustedPlaylistIds.has(uushPid)) {
-          return uushPid;
-        }
-        return `UU${suffix}`;
-      }
+      if (hintCat === 'escola_sabatina') return `UU${suffix}`;
       return `UU${suffix}`;
     };
 
@@ -3491,31 +3445,34 @@ export async function getMoreChristianShorts(options: {
           playlistId: getPlaylistIdForChannel(ch, validCat),
           hintCategory: validCat,
         });
-        if (validCat === 'biblia' && ch.defaultCategory === 'biblia') {
-          const fullPid = `UU${ch.id.slice(2)}`;
-          if (!state.playlistStates[fullPid]?.done && !exhaustedPlaylistIds.has(fullPid)) {
+        if (validCat === 'escola_sabatina') {
+          const uulfPid = `UULF${ch.id.slice(2)}`;
+          if (!state.playlistStates[uulfPid]?.done && !exhaustedPlaylistIds.has(uulfPid)) {
             playlistPool.push({
-              playlistId: fullPid,
-              hintCategory: 'biblia',
+              playlistId: uulfPid,
+              hintCategory: 'escola_sabatina',
             });
           }
         }
       }
     } else {
-      // Interleave playlists across pregacoes, biblia, testemunhos, louvores so every batch
+      // Interleave playlists across pregacoes, escola_sabatina, testemunhos, louvores so every batch
       // of 'all' pagination fetches balanced content from all 4 categories (excluding feliz7play).
-      const perCatPools: Record<'pregacoes' | 'biblia' | 'testemunhos' | 'louvores', Array<{ playlistId: string; hintCategory: ContentCategory }>> = {
+      const perCatPools: Record<
+        'pregacoes' | 'escola_sabatina' | 'testemunhos' | 'louvores',
+        Array<{ playlistId: string; hintCategory: ContentCategory }>
+      > = {
         pregacoes: [],
-        biblia: [],
+        escola_sabatina: [],
         testemunhos: [],
         louvores: [],
       };
       for (const ch of eligibleChannels) {
-        const effectiveHint: 'pregacoes' | 'biblia' | 'testemunhos' | 'louvores' =
+        const effectiveHint: 'pregacoes' | 'escola_sabatina' | 'testemunhos' | 'louvores' =
           ch.defaultCategory === 'feliz7play'
             ? (ch.allowInCategories.find((c) => c !== 'feliz7play') as
                 | 'pregacoes'
-                | 'biblia'
+                | 'escola_sabatina'
                 | 'testemunhos'
                 | 'louvores') || 'pregacoes'
             : ch.defaultCategory;
@@ -3536,7 +3493,7 @@ export async function getMoreChristianShorts(options: {
 
       const maxPerCat = Math.max(
         perCatPools.pregacoes.length,
-        perCatPools.biblia.length,
+        perCatPools.escola_sabatina.length,
         perCatPools.testemunhos.length,
         perCatPools.louvores.length
       );
@@ -3679,7 +3636,7 @@ export async function getMoreChristianShorts(options: {
             pushDiversifiedItem(item);
           }
         }
-      } else if (validCat === 'pregacoes' || validCat === 'biblia') {
+      } else if (validCat === 'pregacoes' || validCat === 'escola_sabatina') {
         const parallelQueries =
           (validCat === 'pregacoes' && needsSpeakerDiversity) || collected.length < 10 ? 3 : 2;
         const settledCategory = await Promise.allSettled(

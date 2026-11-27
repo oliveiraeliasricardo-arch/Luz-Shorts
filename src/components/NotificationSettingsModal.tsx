@@ -4,8 +4,8 @@ import type { ContentCategory } from '../types/shorts';
 import type { NotificationPermissionState } from '../hooks/useVideoNotifications';
 
 const CATEGORY_OPTIONS: Array<{ id: ContentCategory; label: string }> = [
-  { id: 'pregacoes', label: 'Pregações' },
-  { id: 'biblia', label: 'Bíblia' },
+  { id: 'pregacoes', label: 'Pregações e Bíblia' },
+  { id: 'escola_sabatina', label: 'Escola Sabatina (Adultos e Jovens)' },
   { id: 'louvores', label: 'Louvores' },
   { id: 'testemunhos', label: 'Testemunhos' },
   { id: 'feliz7play', label: 'Feliz7Play' },

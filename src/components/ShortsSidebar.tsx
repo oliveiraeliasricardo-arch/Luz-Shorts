@@ -36,14 +36,14 @@ const CATEGORIES: Array<{
   },
   {
     id: 'pregacoes',
-    label: 'Pregações',
-    subtitle: 'Doutrina Adventista',
+    label: 'Pregações e Bíblia',
+    subtitle: 'Sermões e estudos · Adventista',
     Icon: Mic,
   },
   {
-    id: 'biblia',
-    label: 'Bíblia e Evangelho',
-    subtitle: 'Doutrina Adventista',
+    id: 'escola_sabatina',
+    label: 'Escola Sabatina',
+    subtitle: 'Adultos e Jovens · Adventista',
     Icon: BookOpen,
   },
   {
@@ -168,8 +168,8 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
           Critério de Curadoria
         </h2>
         <p className="text-xs text-zinc-400 leading-relaxed">
-          Pregações, Bíblia e Evangelho, Feliz7Play e animações bíblicas seguem
-          exclusivamente a doutrina Adventista do Sétimo Dia.
+          Pregações e Bíblia, Escola Sabatina (Adultos e Jovens), Feliz7Play e
+          animações bíblicas seguem exclusivamente a doutrina Adventista do Sétimo Dia.
         </p>
         <p className="text-xs text-zinc-400 leading-relaxed">
           Louvores e testemunhos abrangem expressões cristãs de todas as

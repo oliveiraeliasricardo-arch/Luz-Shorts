@@ -19,77 +19,105 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     title: 'Rede Novo Tempo de Comunicação',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
   },
   {
     id: 'UCJAO3KgZdEhCqwpkZyAYY6A',
     title: 'Adventistas Brasil',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
   },
   {
     id: 'UCIa6p9HWw1hEEfHzfJOcSbA',
     title: 'Na Mira da Verdade',
     doctrineScope: 'adventista',
-    defaultCategory: 'biblia',
-    allowInCategories: ['biblia', 'pregacoes'],
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes', 'escola_sabatina'],
   },
   {
     id: 'UCn4M9vLHegNuqM8tnL872cA',
     title: 'Rodrigo Silva Arqueologia',
     doctrineScope: 'adventista',
-    defaultCategory: 'biblia',
-    allowInCategories: ['biblia', 'pregacoes'],
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes'],
   },
   {
     id: 'UCLb09BPgh7xrswJRgYQthuw',
     title: 'Lições da Bíblia',
     doctrineScope: 'adventista',
-    defaultCategory: 'biblia',
-    allowInCategories: ['biblia'],
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina'],
+  },
+  {
+    id: 'UCBm5ycqxuqK-UVs54-xA_2w',
+    title: 'ComTexto Diário',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina'],
+  },
+  {
+    id: 'UCyMzbdHJXABTxcHV7CHmKkQ',
+    title: 'Adventismo Vivo',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina', 'pregacoes'],
+  },
+  {
+    id: 'UCSIjHSkAS_IpF7R-HIsn88Q',
+    title: 'Pr Dudu Batista',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina', 'pregacoes'],
+  },
+  {
+    id: 'UCslQjMJUdi2CurBP0Fveqvw',
+    title: 'Paulistasul',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina', 'pregacoes'],
   },
   {
     id: 'UCQ62PZK_94Rr8i96vJkYNXw',
     title: 'Adventistas Sudeste',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
   },
   {
     id: 'UCwR4Dq46B1a0Ce2RnahKLDw',
     title: 'Adventistas Sul',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos', 'louvores'],
+    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos', 'louvores'],
   },
   {
     id: 'UCoWb0aR2SIR4UnizdQ37tiw',
     title: 'Adventistas Nordeste',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
   },
   {
     id: 'UCXgUPYQ33A2ZI6WZja6uFBw',
     title: 'Adventistas Centro-Oeste',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
   },
   {
     id: 'UCtHb-m1Jb5ZZoFb33husTBA',
     title: 'Adventistas Norte',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
   },
   {
     id: 'UC5O76sK8ffuQBHuPlB0QmeA',
     title: 'Adventistas SP',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia', 'testemunhos', 'louvores'],
+    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos', 'louvores'],
   },
   {
     id: 'UC8PS8EsZsWXOQ1YmlJwCaYw',
@@ -130,29 +158,22 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     id: 'UC03Y0ieYROxw1FxCoDaSF9g',
     title: 'Arilton Oliveira - Oficial',
     doctrineScope: 'adventista',
-    defaultCategory: 'biblia',
-    allowInCategories: ['biblia', 'pregacoes'],
-  },
-  {
-    id: 'UCBm5ycqxuqK-UVs54-xA_2w',
-    title: 'ComTexto Diário',
-    doctrineScope: 'adventista',
-    defaultCategory: 'biblia',
-    allowInCategories: ['biblia', 'pregacoes'],
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes', 'escola_sabatina'],
   },
   {
     id: 'UCkSu5ibA15OcBWTjop72dPA',
     title: 'Terceiro Anjo',
     doctrineScope: 'adventista',
-    defaultCategory: 'biblia',
-    allowInCategories: ['biblia', 'pregacoes'],
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes'],
   },
   {
     id: 'UCs5jiNO6fntcZcCn7sUO6VA',
     title: 'Pastor Bullón em Português - Canal Oficial',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'biblia'],
+    allowInCategories: ['pregacoes'],
   },
   {
     id: 'UCxDYiN3jS_3EuPSjhj1utbg',
@@ -374,12 +395,28 @@ const ADVENTIST_CHANNEL_IDS = new Set(ADVENTIST_CHANNELS.map((c) => c.id));
 const CHANNEL_BY_ID = new Map(ALL_CURATED_CHANNELS.map((c) => [c.id, c]));
 
 const CATEGORY_LABELS: Record<ContentCategory, string> = {
-  pregacoes: 'Pregação',
-  biblia: 'Bíblia e Evangelho',
+  pregacoes: 'Pregações e Bíblia',
+  escola_sabatina: 'Escola Sabatina',
   louvores: 'Louvor',
   testemunhos: 'Testemunho',
   feliz7play: 'Feliz7Play',
 };
+
+export function normalizeContentCategory(raw?: string | null): ContentCategory | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === 'biblia') return 'pregacoes';
+  if (
+    trimmed === 'pregacoes' ||
+    trimmed === 'escola_sabatina' ||
+    trimmed === 'louvores' ||
+    trimmed === 'testemunhos' ||
+    trimmed === 'feliz7play'
+  ) {
+    return trimmed;
+  }
+  return undefined;
+}
 
 const DOCTRINE_LABELS: Record<DoctrineScope, string> = {
   adventista: 'Doutrina Adventista',
@@ -464,6 +501,12 @@ const ADVENTIST_IDENTITY_PATTERNS = [
   /\bna mira da verdade\b/i,
   /\bescola sabatina\b/i,
   /\bli[cç][oõ]es da b[ií]blia\b/i,
+  /\b(no)?comtexto(\s+(b[ií]blico|di[aá]rio))?\b/i,
+  /\badventismo vivo\b/i,
+  /\bpr\.?\s*dudu(\s+batista)?\b/i,
+  /\bluan\s+fran[cç]a\b/i,
+  /\bpaulistasul\b/i,
+  /\bprovai\s+e\s+vede\b/i,
   /\brodrigo silva\b/i,
   /\bterceiro anjo\b/i,
   /\bleandro quadros\b/i,
@@ -794,6 +837,23 @@ const NON_SONG_TALK_PATTERNS = [
   /\best[aá] escrito adora[cç][aã]o\b/i,
 ];
 
+const SABBATH_SCHOOL_TITLE_PATTERNS = [
+  /\bescola\s+sabatina\b/i,
+  /\bli[cç][oõ]es\s+da\s+b[ií]blia\b/i,
+  /\bresumo\s+da\s+li[cç][aã]o\b/i,
+  /\bcoment[aá]rio\s+da\s+li[cç][aã]o\b/i,
+  /\b(?:estudo|estudos)\s+(?:di[aá]rio\s+)?da\s+li[cç][aã]o\b/i,
+  /\bli[cç][aã]o\s+(?:de\s+|dos\s+)?(?:adultos?|jovens?|jovem|\d{1,2})\b/i,
+  /\b(?:no)?comtexto(?:\s+(?:b[ií]blico|di[aá]rio))?\b/i,
+  /\b(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado)\s*[-–|•:]\s*.*li[cç][aã]o\b/i,
+  /\bli[cç][aã]o\s*\d{1,2}\s*[-–|•:]/i,
+  /\b[1-4][º°o]?\s*trimestre\b.*\b(?:li[cç][aã]o|escola\s+sabatina)\b/i,
+  /\bprovai\s+e\s+vede\b.*\bescola\s+sabatina\b/i,
+];
+
+const KIDS_SABBATH_SCHOOL_PATTERNS =
+  /\b(rol do ber[cç]o|jardim da inf[aâ]ncia|prim[aá]rios|juvenis|escola sabatina infantil|li[cç][aã]o\s+(?:dos?\s+)?(?:prim[aá]rios|juvenis|jardim|rol|infantil))\b/i;
+
 const STRICT_BIBLE_TITLE_PATTERNS = [
   /\bb[ií]bli/i,
   /\bvers[ií]culo\b/i,
@@ -806,8 +866,6 @@ const STRICT_BIBLE_TITLE_PATTERNS = [
   /\bsantu[aá]rio\b/i,
   /\b1844\b/i,
   /\bmandamento/i,
-  /\bescola sabatina\b/i,
-  /\bli[cç][oõ]es da b[ií]blia\b/i,
   /\bestudo b[ií]blico\b/i,
   /\blei de deus\b/i,
   /\bs[aá]bado\b.*\b(deus|selo|mandamento|b[ií]blia|presente)\b/i,
@@ -832,7 +890,7 @@ const STRICT_SERMON_TITLE_PATTERNS = [
   /\bmensagem\b/i,
   /\b(pr\.\s*[a-záéíóúâêôãõç]{2,}|pr\s+[a-záéíóúâêôãõç]{2,}|pastor\s+[a-záéíóúâêôãõç]{2,})\b/i,
   /\b(alejandro bull[oó]n|bull[oó]n|ivan saraiva|arilton oliveira|lu[ií]s gon[cç]alves|kleber gon[cç]alves|erton k[oö]hler|odailson fonseca|robson aleixo|mark finley|doug batchelor|gilson brito|tito rocha|michelson borges|ronaldo de oliveira|rafael santos|gustavo marques|stanley arco|felippe amorim)\b/i,
-  /\b(semana (especial|de ora[cç][aã]o|santa|de jejum|evangel[ií]stica)|s[aá]bado de jejum|movidos pela esperan[cç]a|jesus,?\s*nossa esperan[cç]a|vida que eleva|f[eé] para hoje|est[aá] escrito)\b/i,
+  /\b(semana (especial|de ora[cç][aã]o|santa|de jejum|evangel[ií]stica)|s[aá]bado de jejum|movidos pela esperan[cç]a|jesus,?\s*nossa esperan[cç]a|vida que eleva|f[eé] para hoje|est[a] escrito)\b/i,
   /\b(maranata\s*-\s*conven[cç][aã]o|together\s*-\s*culto|reavivamento)\b/i,
   /\b(medita[cç][aã]o do p[oô]r do sol|o poder da ora[cç][aã]o|como orar|queres ser curado|ele j[aá] pagou o pre[cç]o|sua f[eé] [eé] maior que o medo|verdadeiro jejum)\b/i,
 ];
@@ -1030,10 +1088,18 @@ export function classifyShort(
 
   const isWorshipChannel = channelSpec?.defaultCategory === 'louvores';
   const isTestimonyChannel = channelSpec?.defaultCategory === 'testemunhos';
-  const isBibleChannel =
-    channelSpec?.defaultCategory === 'biblia' &&
-    channelId !== 'UC03Y0ieYROxw1FxCoDaSF9g' &&
-    channelId !== FELIZ7PLAY_CHANNEL_ID;
+  const isDedicatedSabbathSchoolChannel =
+    channelId === 'UCLb09BPgh7xrswJRgYQthuw' || // Lições da Bíblia
+    channelId === 'UCBm5ycqxuqK-UVs54-xA_2w'; // ComTexto Diário
+  const isSabbathSchoolChannel = channelSpec?.defaultCategory === 'escola_sabatina';
+  const UNIFIED_SERMON_BIBLE_CHANNEL_IDS = new Set([
+    'UCIa6p9HWw1hEEfHzfJOcSbA', // Na Mira da Verdade
+    'UCn4M9vLHegNuqM8tnL872cA', // Rodrigo Silva Arqueologia
+    'UC03Y0ieYROxw1FxCoDaSF9g', // Arilton Oliveira - Oficial
+    'UCkSu5ibA15OcBWTjop72dPA', // Terceiro Anjo
+    'UCs5jiNO6fntcZcCn7sUO6VA', // Pastor Bullón em Português
+  ]);
+  const isUnifiedPregacoesChannel = UNIFIED_SERMON_BIBLE_CHANNEL_IDS.has(channelId);
   const isFeliz7PlayChannel = channelId === FELIZ7PLAY_CHANNEL_ID;
   const isAdventistAnimationChannel =
     ADVENTIST_ANIMATION_CHANNEL_IDS.has(channelId) ||
@@ -1045,6 +1111,17 @@ export function classifyShort(
     !/\bkaraok[eê](?![a-záéíóúâêôãõç])/i.test(title) &&
     ANIMATION_MEDIUM_RE.test(titleAndChannel) &&
     BIBLICAL_ANIMATION_TOPIC_RE.test(`${title} ${description.slice(0, 220)}`);
+
+  const isKidsSabbathLesson =
+    KIDS_SABBATH_SCHOOL_PATTERNS.test(title) &&
+    !/\b(adultos?|jovens?|comtexto|nocomtexto)\b/i.test(title);
+  const isSabbathSchoolTitle =
+    !isKidsSabbathLesson && SABBATH_SCHOOL_TITLE_PATTERNS.some((re) => re.test(title));
+  const isSabbathSchoolDesc =
+    !isKidsSabbathLesson &&
+    /\b(escola sabatina|li[cç][oõ]es da b[ií]blia|comtexto b[ií]blico|comtexto di[aá]rio|nocomtexto|li[cç][aã]o d[ao]s?\s*(adultos?|jovens?)|estudo da li[cç][aã]o|resumo da li[cç][aã]o)\b/i.test(
+      `${channelTitle} ${description.slice(0, 360)}`
+    );
 
   const hasExplicitTestimonySignals =
     !/\b(podcast|trailer|teaser|inscri[cç][oõ]es|convite|agenda|prega[cç][aã]o completa|ao vivo agora|verso da semana|vers[ií]culo do dia|filme completo|filme crist[aã]o|clipe|playback|karaok[eê]|lyric)(?![a-záéíóúâêôãõç])/i.test(
@@ -1059,7 +1136,7 @@ export function classifyShort(
         )));
   const isBibleTitle = STRICT_BIBLE_TITLE_PATTERNS.some((re) => re.test(title));
   const isBibleDesc =
-    /\b(estudo b[ií]blico|escola sabatina|na mira da verdade|arqueologia b[ií]blica|vers[ií]culo|apocalipse|profecia|evangelho|palavra de deus|b[ií]blia sagrada|li[cç][aã]o da b[ií]blia|santu[aá]rio|mandamentos|s[aá]bado)\b/i.test(
+    /\b(estudo b[ií]blico|na mira da verdade|arqueologia b[ií]blica|vers[ií]culo|apocalipse|profecia|evangelho|palavra de deus|b[ií]blia sagrada|santu[aá]rio|mandamentos|s[aá]bado)\b/i.test(
       description.slice(0, 320)
     );
   const isSongRaw = looksLikeWorshipSong(
@@ -1073,22 +1150,31 @@ export function classifyShort(
   const hasStrongMusicTag =
     isWorshipChannel ||
     (WORSHIP_SONG_POSITIVE_PATTERNS.some((re) => re.test(title)) && !STRICT_TALK_BLOCK_RE.test(title));
+  const isSabbathSchoolStudy =
+    !hasStrongMusicTag &&
+    !isKidsSabbathLesson &&
+    !isAdventistAnimationChannel &&
+    (isSabbathSchoolTitle ||
+      isDedicatedSabbathSchoolChannel ||
+      (isSabbathSchoolChannel && (isSabbathSchoolDesc || hintCategory === 'escola_sabatina')) ||
+      ((hintCategory === 'escola_sabatina' || searchMode) && isSabbathSchoolDesc));
   const isStrictSermon =
     !hasStrongMusicTag &&
+    !isSabbathSchoolStudy &&
     !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
     !NON_SERMON_PATTERNS.some((re) => re.test(description.slice(0, 220))) &&
     (STRICT_SERMON_TITLE_PATTERNS.some((re) => re.test(title)) ||
       (searchMode &&
         adventist &&
         !hasStrongMusicTag &&
-        !isBibleTitle &&
         /\b(prega[cç][aã]o|serm[aã]o|culto|mensagem|estudo|palavra|ora[cç][aã]o|cristo|jesus|deus|esperan[cç]a)\b/i.test(
           fullContext
         )));
-  const isExplicitTestimony = hasExplicitTestimonySignals && !hasStrongMusicTag;
+  const isExplicitTestimony = hasExplicitTestimonySignals && !hasStrongMusicTag && !isSabbathSchoolStudy;
   const isSong =
     isSongRaw &&
     !isAdventistAnimationChannel &&
+    !isSabbathSchoolStudy &&
     (!searchMode || hasStrongMusicTag || (!isExplicitTestimony && !isBibleTitle && !isStrictSermon && !isBiblicalAnimation));
 
   let detectedCategory: ContentCategory | null = null;
@@ -1123,40 +1209,44 @@ export function classifyShort(
     } else {
       return null;
     }
+  } else if (isSabbathSchoolStudy) {
+    detectedCategory = 'escola_sabatina';
   } else if (isExplicitTestimony) {
     detectedCategory = 'testemunhos';
-  } else if (isBibleTitle || isBibleChannel) {
-    detectedCategory = 'biblia';
-  } else if (isStrictSermon) {
+  } else if (
+    isStrictSermon ||
+    isBibleTitle ||
+    (isUnifiedPregacoesChannel && !isSong && !NON_SERMON_PATTERNS.some((re) => re.test(title)))
+  ) {
     detectedCategory = 'pregacoes';
   } else if (isSong) {
     detectedCategory = 'louvores';
   } else if (
-    (hintCategory === 'biblia' || searchMode) &&
+    (hintCategory === 'pregacoes' || searchMode) &&
     !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
     isBibleDesc
   ) {
-    detectedCategory = 'biblia';
+    detectedCategory = 'pregacoes';
   } else if (
-    hintCategory === 'biblia' &&
+    hintCategory === 'pregacoes' &&
     adventist &&
     !hasStrongMusicTag &&
     !NON_SERMON_PATTERNS.some((re) => re.test(title)) &&
-    /\b(estudo|li[cç][aã]o|escola sabatina|na mira|arqueologia|apocalipse|profecia|vers[ií]culo|b[ií]bli|salmo|g[eê]nesis|daniel|s[aá]bado|mandamento|santu[aá]rio|par[aá]bola|evangelho|mil[eê]nio|cristo|jesus|deus)\b/i.test(
+    /\b(estudo|na mira|arqueologia|apocalipse|profecia|vers[ií]culo|b[ií]bli|salmo|g[eê]nesis|daniel|s[aá]bado|mandamento|santu[aá]rio|par[aá]bola|evangelho|mil[eê]nio|cristo|jesus|deus)\b/i.test(
       `${title} ${description.slice(0, 260)}`
     )
   ) {
-    detectedCategory = 'biblia';
+    detectedCategory = 'pregacoes';
   } else if (searchMode && adventist && !NON_SERMON_PATTERNS.some((re) => re.test(title))) {
-    detectedCategory = hintCategory === 'biblia' ? 'biblia' : 'pregacoes';
+    detectedCategory = hintCategory === 'escola_sabatina' ? 'escola_sabatina' : 'pregacoes';
   } else {
     return null;
   }
 
-  // Sermons (pregacoes), Bible/Gospel (biblia), and Feliz7Play/Biblical Animations MUST adhere strictly to Seventh-day Adventist doctrine
+  // Pregações e Bíblia (pregacoes), Escola Sabatina (escola_sabatina), and Feliz7Play MUST adhere strictly to Seventh-day Adventist doctrine
   if (
     detectedCategory === 'pregacoes' ||
-    detectedCategory === 'biblia' ||
+    detectedCategory === 'escola_sabatina' ||
     detectedCategory === 'feliz7play'
   ) {
     if (!adventist) {
@@ -1350,7 +1440,7 @@ export function parseChannelRssXml(
         (allowFullLengthCategories &&
           (classified.category === 'louvores' ||
             classified.category === 'pregacoes' ||
-            classified.category === 'biblia' ||
+            classified.category === 'escola_sabatina' ||
             classified.category === 'feliz7play')) ||
         classified.category === 'testemunhos';
       if (!canIncludeFullVideo) {
@@ -1545,7 +1635,7 @@ export async function fetchFastBootstrapRssWithAdapter(
 ): Promise<ChristianShort[]> {
   const categories: ContentCategory[] = [
     'pregacoes',
-    'biblia',
+    'escola_sabatina',
     'louvores',
     'testemunhos',
     'feliz7play',
@@ -1561,7 +1651,7 @@ export async function fetchFastBootstrapRssWithAdapter(
       cat === 'feliz7play' ||
       cat === 'pregacoes' ||
       cat === 'testemunhos' ||
-      cat === 'biblia';
+      cat === 'escola_sabatina';
     tasks.push(
       (async () => {
         const xml = await fetchXml(url);
@@ -1616,6 +1706,7 @@ export async function fetchCuratedRssWithAdapter(
         pageIndex === 1
           ? spec.defaultCategory === 'louvores' ||
             spec.defaultCategory === 'pregacoes' ||
+            spec.defaultCategory === 'escola_sabatina' ||
             spec.defaultCategory === 'feliz7play'
             ? uulfPlaylistId
             : uupvPlaylistId
@@ -1625,9 +1716,9 @@ export async function fetchCuratedRssWithAdapter(
       const allowFull =
         spec.defaultCategory === 'louvores' ||
         spec.defaultCategory === 'feliz7play' ||
-        spec.defaultCategory === 'biblia' ||
+        spec.defaultCategory === 'escola_sabatina' ||
         spec.allowInCategories.includes('pregacoes') ||
-        spec.allowInCategories.includes('biblia') ||
+        spec.allowInCategories.includes('escola_sabatina') ||
         spec.allowInCategories.includes('testemunhos');
 
       tasks.push(
@@ -1642,8 +1733,12 @@ export async function fetchCuratedRssWithAdapter(
       continue;
     }
 
-    if (spec.defaultCategory === 'louvores' || spec.defaultCategory === 'feliz7play') {
-      // Worship & Feliz7Play channels: fetch full-length uploads (channel_id) directly
+    if (
+      spec.defaultCategory === 'louvores' ||
+      spec.defaultCategory === 'feliz7play' ||
+      spec.defaultCategory === 'escola_sabatina'
+    ) {
+      // Worship, Feliz7Play & Escola Sabatina channels: fetch full-length uploads (channel_id) directly
       tasks.push(
         (async () => {
           const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
@@ -1653,16 +1748,15 @@ export async function fetchCuratedRssWithAdapter(
         })()
       );
     } else {
-      // Sermons, Bible, Testimonies: Shorts feed + main channel feed for full-length Adventist studies, sermons & testimonies
+      // Sermons, Bible Studies & Testimonies: Shorts feed + main channel feed for full-length Adventist studies, sermons & testimonies
       tasks.push(
         (async () => {
           const collected: ChristianShort[] = [];
           const uushUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uushPlaylistId}`;
           const channelUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
           const includeFullStudiesOrSermons =
-            spec.defaultCategory === 'biblia' ||
             spec.allowInCategories.includes('pregacoes') ||
-            spec.allowInCategories.includes('biblia');
+            spec.allowInCategories.includes('escola_sabatina');
 
           const [uushRes, chRes] = await Promise.allSettled([
             fetchXml(uushUrl),
@@ -1683,7 +1777,7 @@ export async function fetchCuratedRssWithAdapter(
               if (
                 !gotUush ||
                 item.category === 'pregacoes' ||
-                item.category === 'biblia' ||
+                item.category === 'escola_sabatina' ||
                 item.category === 'testemunhos'
               ) {
                 collected.push(item);
@@ -1977,7 +2071,7 @@ export function getDiversityActorKey(item: ChristianShort): string {
     ? `channel:${foldedChannelId}`
     : `channel:${foldedChannelTitle || 'unknown'}`;
 
-  if (item.category !== 'pregacoes' && item.category !== 'biblia') {
+  if (item.category !== 'pregacoes' && item.category !== 'escola_sabatina') {
     return fallbackChannelKey;
   }
 
@@ -2287,7 +2381,7 @@ export function buildTieredDiverseFeed(
   const rng = seed !== undefined ? createSeededRng(seed) : Math.random;
   const categories: ContentCategory[] = [
     'pregacoes',
-    'biblia',
+    'escola_sabatina',
     'louvores',
     'testemunhos',
     'feliz7play',
@@ -2298,7 +2392,7 @@ export function buildTieredDiverseFeed(
 
   const categoryStreams: Record<ContentCategory, ChristianShort[]> = {
     pregacoes: [],
-    biblia: [],
+    escola_sabatina: [],
     louvores: [],
     testemunhos: [],
     feliz7play: [],
@@ -2347,15 +2441,8 @@ export function formatFilteredResponse(
   hasMore = false,
   nextCursor: string | null = null
 ): ShortsApiResponse {
-  const validCategories = new Set([
-    'all',
-    'pregacoes',
-    'biblia',
-    'louvores',
-    'testemunhos',
-    'feliz7play',
-  ]);
-  const category = rawCategory && validCategories.has(rawCategory) ? rawCategory : 'all';
+  const normalizedCategory = normalizeContentCategory(rawCategory);
+  const category = rawCategory === 'all' ? 'all' : normalizedCategory ?? 'all';
   const sanitizedQuery = normalizeSearchFold(
     (rawQuery || '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 80)
   );
@@ -2373,7 +2460,7 @@ export function formatFilteredResponse(
 
   const categoryCounts: Record<ContentCategory, number> = {
     pregacoes: 0,
-    biblia: 0,
+    escola_sabatina: 0,
     louvores: 0,
     testemunhos: 0,
     feliz7play: 0,

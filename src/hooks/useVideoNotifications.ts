@@ -5,7 +5,7 @@ const STORAGE_KEY = 'gracaplay_notif_prefs_v1';
 
 const ALL_CATEGORIES: ContentCategory[] = [
   'pregacoes',
-  'biblia',
+  'escola_sabatina',
   'louvores',
   'testemunhos',
   'feliz7play',
@@ -24,8 +24,14 @@ function readStoredPrefs(): StoredNotificationPrefs {
     }
     const parsed = JSON.parse(raw) as Partial<StoredNotificationPrefs>;
     const validCats = Array.isArray(parsed.categories)
-      ? parsed.categories.filter((c): c is ContentCategory =>
-          ALL_CATEGORIES.includes(c as ContentCategory)
+      ? Array.from(
+          new Set(
+            parsed.categories
+              .map((c) => ((c as string) === 'biblia' ? 'pregacoes' : c))
+              .filter((c): c is ContentCategory =>
+                ALL_CATEGORIES.includes(c as ContentCategory)
+              )
+          )
         )
       : [...ALL_CATEGORIES];
     return {

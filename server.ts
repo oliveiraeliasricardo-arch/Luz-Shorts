@@ -292,11 +292,11 @@ function parseOptionalIntParam(raw: unknown): number | undefined {
         typeof req.query.categories === 'string'
           ? req.query.categories
               .split(',')
-              .map((s) => s.trim())
+              .map((s) => (s.trim() === 'biblia' ? 'pregacoes' : s.trim()))
               .filter(Boolean)
           : undefined;
       const items = await getLatestReleasesForSync(
-        rawCats as Array<'pregacoes' | 'biblia' | 'louvores' | 'testemunhos' | 'feliz7play'> | undefined,
+        rawCats as Array<'pregacoes' | 'escola_sabatina' | 'louvores' | 'testemunhos' | 'feliz7play'> | undefined,
         8
       );
       res.json({ items, checkedAt: new Date().toISOString() });
