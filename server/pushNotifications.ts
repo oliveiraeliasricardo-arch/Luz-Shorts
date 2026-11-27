@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { PushSubscription } from 'web-push';
-import { isUpcomingOrPremiereEntry } from '../src/shared/curatorCore.ts';
+import {
+  isCurrentSabbathSchoolLessonForToday,
+  isUpcomingOrPremiereEntry,
+} from '../src/shared/curatorCore.ts';
 import type { ChristianShort, ContentCategory } from '../src/types/shorts.ts';
 
 const require = createRequire(import.meta.url);
@@ -30,6 +33,22 @@ const STORE_PATH = path.join(DATA_DIR, 'push-subscriptions.json');
 const MAX_KNOWN_IDS = 5000;
 const NEW_VIDEO_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 const CHECK_INTERVAL_MS = 15 * 60 * 1000;
+
+function isNotificationEligibleVideo(item: ChristianShort): boolean {
+  if (isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)) {
+    return false;
+  }
+  return (
+    item.category !== 'escola_sabatina' ||
+    isCurrentSabbathSchoolLessonForToday({
+      title: item.title,
+      description: item.description,
+      channelId: item.channelId,
+      channelTitle: item.channelTitle,
+      publishedAt: item.publishedAt,
+    })
+  );
+}
 
 export interface StoredPushSubscription {
   id: string;
@@ -284,11 +303,8 @@ export async function sendTestPushToEndpoint(
       const allowedSet = new Set(record.categories);
       sampleVideo =
         latest.find(
-          (v) =>
-            allowedSet.has(v.category) &&
-            !isUpcomingOrPremiereEntry(v.title, v.description, v.publishedAt)
-        ) ??
-        latest.find((v) => !isUpcomingOrPremiereEntry(v.title, v.description, v.publishedAt));
+          (v) => allowedSet.has(v.category) && isNotificationEligibleVideo(v)
+        ) ?? latest.find((v) => isNotificationEligibleVideo(v));
     } catch {
       // Fallback generic sample
     }
@@ -346,7 +362,7 @@ export async function getLatestReleasesForSync(
   return items
     .filter((item) => {
       if (!catSet.has(item.category)) return false;
-      if (isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)) return false;
+      if (!isNotificationEligibleVideo(item)) return false;
       const pubMs = Date.parse(item.publishedAt);
       return Number.isFinite(pubMs) && pubMs >= cutoffMs;
     })
@@ -366,9 +382,7 @@ export async function checkAndNotifyNewVideos(): Promise<{
     const candidates = await candidateFetcher();
     if (candidates.length === 0) return { checked: 0, notified: 0 };
 
-    const playable = candidates.filter(
-      (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
-    );
+    const playable = candidates.filter(isNotificationEligibleVideo);
 
     // First run baseline: seed knownVideoIds without notifying old items
     if (state.knownVideoIds.length === 0) {

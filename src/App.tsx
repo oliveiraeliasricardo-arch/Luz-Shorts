@@ -41,6 +41,7 @@ import { getViewportOrientationState } from './utils/screenOrientation';
 import {
   buildDiverseFeed,
   extractFuzzyContentKey,
+  isCurrentSabbathSchoolLessonForToday,
   isUpcomingOrPremiereEntry,
   normalizeTitleKey,
 } from './shared/curatorCore';
@@ -220,6 +221,22 @@ function normalizeLegacySnapshotItem(raw: unknown): ChristianShort | null {
   return item as unknown as ChristianShort;
 }
 
+function isCurrentDayPlayableItem(item: ChristianShort): boolean {
+  if (isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)) {
+    return false;
+  }
+  return (
+    item.category !== 'escola_sabatina' ||
+    isCurrentSabbathSchoolLessonForToday({
+      title: item.title,
+      description: item.description,
+      channelId: item.channelId,
+      channelTitle: item.channelTitle,
+      publishedAt: item.publishedAt,
+    })
+  );
+}
+
 function readCachedFeedSnapshot(): ChristianShort[] {
   try {
     try {
@@ -322,9 +339,7 @@ function foldSearchText(text: string): string {
 
 export function App() {
   const [allShorts, setAllShorts] = useState<ChristianShort[]>(() => {
-    const cachedRaw = readCachedFeedSnapshot().filter(
-      (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
-    );
+    const cachedRaw = readCachedFeedSnapshot().filter(isCurrentDayPlayableItem);
     if (cachedRaw.length === 0) return [];
     const initialSeen = readStoredIdList(SEEN_STORAGE_KEY, LEGACY_SEEN_STORAGE_KEY);
     const initialTop = readStoredIdList(LAST_SESSION_TOP_KEY);
@@ -625,9 +640,7 @@ export function App() {
   }, []);
 
   const orderResponseItems = useCallback((orderedSource: ChristianShort[]) => {
-    const playableOnly = orderedSource.filter(
-      (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
-    );
+    const playableOnly = orderedSource.filter(isCurrentDayPlayableItem);
     const unseenFresh = filterFreshUnseenItems(
       playableOnly,
       seenIdsRef.current,
@@ -1109,6 +1122,7 @@ export function App() {
     const lookupById = new Map<string, ChristianShort>();
 
     for (const item of queryFiltered) {
+      if (!isCurrentDayPlayableItem(item)) continue;
       lookupById.set(item.id, item);
       counts[item.category] += 1;
       byCategory[item.category].push(item);
@@ -1305,6 +1319,7 @@ export function App() {
 
           const filteredIncoming = data!.items.filter(
             (i) =>
+              isCurrentDayPlayableItem(i) &&
               !existing.has(i.id) &&
               !headIds.has(i.id) &&
               !isItemRetired(i, seenSet, surfacedSet, seenTitleSet) &&
@@ -1312,6 +1327,7 @@ export function App() {
           );
           const filteredTail = tail.filter(
             (i) =>
+              isCurrentDayPlayableItem(i) &&
               !headIds.has(i.id) &&
               !isItemRetired(i, seenSet, surfacedSet, seenTitleSet) &&
               !getItemTitleKeys(i.title).some((k) => headTitles.has(k))

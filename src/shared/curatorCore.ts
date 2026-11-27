@@ -602,7 +602,8 @@ const NON_PORTUGUESE_PATTERNS = [
   /[¿¡]/,
   /\b(despierta am[eé]rica|univision|semana del pa[ñn]uelo|reina para siempre|mil gracias|conquistadores)\b/i,
   /\b(la llama|cristo y nada m[aá]s|en tu presencia|te alabamos)\b/i,
-  /\b(educaci[oó]n|predicaci[oó]n|oraci[oó]n|salvaci[oó]n|bendici[oó]n|coraz[oó]n|deja de|en espa[ñn]ol|iglesia adventista del)\b/i,
+  /\b(educaci[oó]n|predicaci[oó]n|oraci[oó]n|salvaci[oó]n|bendici[oó]n|coraz[oó]n|lecci[oó]n|escuela sab[aá]tica|para j[oó]venes|deja de|en espa[ñn]ol|iglesia adventista del)\b/i,
+  /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/i,
   /\b(d[ií]a\s*\d+\s*\|.*(semana|adventista)|\(esp\))\b/i,
   /\bgozo\s*[–-]\s*aline barros\b/i,
   /\(espa[ñn]ol\)|\bun[ao]s chicos\b|\bel regalo de nick\b|\blos tres libros\b|\bbasta de l[aá]grimas\b|\bpertenecemos\b|\bdefensores de la biblia\b|\binvencibles\b|\bun mini villano\b|\b(el gran|los defensores|las aventuras|cap[ií]tulo \d+.*espa[ñn]ol|para ni[ñn]os)\b/i,
@@ -852,7 +853,7 @@ const SABBATH_SCHOOL_TITLE_PATTERNS = [
 ];
 
 const KIDS_SABBATH_SCHOOL_PATTERNS =
-  /\b(rol do ber[cç]o|jardim da inf[aâ]ncia|prim[aá]rios|juvenis|escola sabatina infantil|li[cç][aã]o\s+(?:dos?\s+)?(?:prim[aá]rios|juvenis|jardim|rol|infantil))\b/i;
+  /\b(rol do ber[cç]o|jardim da inf[aâ]ncia|prim[aá]rios|juvenis|adolescentes?|roteiro\s+teen|escola sabatina infantil|desenho\s+da\s+li[cç][aã]o|li[cç][aã]o\s+(?:de\s+|dos?\s+)?(?:prim[aá]rios|juvenis|adolescentes?|jardim|rol|infantil|teen))\b/i;
 
 const STRICT_BIBLE_TITLE_PATTERNS = [
   /\bb[ií]bli/i,
@@ -908,6 +909,330 @@ export function decodeXmlEntities(str: string): string {
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+export interface SaoPauloDateInfo {
+  ymd: string;
+  year: number;
+  month: number;
+  day: number;
+  weekdayIdx: number; // 0=domingo .. 6=sabado
+  weekdayShortPt: string;
+  weekdaySearchPt: string;
+  monthNamePt: string;
+  monthAbbrPt: string;
+}
+
+const PT_WEEKDAYS_ACCENT = [
+  'domingo',
+  'segunda',
+  'terça',
+  'quarta',
+  'quinta',
+  'sexta',
+  'sábado',
+] as const;
+
+const PT_WEEKDAYS_ASCII = [
+  'domingo',
+  'segunda',
+  'terca',
+  'quarta',
+  'quinta',
+  'sexta',
+  'sabado',
+] as const;
+
+const PT_MONTHS_FULL = [
+  '',
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+] as const;
+
+const PT_MONTHS_ABBR = [
+  '',
+  'jan',
+  'fev',
+  'mar',
+  'abr',
+  'mai',
+  'jun',
+  'jul',
+  'ago',
+  'set',
+  'out',
+  'nov',
+  'dez',
+] as const;
+
+const PT_MONTH_LOOKUP: Record<string, number> = {
+  janeiro: 1,
+  jan: 1,
+  fevereiro: 2,
+  fev: 2,
+  marco: 3,
+  mar: 3,
+  abril: 4,
+  abr: 4,
+  maio: 5,
+  mai: 5,
+  junho: 6,
+  jun: 6,
+  julho: 7,
+  jul: 7,
+  agosto: 8,
+  ago: 8,
+  setembro: 9,
+  set: 9,
+  outubro: 10,
+  out: 10,
+  novembro: 11,
+  nov: 11,
+  dezembro: 12,
+  dez: 12,
+};
+
+const EN_WEEKDAY_TO_IDX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+export function getSaoPauloDateInfo(referenceDate: Date = new Date()): SaoPauloDateInfo {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+    }).formatToParts(referenceDate);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
+    const year = Number(get('year')) || referenceDate.getUTCFullYear();
+    const month = Number(get('month')) || referenceDate.getUTCMonth() + 1;
+    const day = Number(get('day')) || referenceDate.getUTCDate();
+    const weekdayIdx = EN_WEEKDAY_TO_IDX[get('weekday')] ?? referenceDate.getUTCDay();
+    return {
+      ymd: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      year,
+      month,
+      day,
+      weekdayIdx,
+      weekdayShortPt: PT_WEEKDAYS_ACCENT[weekdayIdx] ?? 'sabado',
+      weekdaySearchPt: PT_WEEKDAYS_ASCII[weekdayIdx] ?? 'sabado',
+      monthNamePt: PT_MONTHS_FULL[month] ?? 'janeiro',
+      monthAbbrPt: PT_MONTHS_ABBR[month] ?? 'jan',
+    };
+  } catch {
+    const year = referenceDate.getUTCFullYear();
+    const month = referenceDate.getUTCMonth() + 1;
+    const day = referenceDate.getUTCDate();
+    const weekdayIdx = referenceDate.getUTCDay();
+    return {
+      ymd: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      year,
+      month,
+      day,
+      weekdayIdx,
+      weekdayShortPt: PT_WEEKDAYS_ACCENT[weekdayIdx] ?? 'sabado',
+      weekdaySearchPt: PT_WEEKDAYS_ASCII[weekdayIdx] ?? 'sabado',
+      monthNamePt: PT_MONTHS_FULL[month] ?? 'janeiro',
+      monthAbbrPt: PT_MONTHS_ABBR[month] ?? 'jan',
+    };
+  }
+}
+
+function toSaoPauloYmd(dateStr: string): string | null {
+  const ms = Date.parse(dateStr);
+  if (!Number.isFinite(ms)) return null;
+  return getSaoPauloDateInfo(new Date(ms)).ymd;
+}
+
+const WEEKLY_RANGE_DATE_PATTERNS = [
+  /\b\d{1,2}\s*[/.]\s*\d{1,2}(?:\s*[/.]\s*\d{2,4})?\s*(?:a|ate|[-–—])\s*\d{1,2}\s*[/.]\s*\d{1,2}(?:\s*[/.]\s*\d{2,4})?\b/,
+  /\b\d{1,2}\s*(?:a|ate|[-–—])\s*\d{1,2}\s*(?:de\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b/,
+  /\b\d{1,2}\s*(?:de\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\s*(?:a|ate|[-–—])\s*\d{1,2}\s*(?:de\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b/,
+  /\b\d{1,2}\s*(?:a|ate|[-–—])\s*\d{1,2}\s*[/.]\s*\d{1,2}(?:\s*[/.]\s*\d{2,4})?\b/,
+  /\b(?:de\s+)?(?:sabado|domingo|segunda|terca|quarta|quinta|sexta)(?:\s*-?\s*feira)?\s+(?:a|ate)\s+(?:sabado|domingo|segunda|terca|quarta|quinta|sexta)(?:\s*-?\s*feira)?\b/,
+  /\b(resumo\s+(?:semanal|da\s+semana|completo)|toda\s+a\s+licao|licao\s+completa|visao\s+geral|desenho\s+da\s+licao|classe\s+dos?\s+professores)\b/,
+];
+
+const ORDINAL_NOUN_FOLLOW_RE =
+  /^\s+(?:vinda|b[ií]blia|biblia|parte|pessoa|carta|ep[ií]stola|epistola|mensagem|chance|oportunidade|morte|vez|obra|etapa|fase|edi[cç][aã]o|edicao|temporada|alian[cç]a|alianca|metade|dimens[aã]o|dimensao|gerac[aã]o|geracao|guerra)\b/i;
+
+function extractSabbathWeekdaysFromTitle(foldedTitle: string): Set<number> {
+  const result = new Set<number>();
+  const mapToken = (tok: string): number | null => {
+    if (tok.startsWith('dom')) return 0;
+    if (tok.startsWith('seg')) return 1;
+    if (tok.startsWith('ter')) return 2;
+    if (tok.startsWith('qua')) return 3;
+    if (tok.startsWith('qui')) return 4;
+    if (tok.startsWith('sex')) return 5;
+    if (tok.startsWith('sab')) return 6;
+    return null;
+  };
+
+  for (const m of foldedTitle.matchAll(
+    /\b(domingo|segunda(?:\s*-?\s*feira)?|terca(?:\s*-?\s*feira)?|quarta(?:\s*-?\s*feira)?|quinta(?:\s*-?\s*feira)?|sexta(?:\s*-?\s*feira)?|sabado)\b/g
+  )) {
+    const token = m[1];
+    const matchIndex = m.index ?? 0;
+    const after = foldedTitle.slice(matchIndex + token.length);
+    const before = foldedTitle.slice(Math.max(0, matchIndex - 12), matchIndex);
+    const hasFeira = /feira/.test(token);
+    if (!hasFeira && ORDINAL_NOUN_FOLLOW_RE.test(after)) {
+      continue;
+    }
+    if (!hasFeira && /\b(?:sua|esta|essa|aquela|primeira\s+e)\s+$/.test(before)) {
+      continue;
+    }
+    const idx = mapToken(token);
+    if (idx !== null) result.add(idx);
+  }
+  for (const m of foldedTitle.matchAll(
+    /\b(dom|seg|ter|qua|qui|sex|sab)\.?(?=\s*[-–/.,(]*\s*\d{1,2}\s*(?:[/.]|\s+de\s+(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b))/g
+  )) {
+    const idx = mapToken(m[1]);
+    if (idx !== null) result.add(idx);
+  }
+  return result;
+}
+
+interface ParsedTitleDate {
+  day: number;
+  month: number;
+  year?: number;
+}
+
+function extractDatesFromTitle(foldedTitle: string): ParsedTitleDate[] {
+  const dates: ParsedTitleDate[] = [];
+
+  for (const m of foldedTitle.matchAll(
+    /(?:^|[^\d])(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?(?!\d)/g
+  )) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    let year = m[3] ? Number(m[3]) : undefined;
+    if (year !== undefined && year < 100) year += 2000;
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      dates.push({ day, month, year });
+    }
+  }
+
+  for (const m of foldedTitle.matchAll(/(?:^|[^\d])(\d{1,2})-(\d{1,2})-(20\d{2}|\d{2})(?!\d)/g)) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    let year = Number(m[3]);
+    if (year < 100) year += 2000;
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      dates.push({ day, month, year });
+    }
+  }
+
+  for (const m of foldedTitle.matchAll(/(?:^|[^\d])(\d{1,2})\s+(\d{1,2})\s+(20\d{2})(?!\d)/g)) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    const year = Number(m[3]);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      dates.push({ day, month, year });
+    }
+  }
+
+  for (const m of foldedTitle.matchAll(
+    /(?:^|[^\d])(\d{1,2})\s+(?:de\s+)?(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)(?:\s+(?:de\s+)?(20\d{2}))?(?![a-z0-9])/g
+  )) {
+    const day = Number(m[1]);
+    const month = PT_MONTH_LOOKUP[m[2]];
+    const year = m[3] ? Number(m[3]) : undefined;
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      dates.push({ day, month, year });
+    }
+  }
+
+  return dates;
+}
+
+export function isCurrentSabbathSchoolLessonForToday(
+  params: {
+    title: string;
+    description?: string;
+    channelId?: string;
+    channelTitle?: string;
+    publishedAt?: string;
+  },
+  referenceDate?: Date
+): boolean {
+  const ref = referenceDate ?? new Date();
+  const today = getSaoPauloDateInfo(ref);
+  const foldedTitle = normalizeSearchFold(params.title || '');
+  if (!foldedTitle) return false;
+
+  if (WEEKLY_RANGE_DATE_PATTERNS.some((re) => re.test(foldedTitle))) {
+    return false;
+  }
+
+  const weekdaysInTitle = extractSabbathWeekdaysFromTitle(foldedTitle);
+  if (weekdaysInTitle.size > 1) {
+    return false;
+  }
+  if (weekdaysInTitle.size === 1 && !weekdaysInTitle.has(today.weekdayIdx)) {
+    return false;
+  }
+
+  const pubMs = params.publishedAt ? Date.parse(params.publishedAt) : NaN;
+  const nowMs = ref.getTime();
+  const ageDays = Number.isFinite(pubMs) ? (nowMs - pubMs) / (24 * 3600 * 1000) : null;
+  if (ageDays !== null && ageDays < -1.5) {
+    return false;
+  }
+
+  const datesInTitle = extractDatesFromTitle(foldedTitle);
+  if (datesInTitle.length > 0) {
+    const allMatchToday = datesInTitle.every(
+      (d) =>
+        d.day === today.day &&
+        d.month === today.month &&
+        (d.year === undefined || d.year === today.year)
+    );
+    if (!allMatchToday) {
+      return false;
+    }
+    const hasExplicitCurrentYear = datesInTitle.some((d) => d.year === today.year);
+    if (hasExplicitCurrentYear) {
+      return ageDays === null || ageDays <= 45;
+    }
+    return ageDays === null || (ageDays >= -1.5 && ageDays <= 21);
+  }
+
+  if (weekdaysInTitle.has(today.weekdayIdx)) {
+    return ageDays !== null && ageDays >= -1.5 && ageDays <= 3.5;
+  }
+
+  // Dedicated daily channel ("ComTexto Diário") posts 1 topical video per day without date in title
+  const isComtextoDiario =
+    params.channelId === 'UCBm5ycqxuqK-UVs54-xA_2w' ||
+    /\bcomtexto\s+diario\b/.test(normalizeSearchFold(params.channelTitle || ''));
+  if (isComtextoDiario && params.publishedAt) {
+    const pubYmd = toSaoPauloYmd(params.publishedAt);
+    return pubYmd === today.ymd;
+  }
+
+  return false;
 }
 
 function containsBlockedTerms(text: string, blocked: string[]): boolean {
@@ -1049,7 +1374,7 @@ export function classifyShort(
   title: string,
   description: string,
   hintCategory?: ContentCategory,
-  options?: { searchMode?: boolean }
+  options?: { searchMode?: boolean; publishedAt?: string }
 ): { category: ContentCategory; doctrineScope: DoctrineScope } | null {
   const searchMode = Boolean(options?.searchMode);
   const combined = `${title} ${description}`;
@@ -1064,7 +1389,12 @@ export function classifyShort(
   if (AI_GENERATED_PATTERNS.some((re) => re.test(fullContext))) {
     return null;
   }
-  if (NON_PORTUGUESE_PATTERNS.some((re) => re.test(title))) {
+  if (
+    NON_PORTUGUESE_PATTERNS.some((re) => re.test(title)) ||
+    /\b(iglesia|advenimiento|s[eé]ptimo\s+d[ií]a|escuela\s+sab[aá]tica|ministerio\s+(?:de|del)|predicaciones)\b/i.test(
+      channelTitle
+    )
+  ) {
     return null;
   }
   if (!searchMode && NOISE_AND_PROMO_PATTERNS.some((re) => re.test(title))) {
@@ -1255,6 +1585,18 @@ export function classifyShort(
     if (containsBlockedTerms(combined, BLOCKED_DOCTRINAL_CONFLICT_TERMS)) {
       return null;
     }
+    if (
+      detectedCategory === 'escola_sabatina' &&
+      !isCurrentSabbathSchoolLessonForToday({
+        title,
+        description,
+        channelId,
+        channelTitle,
+        publishedAt: options?.publishedAt,
+      })
+    ) {
+      return null;
+    }
     return {
       category: detectedCategory,
       doctrineScope: 'adventista',
@@ -1426,7 +1768,9 @@ export function parseChannelRssXml(
 
     const authorName = extractXmlTag(entry, 'name') || spec.title;
 
-    const classified = classifyShort(spec.id, authorName, title, description);
+    const classified = classifyShort(spec.id, authorName, title, description, undefined, {
+      publishedAt,
+    });
     if (!classified) continue;
 
     // Allow full-length videos for Louvores, Pregações, Feliz7Play, and explicit Testemunhos;
@@ -2448,15 +2792,27 @@ export function formatFilteredResponse(
   );
   const queryTokens = sanitizedQuery.split(/\s+/).filter(Boolean);
 
+  const currentDayPool = allItems.filter(
+    (item) =>
+      item.category !== 'escola_sabatina' ||
+      isCurrentSabbathSchoolLessonForToday({
+        title: item.title,
+        description: item.description,
+        channelId: item.channelId,
+        channelTitle: item.channelTitle,
+        publishedAt: item.publishedAt,
+      })
+  );
+
   const queryFiltered =
     queryTokens.length > 0
-      ? allItems.filter((item) => {
+      ? currentDayPool.filter((item) => {
           const haystack = normalizeSearchFold(
             `${item.title} ${item.channelTitle} ${item.description} ${item.categoryLabel}`
           );
           return queryTokens.every((tok) => haystack.includes(tok));
         })
-      : allItems;
+      : currentDayPool;
 
   const categoryCounts: Record<ContentCategory, number> = {
     pregacoes: 0,

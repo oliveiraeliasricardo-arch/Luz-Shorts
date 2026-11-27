@@ -16,6 +16,8 @@ import {
   fetchCuratedRssWithAdapter,
   formatFilteredResponse,
   getDiversityActorKey,
+  getSaoPauloDateInfo,
+  isCurrentSabbathSchoolLessonForToday,
   isSearchSuggestionSafe,
   isUpcomingOrPremiereEntry,
   normalizeContentCategory,
@@ -315,7 +317,7 @@ const persistentPlaylistTokens: Record<string, string | null> = {};
 const exhaustedPlaylistIds = new Set<string>();
 const globalDiscoveryOffsets: Record<ContentCategory, number> = {
   pregacoes: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.pregacoes.length),
-  escola_sabatina: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.escola_sabatina.length),
+  escola_sabatina: 0,
   louvores: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.louvores.length),
   testemunhos: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.testemunhos.length),
   feliz7play: Math.floor(Math.random() * DISCOVERY_QUERIES_BY_CATEGORY.feliz7play.length),
@@ -323,11 +325,60 @@ const globalDiscoveryOffsets: Record<ContentCategory, number> = {
 
 const persistentDiscoveryCursors: Record<ContentCategory, CategoryDiscoveryCursor> = {
   pregacoes: { queryIdx: globalDiscoveryOffsets.pregacoes, pageToken: null },
-  escola_sabatina: { queryIdx: globalDiscoveryOffsets.escola_sabatina, pageToken: null },
+  escola_sabatina: { queryIdx: 0, pageToken: null },
   louvores: { queryIdx: globalDiscoveryOffsets.louvores, pageToken: null },
   testemunhos: { queryIdx: globalDiscoveryOffsets.testemunhos, pageToken: null },
   feliz7play: { queryIdx: globalDiscoveryOffsets.feliz7play, pageToken: null },
 };
+
+function getDiscoveryQueriesForCategory(category: ContentCategory): string[] {
+  if (category !== 'escola_sabatina') {
+    return DISCOVERY_QUERIES_BY_CATEGORY[category];
+  }
+  const today = getSaoPauloDateInfo();
+  const dd = String(today.day).padStart(2, '0');
+  const mm = String(today.month).padStart(2, '0');
+  const yyyy = String(today.year);
+  const yy = yyyy.slice(-2);
+  const wd = today.weekdaySearchPt;
+  const mes = today.monthNamePt;
+  const extraStudyHint =
+    today.weekdayIdx === 5
+      ? [`estudo adicional ${wd} ${dd} de ${mes} licoes da biblia`]
+      : [];
+
+  return [
+    `lição escola sabatina adultos ${wd} ${dd}/${mm}/${yyyy}`,
+    `lição escola sabatina jovens ${wd} ${dd}/${mm}/${yyyy}`,
+    `escola sabatina ${dd}/${mm}/${yyyy}`,
+    `escola sabatina ${dd} de ${mes} ${yyyy}`,
+    `lição escola sabatina ${wd} ${dd}/${mm}`,
+    `escola sabatina jovens ${wd} ${dd}/${mm}`,
+    `lição dos jovens ${wd} ${dd} de ${mes}`,
+    `comtexto diário ${dd}/${mm}/${yyyy}`,
+    `comtexto bíblico ${wd} ${dd}/${mm}`,
+    ...extraStudyHint,
+    `pr dudu batista ${wd} ${dd}/${mm}/${yyyy}`,
+    `escola sabatina ${dd}.${mm}.${yy}`,
+    `escola sabatina ${wd} feira ${dd} de ${mes} ${yyyy}`,
+    `comentário lição escola sabatina ${wd} ${dd}/${mm}`,
+    `lição escola sabatina adultos ${dd} de ${mes} ${yyyy}`,
+    `escola sabatina adventista hoje ${dd}/${mm}/${yyyy}`,
+  ];
+}
+
+function isCurrentDayEligibleItem(item: ChristianShort): boolean {
+  return (
+    item.category !== 'escola_sabatina' ||
+    isCurrentSabbathSchoolLessonForToday({
+      title: item.title,
+      description: item.description,
+      channelId: item.channelId,
+      channelTitle: item.channelTitle,
+      publishedAt: item.publishedAt,
+    })
+  );
+}
 
 function mergeIntoCatalogPool(
   freshAdditions: ChristianShort[],
@@ -335,10 +386,10 @@ function mergeIntoCatalogPool(
 ): ChristianShort[] {
   const byId = new Map<string, ChristianShort>();
   for (const item of freshAdditions) {
-    byId.set(item.id, item);
+    if (isCurrentDayEligibleItem(item)) byId.set(item.id, item);
   }
   for (const item of existingPool) {
-    if (!byId.has(item.id)) {
+    if (!byId.has(item.id) && isCurrentDayEligibleItem(item)) {
       byId.set(item.id, item);
     }
   }
@@ -604,7 +655,7 @@ function createPaginationCursor(
   ];
   const normalizedOffset = Math.abs(Math.trunc(seedOffset || 0));
   for (const cat of cats) {
-    const qLen = DISCOVERY_QUERIES_BY_CATEGORY[cat].length;
+    const qLen = getDiscoveryQueriesForCategory(cat).length;
     const offset = (globalDiscoveryOffsets[cat] + normalizedOffset) % qLen;
     globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % qLen;
     discoveryByCategory[cat] = { queryIdx: offset, pageToken: null };
@@ -801,7 +852,7 @@ async function hydrateAndVerifyCandidates(
       c.title,
       fullDesc,
       c.hintCategory,
-      { searchMode }
+      { searchMode, publishedAt: effectivePublishedAt }
     );
     if (!classified) continue;
 
@@ -1493,7 +1544,7 @@ async function fetchYoutubeWebSearch(
         c.title,
         c.description,
         c.hintCategory,
-        { searchMode }
+        { searchMode, publishedAt: c.publishedAt }
       );
       if (!classified) continue;
       if (
@@ -1820,17 +1871,26 @@ async function fetchPersistentApiDiscoveryPage(
   targetCategory: ContentCategory,
   excludeIds: Set<string>
 ): Promise<ChristianShort[]> {
-  const queries = DISCOVERY_QUERIES_BY_CATEGORY[targetCategory];
+  const queries = getDiscoveryQueriesForCategory(targetCategory);
   const cursor = persistentDiscoveryCursors[targetCategory];
   const query = queries[cursor.queryIdx % queries.length];
-  const orderCycle: Array<'date' | 'relevance' | 'viewCount'> = ['relevance', 'date', 'viewCount'];
+  const orderCycle: Array<'date' | 'relevance' | 'viewCount'> =
+    targetCategory === 'escola_sabatina'
+      ? ['date', 'relevance', 'date']
+      : ['relevance', 'date', 'viewCount'];
   const orderMode = orderCycle[cursor.queryIdx % orderCycle.length];
 
   if (!isYoutubeApiUsable(apiKey)) {
     cursor.queryIdx = (cursor.queryIdx + 1) % queries.length;
     cursor.pageToken = null;
     globalDiscoveryOffsets[targetCategory] = cursor.queryIdx;
-    return fetchYoutubeWebSearch('', query, targetCategory, 'month', excludeIds);
+    return fetchYoutubeWebSearch(
+      '',
+      query,
+      targetCategory,
+      targetCategory === 'escola_sabatina' ? 'week' : 'month',
+      excludeIds
+    );
   }
 
   const params = new URLSearchParams({
@@ -1926,7 +1986,7 @@ async function fetchCategoryDiscoveryPage(
   targetCategory: ContentCategory,
   state: PaginationSessionState
 ): Promise<ChristianShort[]> {
-  const queries = DISCOVERY_QUERIES_BY_CATEGORY[targetCategory];
+  const queries = getDiscoveryQueriesForCategory(targetCategory);
   const initialIdx = globalDiscoveryOffsets[targetCategory] % queries.length;
   const cursorEntry = state.discoveryByCategory[targetCategory] ?? {
     queryIdx: initialIdx,
@@ -1936,22 +1996,15 @@ async function fetchCategoryDiscoveryPage(
 
   const queryIdx = cursorEntry.queryIdx;
   const query = queries[queryIdx % queries.length];
-  const orderCycle: Array<'date' | 'relevance' | 'viewCount'> = [
-    'date',
-    'date',
-    'relevance',
-    'date',
-    'viewCount',
-  ];
+  const orderCycle: Array<'date' | 'relevance' | 'viewCount'> =
+    targetCategory === 'escola_sabatina'
+      ? ['date', 'relevance', 'date']
+      : ['date', 'date', 'relevance', 'date', 'viewCount'];
   const orderMode = orderCycle[queryIdx % orderCycle.length];
-  const webFilterCycle: YoutubeWebDateFilter[] = [
-    'week',
-    'month',
-    'latest',
-    'month',
-    'year',
-    'relevance',
-  ];
+  const webFilterCycle: YoutubeWebDateFilter[] =
+    targetCategory === 'escola_sabatina'
+      ? ['week', 'latest', 'week', 'relevance']
+      : ['week', 'month', 'latest', 'month', 'year', 'relevance'];
   const webFilter = webFilterCycle[queryIdx % webFilterCycle.length];
 
   if (isYoutubeApiUsable(apiKey)) {
@@ -2080,7 +2133,7 @@ async function fetchRecentApiDiscovery(
   if (!apiKey || categories.length === 0) return [];
   const publishedAfter = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
   const tasks = categories.map(async (cat) => {
-    const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+    const queries = getDiscoveryQueriesForCategory(cat);
     const idx = globalDiscoveryOffsets[cat] % queries.length;
     globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
     const params = new URLSearchParams({
@@ -2178,16 +2231,18 @@ async function fetchInitialDiscoveryExtras(
     dateFilter: YoutubeWebDateFilter;
   }> = [];
   const recencyCycle: YoutubeWebDateFilter[] = ['week', 'month', 'latest'];
+  const sabbathRecencyCycle: YoutubeWebDateFilter[] = ['week', 'latest', 'week', 'relevance'];
   for (const cat of categories) {
-    const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-    const extraCount = cat === 'pregacoes' ? 4 : cat === 'escola_sabatina' || cat === 'testemunhos' ? 3 : 2;
+    const queries = getDiscoveryQueriesForCategory(cat);
+    const extraCount = cat === 'pregacoes' ? 4 : cat === 'escola_sabatina' ? 5 : cat === 'testemunhos' ? 3 : 2;
+    const cycle = cat === 'escola_sabatina' ? sabbathRecencyCycle : recencyCycle;
     for (let k = 0; k < extraCount; k++) {
       const idx = globalDiscoveryOffsets[cat] % queries.length;
       globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
       discoveryJobs.push({
         cat,
         query: queries[idx],
-        dateFilter: recencyCycle[(idx + k) % recencyCycle.length],
+        dateFilter: cycle[(idx + k) % cycle.length],
       });
     }
   }
@@ -2552,16 +2607,18 @@ async function enrichCatalogDepth(
       dateFilter: YoutubeWebDateFilter;
     }> = [];
     const filterCycle: YoutubeWebDateFilter[] = ['week', 'month', 'latest'];
+    const sabbathCycle: YoutubeWebDateFilter[] = ['week', 'latest', 'week', 'relevance'];
     for (const cat of extraDiscoveryCats) {
-      const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
-      const count = cat === 'testemunhos' || cat === 'pregacoes' ? 3 : 2;
+      const queries = getDiscoveryQueriesForCategory(cat);
+      const count = cat === 'escola_sabatina' ? 4 : cat === 'testemunhos' || cat === 'pregacoes' ? 3 : 2;
+      const cycle = cat === 'escola_sabatina' ? sabbathCycle : filterCycle;
       for (let k = 0; k < count; k++) {
         const idx = globalDiscoveryOffsets[cat] % queries.length;
         globalDiscoveryOffsets[cat] = (globalDiscoveryOffsets[cat] + 1) % queries.length;
         extraQueries.push({
           cat,
           query: queries[idx],
-          dateFilter: filterCycle[(idx + k) % filterCycle.length],
+          dateFilter: cycle[(idx + k) % cycle.length],
         });
       }
     }
@@ -2739,9 +2796,9 @@ export async function fetchLatestNewVideoCandidates(): Promise<ChristianShort[]>
     }
   }
 
-  return [...merged.values()].sort(
-    (a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)
-  );
+  return [...merged.values()]
+    .filter(isCurrentDayEligibleItem)
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
 }
 
 export async function getCuratedChristianShorts(options: {
@@ -2811,6 +2868,8 @@ export async function getCuratedChristianShorts(options: {
       void enrichCatalogDepth(apiKey, isYoutubeApiUsable(apiKey));
     }
   }
+
+  poolItems = poolItems.filter(isCurrentDayEligibleItem);
 
   const validReqCat: ContentCategory | null =
     normalizeContentCategory(options.category) ?? null;
@@ -2957,12 +3016,16 @@ export async function getCuratedChristianShorts(options: {
             'year',
             'relevance',
           ];
+          const sabbathFilters: YoutubeWebDateFilter[] = ['week', 'latest', 'week', 'relevance'];
           for (let dIdx = 0; dIdx < discoveryTargets.length; dIdx++) {
             const cat = discoveryTargets[dIdx];
-            const queries = DISCOVERY_QUERIES_BY_CATEGORY[cat];
+            const queries = getDiscoveryQueriesForCategory(cat);
+            const activeFilters = cat === 'escola_sabatina' ? sabbathFilters : filters;
             const jobCount =
               cat === 'pregacoes' && lowPreacherDiversity
                 ? 3
+                : cat === 'escola_sabatina' && unseenCountByCat[cat] < 12
+                ? 4
                 : unseenCountByCat[cat] < 16
                 ? 2
                 : 1;
@@ -2972,7 +3035,7 @@ export async function getCuratedChristianShorts(options: {
               webSearchJobs.push({
                 cat,
                 query: queries[idx],
-                filter: filters[(idx + dIdx + j + requestEntropy) % filters.length],
+                filter: activeFilters[(idx + dIdx + j + requestEntropy) % activeFilters.length],
               });
             }
           }
@@ -3129,7 +3192,9 @@ export async function getCuratedChristianShorts(options: {
   // Always vary the opening order across categories and channels on every entry,
   // strictly exclude anything already displayed/watched, and filter any premiere/upcoming entry.
   const sanitizedPoolItems = poolItems.filter(
-    (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
+    (item) =>
+      !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt) &&
+      isCurrentDayEligibleItem(item)
   );
   const baseItems =
     !trimmedQuery && (clientExcludeSet.size > 0 || options.forceRefresh)
@@ -3219,7 +3284,9 @@ export async function getCuratedChristianShorts(options: {
 
     const validPrefCat = normalizedSearchCat;
     const orderedSearch = deduplicateShorts(
-      rankSearchResults([...mergedSearch.values()], trimmedQuery, validPrefCat),
+      rankSearchResults([...mergedSearch.values()], trimmedQuery, validPrefCat).filter(
+        isCurrentDayEligibleItem
+      ),
       { allowSameSongVariants: true }
     );
     const counts: Record<ContentCategory, number> = {
@@ -3339,6 +3406,7 @@ export async function getMoreChristianShorts(options: {
     const fresh = page.items.filter((item) => {
       if (state!.seenIds.has(item.id)) return false;
       if (validCat && item.category !== validCat) return false;
+      if (!isCurrentDayEligibleItem(item)) return false;
       state!.seenIds.add(item.id);
       return true;
     });
@@ -3517,6 +3585,7 @@ export async function getMoreChristianShorts(options: {
     const pushDiversifiedItem = (item: ChristianShort) => {
       if (validCat && item.category !== validCat) return;
       if (isAllFeed && item.category === 'feliz7play') return;
+      if (!isCurrentDayEligibleItem(item)) return;
       if (state!.seenIds.has(item.id)) return;
       const actorKey = getDiversityActorKey(item);
       const chKey = item.channelId || item.channelTitle;
@@ -3638,7 +3707,11 @@ export async function getMoreChristianShorts(options: {
         }
       } else if (validCat === 'pregacoes' || validCat === 'escola_sabatina') {
         const parallelQueries =
-          (validCat === 'pregacoes' && needsSpeakerDiversity) || collected.length < 10 ? 3 : 2;
+          validCat === 'escola_sabatina' && collected.length < 12
+            ? 4
+            : (validCat === 'pregacoes' && needsSpeakerDiversity) || collected.length < 10
+            ? 3
+            : 2;
         const settledCategory = await Promise.allSettled(
           Array.from({ length: parallelQueries }, () =>
             fetchCategoryDiscoveryPage(apiKey, validCat, state)
@@ -3705,6 +3778,7 @@ export async function getMoreChristianShorts(options: {
   const pushFallbackItem = (item: ChristianShort) => {
     if (validCat && item.category !== validCat) return;
     if (isAllFeed && item.category === 'feliz7play') return;
+    if (!isCurrentDayEligibleItem(item)) return;
     if (state!.seenIds.has(item.id)) return;
     const actorKey = getDiversityActorKey(item);
     const chKey = item.channelId || item.channelTitle;
@@ -3762,7 +3836,9 @@ export async function getMoreChristianShorts(options: {
     }
   }
   const safeFresh = fresh.filter(
-    (item) => !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)
+    (item) =>
+      !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt) &&
+      isCurrentDayEligibleItem(item)
   );
   const diverse = buildDiverseFeed(safeFresh, true, effectiveSeed);
 
@@ -3841,7 +3917,9 @@ export async function lookupSingleShort(videoId: string): Promise<ChristianShort
         v.snippet.channelId || '',
         v.snippet.channelTitle || '',
         v.snippet.title || '',
-        v.snippet.description || ''
+        v.snippet.description || '',
+        undefined,
+        { publishedAt: pubAt }
       );
       if (!classified) return null;
       return buildShortRecord({
