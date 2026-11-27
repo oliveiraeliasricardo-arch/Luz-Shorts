@@ -3,12 +3,22 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  fetchLatestNewVideoCandidates,
   getCuratedChristianShorts,
   getMoreChristianShorts,
   getSearchSuggestions,
   lookupSingleShort,
   warmCatalogInBackground,
 } from './server/youtubeCurator.ts';
+import {
+  getLatestReleasesForSync,
+  getVapidPublicKey,
+  initializePushNotifier,
+  removePushSubscription,
+  sendTestPushToEndpoint,
+  updatePushPreferences,
+  upsertPushSubscription,
+} from './server/pushNotifications.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -233,6 +243,68 @@ function parseOptionalIntParam(raw: unknown): number | undefined {
     }
   });
 
+  app.get('/api/push/public-key', (_req, res) => {
+    res.json({
+      enabled: true,
+      publicKey: getVapidPublicKey(),
+    });
+  });
+
+  app.post('/api/push/subscribe', (req, res) => {
+    const result = upsertPushSubscription(req.body?.subscription, req.body?.categories);
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json({ ok: true, categories: result.categories });
+  });
+
+  app.post('/api/push/preferences', (req, res) => {
+    const result = updatePushPreferences(req.body?.endpoint, req.body?.categories);
+    if (!result.ok) {
+      res.status(404).json({ ok: false, error: 'Inscrição não encontrada.' });
+      return;
+    }
+    res.json(result);
+  });
+
+  app.post('/api/push/unsubscribe', (req, res) => {
+    const removed = removePushSubscription(req.body?.endpoint);
+    res.json({ ok: true, removed });
+  });
+
+  app.post('/api/push/test', async (req, res) => {
+    const result = await sendTestPushToEndpoint(
+      req.body?.endpoint,
+      req.body?.subscription,
+      req.body?.categories
+    );
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  });
+
+  app.get('/api/push/latest', async (req, res) => {
+    try {
+      const rawCats =
+        typeof req.query.categories === 'string'
+          ? req.query.categories
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined;
+      const items = await getLatestReleasesForSync(
+        rawCats as Array<'pregacoes' | 'biblia' | 'louvores' | 'testemunhos' | 'feliz7play'> | undefined,
+        8
+      );
+      res.json({ items, checkedAt: new Date().toISOString() });
+    } catch {
+      res.json({ items: [], checkedAt: new Date().toISOString() });
+    }
+  });
+
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Rota da API não encontrada.' });
   });
@@ -255,6 +327,7 @@ function parseOptionalIntParam(raw: unknown): number | undefined {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`GraçaPlay server listening on http://0.0.0.0:${PORT}`);
     warmCatalogInBackground();
+    initializePushNotifier(fetchLatestNewVideoCandidates);
   });
 }
 

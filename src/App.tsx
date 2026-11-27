@@ -2,6 +2,8 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useStat
 import {
   AlertCircle,
   ArrowLeft,
+  Bell,
+  BellRing,
   Bookmark,
   ChevronLeft,
   ChevronRight,
@@ -9,12 +11,14 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import { NotificationSettingsModal } from './components/NotificationSettingsModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { SearchBoxWithSuggestions } from './components/SearchBoxWithSuggestions';
 import { ShareModal } from './components/ShareModal';
 import { ShortsFeedStage } from './components/ShortsFeedStage';
 import { ShortsSidebar } from './components/ShortsSidebar';
 import { TopBar } from './components/TopBar';
+import { useVideoNotifications } from './hooks/useVideoNotifications';
 
 const RightQueuePanel = lazy(() =>
   import('./components/RightQueuePanel').then((mod) => ({
@@ -358,7 +362,9 @@ export function App() {
   const [searchSubmitTick, setSearchSubmitTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ChristianShort | null>(null);
+  const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const videoNotifications = useVideoNotifications(API_BASE_URL);
   const [categorySwitchBanner, setCategorySwitchBanner] = useState<{
     label: string;
     direction: -1 | 1;
@@ -418,6 +424,53 @@ export function App() {
   useEffect(() => {
     allShortsRef.current = allShorts;
   }, [allShorts]);
+
+  // Open specific video immediately when user taps a background push notification
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return;
+    }
+    const handleSwMessage = async (event: MessageEvent<{ type?: string; videoId?: string }>) => {
+      if (event.data?.type !== 'GRACAPLAY_OPEN_VIDEO' || !event.data.videoId) return;
+      const targetId = event.data.videoId;
+      if (!/^[a-zA-Z0-9_-]{11}$/.test(targetId)) return;
+
+      setSearchQuery('');
+      setSubmittedSearchQuery('');
+      setSearchViewMode('player');
+      setMobileSearchOpen(false);
+      setActiveCategory('all');
+
+      const current = allShortsRef.current;
+      const existingIdx = current.findIndex((i) => i.id === targetId);
+      if (existingIdx >= 0) {
+        const reordered = [...current];
+        const [picked] = reordered.splice(existingIdx, 1);
+        const nextAll = [picked, ...reordered];
+        allShortsRef.current = nextAll;
+        setAllShorts(nextAll);
+        setActiveIndex(0);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/shorts/video/${targetId}`);
+        if (!res.ok) return;
+        const single = (await res.json()) as ChristianShort;
+        const nextAll = [single, ...allShortsRef.current.filter((i) => i.id !== single.id)];
+        allShortsRef.current = nextAll;
+        setAllShorts(nextAll);
+        setActiveIndex(0);
+      } catch {
+        // Ignore network errors when deep-linking from notification
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    };
+  }, []);
 
   useEffect(() => {
     const handleNativePipChange = (e: Event) => {
@@ -1979,6 +2032,11 @@ export function App() {
         <TopBar
           activeCategory={activeCategory}
           onSelectCategory={handleSelectCategory}
+          notificationsEnabled={videoNotifications.isSubscribed}
+          onOpenNotifications={() => {
+            videoNotifications.clearFeedback();
+            setNotifModalOpen(true);
+          }}
         />
       )}
 
@@ -2090,6 +2148,31 @@ export function App() {
                 })}
               </div>
             )}
+            {isCompactLandscape && (
+              <button
+                type="button"
+                onClick={() => {
+                  videoNotifications.clearFeedback();
+                  setNotifModalOpen(true);
+                }}
+                aria-label={
+                  videoNotifications.isSubscribed
+                    ? 'Notificações de novos vídeos ativadas'
+                    : 'Ativar notificações de novos vídeos'
+                }
+                className={`w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 transition-colors cursor-pointer ${
+                  videoNotifications.isSubscribed
+                    ? 'border-white/25 bg-white/10 text-white'
+                    : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white'
+                }`}
+              >
+                {videoNotifications.isSubscribed ? (
+                  <BellRing className="w-4 h-4" aria-hidden="true" />
+                ) : (
+                  <Bell className="w-4 h-4" aria-hidden="true" />
+                )}
+              </button>
+            )}
           </>
         )}
         </div>
@@ -2121,6 +2204,11 @@ export function App() {
             savedCount={savedIds.length}
             sourceMode={sourceMode}
             apiKeyConfigured={apiKeyConfigured}
+            notificationsEnabled={videoNotifications.isSubscribed}
+            onOpenNotifications={() => {
+              videoNotifications.clearFeedback();
+              setNotifModalOpen(true);
+            }}
           />
         )}
 
@@ -2348,6 +2436,23 @@ export function App() {
             short={shareTarget}
             isOpen={Boolean(shareTarget)}
             onClose={handleCloseShareModal}
+          />
+
+          <NotificationSettingsModal
+            isOpen={notifModalOpen}
+            onClose={() => setNotifModalOpen(false)}
+            isSupported={videoNotifications.isSupported}
+            requiresIOSHomeScreen={videoNotifications.requiresIOSHomeScreen}
+            permission={videoNotifications.permission}
+            isSubscribed={videoNotifications.isSubscribed}
+            isBusy={videoNotifications.isBusy}
+            categories={videoNotifications.categories}
+            statusMessage={videoNotifications.statusMessage}
+            errorMessage={videoNotifications.errorMessage}
+            onEnable={() => videoNotifications.enableNotifications()}
+            onDisable={() => videoNotifications.disableNotifications()}
+            onToggleCategory={(cat) => videoNotifications.toggleCategory(cat)}
+            onSendTest={() => videoNotifications.sendTestNotification()}
           />
 
           <OfflineIndicator />

@@ -2691,6 +2691,64 @@ export function warmCatalogInBackground(): void {
     });
 }
 
+export async function fetchLatestNewVideoCandidates(): Promise<ChristianShort[]> {
+  const apiKey = process.env.YOUTUBE_API_KEY?.trim() || '';
+  const rssLatest = await fetchFromCuratedRss(0, 4500).catch(() => [] as ChristianShort[]);
+  const catalogById = new Map<string, ChristianShort>();
+  for (const item of cachedCatalog?.items ?? []) {
+    catalogById.set(item.id, item);
+  }
+
+  let verifiedRss: ChristianShort[] = [];
+  if (isYoutubeApiUsable(apiKey) && rssLatest.length > 0) {
+    const unverifiedMap = new Map<string, CandidateVideo>();
+    for (const item of rssLatest) {
+      const existing = catalogById.get(item.id);
+      if (existing) {
+        verifiedRss.push(existing);
+      } else if (!unverifiedMap.has(item.id)) {
+        unverifiedMap.set(item.id, {
+          id: item.id,
+          title: item.title,
+          description: item.description,
+          channelId: item.channelId,
+          channelTitle: item.channelTitle,
+          publishedAt: item.publishedAt,
+          thumbnailUrl: item.thumbnailUrl,
+          hintCategory: item.category,
+        });
+      }
+    }
+    if (unverifiedMap.size > 0) {
+      const newlyVerified = await hydrateAndVerifyCandidates(apiKey, unverifiedMap).catch(
+        () => [] as ChristianShort[]
+      );
+      verifiedRss.push(...newlyVerified);
+      if (cachedCatalog && newlyVerified.length > 0) {
+        cachedCatalog.items = mergeIntoCatalogPool(newlyVerified, cachedCatalog.items);
+      }
+    }
+  } else {
+    verifiedRss = rssLatest;
+  }
+
+  const merged = new Map<string, ChristianShort>();
+  for (const item of verifiedRss) {
+    merged.set(item.id, item);
+  }
+  const recentCutoffMs = Date.now() - 48 * 60 * 60 * 1000;
+  for (const item of cachedCatalog?.items ?? []) {
+    const pubMs = Date.parse(item.publishedAt);
+    if (!merged.has(item.id) && Number.isFinite(pubMs) && pubMs >= recentCutoffMs) {
+      merged.set(item.id, item);
+    }
+  }
+
+  return [...merged.values()].sort(
+    (a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)
+  );
+}
+
 export async function getCuratedChristianShorts(options: {
   category?: string;
   q?: string;

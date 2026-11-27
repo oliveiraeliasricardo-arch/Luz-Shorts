@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Bookmark, Clapperboard, HeartHandshake, Mic, Music, Sparkles } from 'lucide-react';
+import { Bell, BellRing, BookOpen, Bookmark, Clapperboard, HeartHandshake, Mic, Music, Sparkles } from 'lucide-react';
 import { SearchBoxWithSuggestions } from './SearchBoxWithSuggestions';
 import type { ChristianShort, ContentCategory, ShortCategory } from '../types/shorts';
 
@@ -18,6 +18,8 @@ interface ShortsSidebarProps {
   savedCount: number;
   sourceMode: 'youtube_api' | 'curated_rss';
   apiKeyConfigured: boolean;
+  notificationsEnabled?: boolean;
+  onOpenNotifications?: () => void;
 }
 
 const CATEGORIES: Array<{
@@ -85,6 +87,8 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
   savedCount,
   sourceMode,
   apiKeyConfigured,
+  notificationsEnabled = false,
+  onOpenNotifications,
 }) => {
   const getCount = (id: ShortCategory): number => {
     if (id === 'all') return totalCount;
@@ -179,6 +183,27 @@ export const ShortsSidebar: React.FC<ShortsSidebarProps> = React.memo(({
               : 'Modo curadoria oficial · Adicione YOUTUBE_API_KEY no servidor para ampliar buscas'}
         </div>
       </div>
+
+      {onOpenNotifications && (
+        <button
+          type="button"
+          onClick={onOpenNotifications}
+          className={`w-full h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+            notificationsEnabled
+              ? 'border-white/25 bg-white/10 hover:bg-white/15 text-white'
+              : 'border-zinc-800 bg-zinc-950 hover:bg-zinc-900 text-zinc-100'
+          }`}
+        >
+          {notificationsEnabled ? (
+            <BellRing className="w-4 h-4 shrink-0 text-white" aria-hidden="true" />
+          ) : (
+            <Bell className="w-4 h-4 shrink-0 text-zinc-300" aria-hidden="true" />
+          )}
+          <span>
+            {notificationsEnabled ? 'Notificações ativadas' : 'Avisar novos vídeos'}
+          </span>
+        </button>
+      )}
     </aside>
   );
 });
