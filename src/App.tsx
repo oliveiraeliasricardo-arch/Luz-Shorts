@@ -461,15 +461,10 @@ export function App() {
     allShortsRef.current = allShorts;
   }, [allShorts]);
 
-  // Open specific video immediately when user taps a background push notification
+  // Open specific video immediately when user taps a background push or native Android notification
   useEffect(() => {
-    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
-      return;
-    }
-    const handleSwMessage = async (event: MessageEvent<{ type?: string; videoId?: string }>) => {
-      if (event.data?.type !== 'GRACAPLAY_OPEN_VIDEO' || !event.data.videoId) return;
-      const targetId = event.data.videoId;
-      if (!/^[a-zA-Z0-9_-]{11}$/.test(targetId)) return;
+    const openNotificationVideo = async (targetId: string) => {
+      if (!targetId || !/^[a-zA-Z0-9_-]{11}$/.test(targetId)) return;
 
       setSearchQuery('');
       setSubmittedSearchQuery('');
@@ -502,9 +497,38 @@ export function App() {
       }
     };
 
-    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    const handleSwMessage = (event: MessageEvent<{ type?: string; videoId?: string }>) => {
+      if (event.data?.type === 'GRACAPLAY_OPEN_VIDEO' && event.data.videoId) {
+        void openNotificationVideo(event.data.videoId);
+      }
+    };
+
+    const handleNativeOpenVideo = (event: Event) => {
+      const vid = (event as CustomEvent<{ videoId?: string }>).detail?.videoId;
+      if (vid) {
+        void openNotificationVideo(vid);
+      }
+    };
+
+    const pendingNativeId = (
+      window as unknown as {
+        GracaPlayNotifications?: { consumePendingVideoId?: () => string };
+      }
+    ).GracaPlayNotifications?.consumePendingVideoId?.();
+    if (pendingNativeId) {
+      void openNotificationVideo(pendingNativeId);
+    }
+
+    window.addEventListener('gracaplay-open-video', handleNativeOpenVideo);
+    const hasSw = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+    if (hasSw) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
     return () => {
-      navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      window.removeEventListener('gracaplay-open-video', handleNativeOpenVideo);
+      if (hasSw) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
     };
   }, []);
 
@@ -2479,6 +2503,9 @@ export function App() {
             isOpen={notifModalOpen}
             onClose={() => setNotifModalOpen(false)}
             isSupported={videoNotifications.isSupported}
+            supportMode={videoNotifications.supportMode}
+            isStandalone={videoNotifications.isStandalone}
+            isNativeApp={videoNotifications.isNativeApp}
             requiresIOSHomeScreen={videoNotifications.requiresIOSHomeScreen}
             permission={videoNotifications.permission}
             isSubscribed={videoNotifications.isSubscribed}

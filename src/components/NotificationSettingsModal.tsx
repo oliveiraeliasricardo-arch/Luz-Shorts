@@ -1,7 +1,10 @@
 import React from 'react';
 import { Bell, BellOff, BellRing, Check, Send, Smartphone, X } from 'lucide-react';
 import type { ContentCategory } from '../types/shorts';
-import type { NotificationPermissionState } from '../hooks/useVideoNotifications';
+import type {
+  NotificationPermissionState,
+  NotificationSupportMode,
+} from '../hooks/useVideoNotifications';
 
 const CATEGORY_OPTIONS: Array<{ id: ContentCategory; label: string }> = [
   { id: 'pregacoes', label: 'Pregações e Bíblia' },
@@ -15,6 +18,9 @@ interface NotificationSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   isSupported: boolean;
+  supportMode: NotificationSupportMode;
+  isStandalone: boolean;
+  isNativeApp: boolean;
   requiresIOSHomeScreen: boolean;
   permission: NotificationPermissionState;
   isSubscribed: boolean;
@@ -32,6 +38,9 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
   isOpen,
   onClose,
   isSupported,
+  supportMode,
+  isStandalone,
+  isNativeApp,
   requiresIOSHomeScreen,
   permission,
   isSubscribed,
@@ -102,11 +111,21 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
           </div>
         ) : !isSupported ? (
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3.5 text-xs text-zinc-300 leading-relaxed">
-            Este navegador não suporta notificações Web Push em segundo plano. Para receber alertas fora do app, abra o GraçaPlay no Chrome, Edge, Firefox ou instale como aplicativo.
+            {isNativeApp
+              ? 'Esta instalação do aplicativo Android precisa ser atualizada para a versão mais recente para ativar as notificações nativas em segundo plano.'
+              : isStandalone
+                ? 'O navegador usado na instalação deste aplicativo bloqueia notificações neste dispositivo. Para receber alertas fora do app, habilite as notificações nas configurações do navegador ou instale pelo Chrome, Edge ou Firefox.'
+                : 'Este navegador não suporta notificações em segundo plano. Para receber alertas fora do app, abra o GraçaPlay no Chrome, Edge ou Firefox.'}
           </div>
         ) : permission === 'denied' ? (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200 leading-relaxed">
-            As notificações estão bloqueadas nas permissões do navegador para este site. Toque no ícone de cadeado na barra de endereços e altere <strong className="text-white">Notificações</strong> para <strong className="text-white">Permitir</strong>.
+            {supportMode === 'native_android'
+              ? 'As notificações estão desativadas para o GraçaPlay no Android. Abra Configurações > Aplicativos > GraçaPlay > Notificações e ative a permissão.'
+              : 'As notificações estão bloqueadas nas permissões do navegador para este site. Toque no ícone de cadeado na barra de endereços e altere Notificações para Permitir.'}
+          </div>
+        ) : supportMode === 'local_only' && !isSubscribed ? (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3.5 text-xs text-zinc-300 leading-relaxed">
+            Este navegador não mantém Web Push remoto com o aplicativo totalmente fechado, mas você pode ativar os alertas para verificações periódicas e ao abrir o app.
           </div>
         ) : null}
 
