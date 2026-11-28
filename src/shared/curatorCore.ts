@@ -26,14 +26,14 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     title: 'Adventistas Brasil',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'testemunhos'],
   },
   {
     id: 'UCIa6p9HWw1hEEfHzfJOcSbA',
     title: 'Na Mira da Verdade',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'escola_sabatina'],
+    allowInCategories: ['pregacoes'],
   },
   {
     id: 'UCn4M9vLHegNuqM8tnL872cA',
@@ -50,8 +50,57 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     allowInCategories: ['escola_sabatina'],
   },
   {
-    id: 'UCBm5ycqxuqK-UVs54-xA_2w',
-    title: 'ComTexto Diário',
+    id: 'UCSIjHSkAS_IpF7R-HIsn88Q',
+    title: 'Pr Dudu Batista',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina', 'pregacoes'],
+  },
+  {
+    id: 'UC0EqK_oNy4Gb7QThhcWlIgA',
+    title: 'Pr. Diego Trindade',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina', 'pregacoes'],
+  },
+  {
+    id: 'UCw6ZgfMHtcLn_O-YwRw27eA',
+    title: 'Eu Estudo a Lição com Pr. Samuel Camilo',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina'],
+  },
+  {
+    id: 'UCd_fEdecs3BaUMvsK6FZMww',
+    title: 'Lúcio Bérgamo',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina', 'pregacoes'],
+  },
+  {
+    id: 'UCLa0xeWUGdFlw4s2mZLwv0w',
+    title: 'Pr Paulo Dresch',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina', 'pregacoes'],
+  },
+  {
+    id: 'UCZ5izlUsz7UpZnQOcxN4_dQ',
+    title: 'Pr Samuel Ramos',
+    doctrineScope: 'adventista',
+    defaultCategory: 'escola_sabatina',
+    allowInCategories: ['escola_sabatina', 'pregacoes'],
+  },
+  {
+    id: 'UCAUglmSESHH79_4vPjL_I-Q',
+    title: 'Rádio Novo Tempo',
+    doctrineScope: 'adventista',
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes', 'escola_sabatina'],
+  },
+  {
+    id: 'UCqBWNMZ4WSSOvCiC4qRhz7Q',
+    title: 'Safeliz Português',
     doctrineScope: 'adventista',
     defaultCategory: 'escola_sabatina',
     allowInCategories: ['escola_sabatina'],
@@ -60,64 +109,57 @@ export const ADVENTIST_CHANNELS: CuratedChannelSpec[] = [
     id: 'UCyMzbdHJXABTxcHV7CHmKkQ',
     title: 'Adventismo Vivo',
     doctrineScope: 'adventista',
-    defaultCategory: 'escola_sabatina',
-    allowInCategories: ['escola_sabatina', 'pregacoes'],
-  },
-  {
-    id: 'UCSIjHSkAS_IpF7R-HIsn88Q',
-    title: 'Pr Dudu Batista',
-    doctrineScope: 'adventista',
-    defaultCategory: 'escola_sabatina',
-    allowInCategories: ['escola_sabatina', 'pregacoes'],
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes'],
   },
   {
     id: 'UCslQjMJUdi2CurBP0Fveqvw',
     title: 'Paulistasul',
     doctrineScope: 'adventista',
-    defaultCategory: 'escola_sabatina',
-    allowInCategories: ['escola_sabatina', 'pregacoes'],
+    defaultCategory: 'pregacoes',
+    allowInCategories: ['pregacoes'],
   },
   {
     id: 'UCQ62PZK_94Rr8i96vJkYNXw',
     title: 'Adventistas Sudeste',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'testemunhos'],
   },
   {
     id: 'UCwR4Dq46B1a0Ce2RnahKLDw',
     title: 'Adventistas Sul',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos', 'louvores'],
+    allowInCategories: ['pregacoes', 'testemunhos', 'louvores'],
   },
   {
     id: 'UCoWb0aR2SIR4UnizdQ37tiw',
     title: 'Adventistas Nordeste',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'testemunhos'],
   },
   {
     id: 'UCXgUPYQ33A2ZI6WZja6uFBw',
     title: 'Adventistas Centro-Oeste',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'testemunhos'],
   },
   {
     id: 'UCtHb-m1Jb5ZZoFb33husTBA',
     title: 'Adventistas Norte',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos'],
+    allowInCategories: ['pregacoes', 'testemunhos'],
   },
   {
     id: 'UC5O76sK8ffuQBHuPlB0QmeA',
     title: 'Adventistas SP',
     doctrineScope: 'adventista',
     defaultCategory: 'pregacoes',
-    allowInCategories: ['pregacoes', 'escola_sabatina', 'testemunhos', 'louvores'],
+    allowInCategories: ['pregacoes', 'testemunhos', 'louvores'],
   },
   {
     id: 'UC8PS8EsZsWXOQ1YmlJwCaYw',
@@ -491,7 +533,7 @@ const BLOCKED_DOCTRINAL_CONFLICT_TERMS = [
 ];
 
 const NON_ADVENTIST_PREACHER_OR_DENOM_RE =
-  /\b(silas malafaia|edir macedo|r\.?\s*r\.?\s*soares|valdemiro santiago|marco feliciano|deive leonardo|tiago brunet|andr[eé] valad[aã]o|cl[aá]udio duarte|felippe valad[aã]o|josu[eé] brand[aã]o|hernandes dias lopes|augustus nicodemus|paulo junior|luciano subir[aá]|yago martins|elizeu rodrigues|camila barros|rodrigo mocellin|renato cardoso|bruno leonardo|padres?\s+[a-záéíóúâêôãõç]+|frei\s+[a-záéíóúâêôãõç]+|can[cç][aã]o nova|tv aparecida|igreja cat[oó]lica|igreja universal|mundial do poder de deus|igreja da gra[cç]a|assembleia de deus|lagoinha|congrega[cç][aã]o crist[aã]|testemunhas de jeov[aá]|m[oó]rmon|esp[ií]rita)\b/i;
+  /\b(silas malafaia|edir macedo|r\.?\s*r\.?\s*soares|valdemiro santiago|marco feliciano|deive leonardo|tiago brunet|andr[eé] valad[aã]o|cl[aá]udio duarte|felippe valad[aã]o|josu[eé] brand[aã]o|hernandes dias lopes|augustus nicodemus|paulo junior|luciano subir[aá]|yago martins|elizeu rodrigues|camila barros|rodrigo mocellin|renato cardoso|bruno leonardo|padres?\s+[a-záéíóúâêôãõç]+|frei\s+[a-záéíóúâêôãõç]+|can[cç][aã]o nova|tv aparecida|igreja cat[oó]lica|igreja universal|mundial do poder de deus|igreja da gra[cç]a|assembleia de deus|cpad|\bebd\b|escola b[ií]blica dominical|editora betel|lagoinha|congrega[cç][aã]o crist[aã]|testemunhas de jeov[aá]|m[oó]rmon|esp[ií]rita)\b/i;
 
 const ADVENTIST_IDENTITY_PATTERNS = [
   /\badventista/i,
@@ -853,7 +895,7 @@ const SABBATH_SCHOOL_TITLE_PATTERNS = [
 ];
 
 const KIDS_SABBATH_SCHOOL_PATTERNS =
-  /\b(rol do ber[cç]o|jardim da inf[aâ]ncia|prim[aá]rios|juvenis|adolescentes?|roteiro\s+teen|escola sabatina infantil|desenho\s+da\s+li[cç][aã]o|li[cç][aã]o\s+(?:de\s+|dos?\s+)?(?:prim[aá]rios|juvenis|adolescentes?|jardim|rol|infantil|teen))\b/i;
+  /\b(rol do ber[cç]o|jardim da inf[aâ]ncia|prim[aá]rios|juvenis|adolescentes?|roteiro\s+teen|escola sabatina infantil|escola sabatina kids|adora[cç][aã]o infantil|hist[oó]ria infantil|desenho\s+da\s+li[cç][aã]o|li[cç][aã]o\s+(?:de\s+|dos?\s+)?(?:prim[aá]rios|juvenis|adolescentes?|jardim|rol|infantil|teen))\b/i;
 
 const STRICT_BIBLE_TITLE_PATTERNS = [
   /\bb[ií]bli/i,
@@ -1056,19 +1098,13 @@ export function getSaoPauloDateInfo(referenceDate: Date = new Date()): SaoPauloD
   }
 }
 
-function toSaoPauloYmd(dateStr: string): string | null {
-  const ms = Date.parse(dateStr);
-  if (!Number.isFinite(ms)) return null;
-  return getSaoPauloDateInfo(new Date(ms)).ymd;
-}
-
 const WEEKLY_RANGE_DATE_PATTERNS = [
   /\b\d{1,2}\s*[/.]\s*\d{1,2}(?:\s*[/.]\s*\d{2,4})?\s*(?:a|ate|[-–—])\s*\d{1,2}\s*[/.]\s*\d{1,2}(?:\s*[/.]\s*\d{2,4})?\b/,
   /\b\d{1,2}\s*(?:a|ate|[-–—])\s*\d{1,2}\s*(?:de\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b/,
   /\b\d{1,2}\s*(?:de\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\s*(?:a|ate|[-–—])\s*\d{1,2}\s*(?:de\s+)?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b/,
   /\b\d{1,2}\s*(?:a|ate|[-–—])\s*\d{1,2}\s*[/.]\s*\d{1,2}(?:\s*[/.]\s*\d{2,4})?\b/,
   /\b(?:de\s+)?(?:sabado|domingo|segunda|terca|quarta|quinta|sexta)(?:\s*-?\s*feira)?\s+(?:a|ate)\s+(?:sabado|domingo|segunda|terca|quarta|quinta|sexta)(?:\s*-?\s*feira)?\b/,
-  /\b(resumo\s+(?:semanal|da\s+semana|completo)|toda\s+a\s+licao|licao\s+completa|visao\s+geral|desenho\s+da\s+licao|classe\s+dos?\s+professores)\b/,
+  /\b(resumo\s+(?:semanal|da\s+semana|completo)|resumao|toda\s+a\s+licao|licao\s+completa|visao\s+geral|desenho\s+da\s+licao|classe\s+dos?\s+professores)\b/,
 ];
 
 const ORDINAL_NOUN_FOLLOW_RE =
@@ -1223,16 +1259,116 @@ export function isCurrentSabbathSchoolLessonForToday(
     return ageDays !== null && ageDays >= -1.5 && ageDays <= 3.5;
   }
 
-  // Dedicated daily channel ("ComTexto Diário") posts 1 topical video per day without date in title
-  const isComtextoDiario =
-    params.channelId === 'UCBm5ycqxuqK-UVs54-xA_2w' ||
-    /\bcomtexto\s+diario\b/.test(normalizeSearchFold(params.channelTitle || ''));
-  if (isComtextoDiario && params.publishedAt) {
-    const pubYmd = toSaoPauloYmd(params.publishedAt);
-    return pubYmd === today.ymd;
+  return false;
+}
+
+const VERIFIED_ADVENTIST_PASTOR_CHANNEL_IDS = new Set([
+  'UCSIjHSkAS_IpF7R-HIsn88Q', // Pr Dudu Batista
+  'UC0EqK_oNy4Gb7QThhcWlIgA', // Pr. Diego Trindade
+  'UC03Y0ieYROxw1FxCoDaSF9g', // Arilton Oliveira - Oficial
+  'UCw6ZgfMHtcLn_O-YwRw27eA', // Eu Estudo a Lição com Pr. Samuel Camilo
+  'UCd_fEdecs3BaUMvsK6FZMww', // Lúcio Bérgamo
+  'UCLa0xeWUGdFlw4s2mZLwv0w', // Pr Paulo Dresch
+  'UCZ5izlUsz7UpZnQOcxN4_dQ', // Pr Samuel Ramos
+  'UCs5jiNO6fntcZcCn7sUO6VA', // Pastor Bullón em Português - Canal Oficial
+  'UCHtEWyMDduwhd7XX4jptzkg', // Leandro Quadros
+]);
+
+const OFFICIAL_IASD_PASTOR_PROGRAM_CHANNEL_IDS = new Set([
+  'UCAUglmSESHH79_4vPjL_I-Q', // Rádio Novo Tempo (Lições da Bíblia com Pr. Stina)
+  'UCqBWNMZ4WSSOvCiC4qRhz7Q', // Safeliz Português (Escola Sabatina com Pr. Hélio Carnassale)
+  'UC_OaSsAydgSIjUtjYn9qLog', // Rede Novo Tempo de Comunicação
+  'UCLb09BPgh7xrswJRgYQthuw', // Lições da Bíblia
+]);
+
+const BLOCKED_LAY_OR_NON_PASTOR_SABBATH_CHANNEL_IDS = new Set([
+  'UCBm5ycqxuqK-UVs54-xA_2w', // ComTexto Diário (canal independente, não pastor)
+  'UCyMzbdHJXABTxcHV7CHmKkQ', // Adventismo Vivo (canal independente)
+  'UCslQjMJUdi2CurBP0Fveqvw', // Paulistasul
+  'UCGttfORvc1HVAImPW9Ga2Eg', // TURMINHA DO PAPAI DO CÉU
+  'UCOnM0xOco8YOULVx6MjcHXw', // Lição e Salvação
+  'UC--huWpF6aoqm7p3fE0W3qA', // Cristiano Israelita
+  'UCmfc_7CzuMa5r-CFRtKmqyg', // João Carlos Pereira Amorim
+  'UCvyXtNVypb1angvfmwXKgTg', // ADVEN Channel
+  'UCjmcrgK2WgeXdXKINZ6wORA', // ENCONTROS COM DEUS
+  'UCqpNyUF53j6GHYMDwPU16zw', // Chuvas de Esperança
+  'UCJQJ9jD-DatmP9Jp-pKgN9g', // Estudiando EL VERBO
+]);
+
+const BLOCKED_SABBATH_NON_PASTOR_OR_FOREIGN_RE =
+  /\b(turminha|papai\s+do\s+c[eé]u|li[cç][aã]o\s+e\s+salva[cç][aã]o|cristiano\s+israelita|adven\s+channel|chuvas\s+de\s+esperan[cç]a|encontros\s+com\s+deus|comtexto\s+di[aá]rio|adventismo\s+vivo|iglesia|advenimiento|s[eé]ptimo\s+d[ií]a|escuela\s+sab[aá]tica|estudiando|el\s+verbo|conference|church|ministry|ministries|broadcasting|3abn|hope\s*media|hopelives|hopetv|anthony\s+araujo|daniel\s+herrera|oscar.*mendoza|joel\s+flores|alejandro\s+medina)\b/i;
+
+const EXPLICIT_PASTOR_ATTRIBUTION_RE =
+  /\b(?:pr\.?(?=\s+[a-záéíóúâêôãõç]{2,})|pastor(?=\s+[a-záéíóúâêôãõç]{2,})|(?:h[eé]lio\s+carnassale|arilton\s+oliveira|alejandro\s+bull[oó]n|bull[oó]n|ivan\s+saraiva|rafael\s+rossi|odailson\s+fonseca|erton\s+k[oö]hler|michelson\s+borges|kleber\s+gon[cç]alves|lu[ií]s\s+gon[cç]alves|samuel\s+camilo|diego\s+trindade|dudu\s+batista|l[uú]cio\s+b[eé]rgamo|paulo\s+dresch|samuel\s+ramos|stina|leandro\s+quadros)\b)/i;
+
+const NON_ADVENTIST_SABBATH_DENOM_RE =
+  /\b(cpad|\bebd\b|escola\s+b[ií]blica\s+dominical|editora\s+betel|assembleia\s+de\s+deus|igreja\s+batista|conven[cç][aã]o\s+batista|igreja\s+presbiteriana|igreja\s+quadrangular|evangelho\s+quadrangular|igreja\s+universal|\biurd\b|igreja\s+mundial|lagoinha|igreja\s+renascer|can[cç][aã]o\s+nova|tv\s+aparecida|igreja\s+cat[oó]lica|testemunhas\s+de\s+jeov[aá]|m[oó]rmon|esp[ií]rita)\b/i;
+
+export function isAdventistPastorSabbathChannel(params: {
+  channelId?: string;
+  channelTitle?: string;
+  title?: string;
+  description?: string;
+}): boolean {
+  const channelId = (params.channelId || '').trim();
+  const channelTitle = (params.channelTitle || '').trim();
+  const title = (params.title || '').trim();
+  const descHead = (params.description || '').slice(0, 360);
+  const fullHeader = `${channelTitle} ${title} ${descHead}`;
+
+  if (BLOCKED_LAY_OR_NON_PASTOR_SABBATH_CHANNEL_IDS.has(channelId)) {
+    return false;
+  }
+  if (NON_ADVENTIST_PREACHER_OR_DENOM_RE.test(fullHeader) || NON_ADVENTIST_SABBATH_DENOM_RE.test(fullHeader)) {
+    return false;
+  }
+  if (BLOCKED_SABBATH_NON_PASTOR_OR_FOREIGN_RE.test(`${channelTitle} ${title}`)) {
+    return false;
+  }
+  if (KIDS_SABBATH_SCHOOL_PATTERNS.test(title) && !/\b(adultos?|jovens?|jovem)\b/i.test(title)) {
+    return false;
   }
 
-  return false;
+  if (VERIFIED_ADVENTIST_PASTOR_CHANNEL_IDS.has(channelId)) {
+    return true;
+  }
+
+  if (OFFICIAL_IASD_PASTOR_PROGRAM_CHANNEL_IDS.has(channelId)) {
+    return EXPLICIT_PASTOR_ATTRIBUTION_RE.test(`${title} ${descHead}`);
+  }
+
+  // Require an explicit channel title indicating a pastor (reject empty/blank lockup extractions)
+  if (!channelTitle) {
+    return false;
+  }
+
+  const channelIsPastor = /\b(?:pr\.?(?=\s+[a-záéíóúâêôãõç]{2,})|pastor(?=\s+[a-záéíóúâêôãõç]{2,}))/i.test(
+    channelTitle
+  );
+  if (!channelIsPastor) {
+    return false;
+  }
+
+  // Must show clear Seventh-day Adventist Sabbath School identity (never generic evangelical EBD)
+  return /\b(adventista|iasd|novo\s+tempo|escola\s+sabatina|li[cç][oõ]es\s+da\s+b[ií]blia|comtexto|cpb|casa\s+publicadora)\b/i.test(
+    fullHeader
+  );
+}
+
+export function isEligibleSabbathSchoolShort(
+  params: {
+    title: string;
+    description?: string;
+    channelId?: string;
+    channelTitle?: string;
+    publishedAt?: string;
+  },
+  referenceDate?: Date
+): boolean {
+  return (
+    isAdventistPastorSabbathChannel(params) &&
+    isCurrentSabbathSchoolLessonForToday(params, referenceDate)
+  );
 }
 
 function containsBlockedTerms(text: string, blocked: string[]): boolean {
@@ -1420,7 +1556,8 @@ export function classifyShort(
   const isTestimonyChannel = channelSpec?.defaultCategory === 'testemunhos';
   const isDedicatedSabbathSchoolChannel =
     channelId === 'UCLb09BPgh7xrswJRgYQthuw' || // Lições da Bíblia
-    channelId === 'UCBm5ycqxuqK-UVs54-xA_2w'; // ComTexto Diário
+    channelId === 'UCw6ZgfMHtcLn_O-YwRw27eA' || // Eu Estudo a Lição com Pr. Samuel Camilo
+    channelId === 'UCqBWNMZ4WSSOvCiC4qRhz7Q'; // Safeliz Português
   const isSabbathSchoolChannel = channelSpec?.defaultCategory === 'escola_sabatina';
   const UNIFIED_SERMON_BIBLE_CHANNEL_IDS = new Set([
     'UCIa6p9HWw1hEEfHzfJOcSbA', // Na Mira da Verdade
@@ -1587,7 +1724,7 @@ export function classifyShort(
     }
     if (
       detectedCategory === 'escola_sabatina' &&
-      !isCurrentSabbathSchoolLessonForToday({
+      !isEligibleSabbathSchoolShort({
         title,
         description,
         channelId,
@@ -2795,7 +2932,7 @@ export function formatFilteredResponse(
   const currentDayPool = allItems.filter(
     (item) =>
       item.category !== 'escola_sabatina' ||
-      isCurrentSabbathSchoolLessonForToday({
+      isEligibleSabbathSchoolShort({
         title: item.title,
         description: item.description,
         channelId: item.channelId,

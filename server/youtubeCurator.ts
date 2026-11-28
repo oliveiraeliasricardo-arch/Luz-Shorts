@@ -17,7 +17,7 @@ import {
   formatFilteredResponse,
   getDiversityActorKey,
   getSaoPauloDateInfo,
-  isCurrentSabbathSchoolLessonForToday,
+  isEligibleSabbathSchoolShort,
   isSearchSuggestionSafe,
   isUpcomingOrPremiereEntry,
   normalizeContentCategory,
@@ -81,22 +81,18 @@ const DISCOVERY_QUERIES_BY_CATEGORY: Record<ContentCategory, string[]> = {
     'parábolas de jesus estudo adventista',
   ],
   escola_sabatina: [
-    'lição escola sabatina adultos 2026',
-    'lição escola sabatina jovens 2026',
-    'comtexto bíblico lição escola sabatina 2026',
-    'lições da bíblia novo tempo escola sabatina 2026',
-    'resumo da lição escola sabatina arilton oliveira',
-    'comtexto diário lição jovens adventista 2026',
-    'estudo diário lição escola sabatina adultos 2026',
-    'lição escola sabatina adultos adventismo vivo 2026',
-    'pr dudu batista lição escola sabatina 2026',
-    'podcast nocomtexto lição jovens escola sabatina',
-    'comentário lição escola sabatina adultos adventista',
-    'estudo lição jovens comtexto bíblico adventista',
-    'escola sabatina adultos trimestre 2026 iasd',
-    'escola sabatina jovens iasd lição comentário',
-    'lição dos jovens adventista comtexto diário',
-    'escola sabatina adultos comentário bíblico semanal',
+    'pr dudu batista lição escola sabatina adultos 2026',
+    'pr dudu batista lição escola sabatina jovens 2026',
+    'pr diego trindade lição jovem escola sabatina 2026',
+    'pr samuel camilo estudo da lição escola sabatina 2026',
+    'pr stina lições da bíblia rádio novo tempo 2026',
+    'pr arilton oliveira resumo da lição escola sabatina',
+    'pr lucio bergamo lição escola sabatina 2026',
+    'pr helio carnassale safeliz escola sabatina 2026',
+    'pr paulo dresch escola sabatina adventista 2026',
+    'pr samuel ramos escola sabatina adventista 2026',
+    'pastor adventista lição escola sabatina adultos hoje',
+    'pastor adventista lição jovens escola sabatina hoje',
   ],
   louvores: [
     'lançamento gospel 2026 clipe oficial',
@@ -339,7 +335,6 @@ function getDiscoveryQueriesForCategory(category: ContentCategory): string[] {
   const dd = String(today.day).padStart(2, '0');
   const mm = String(today.month).padStart(2, '0');
   const yyyy = String(today.year);
-  const yy = yyyy.slice(-2);
   const wd = today.weekdaySearchPt;
   const mes = today.monthNamePt;
   const extraStudyHint =
@@ -348,29 +343,29 @@ function getDiscoveryQueriesForCategory(category: ContentCategory): string[] {
       : [];
 
   return [
-    `lição escola sabatina adultos ${wd} ${dd}/${mm}/${yyyy}`,
-    `lição escola sabatina jovens ${wd} ${dd}/${mm}/${yyyy}`,
-    `escola sabatina ${dd}/${mm}/${yyyy}`,
-    `escola sabatina ${dd} de ${mes} ${yyyy}`,
-    `lição escola sabatina ${wd} ${dd}/${mm}`,
-    `escola sabatina jovens ${wd} ${dd}/${mm}`,
-    `lição dos jovens ${wd} ${dd} de ${mes}`,
-    `comtexto diário ${dd}/${mm}/${yyyy}`,
-    `comtexto bíblico ${wd} ${dd}/${mm}`,
-    ...extraStudyHint,
     `pr dudu batista ${wd} ${dd}/${mm}/${yyyy}`,
-    `escola sabatina ${dd}.${mm}.${yy}`,
-    `escola sabatina ${wd} feira ${dd} de ${mes} ${yyyy}`,
-    `comentário lição escola sabatina ${wd} ${dd}/${mm}`,
-    `lição escola sabatina adultos ${dd} de ${mes} ${yyyy}`,
-    `escola sabatina adventista hoje ${dd}/${mm}/${yyyy}`,
+    `pr diego trindade licao jovem ${wd} ${dd}/${mm}`,
+    `pr samuel camilo ${wd} ${dd} de ${mes}`,
+    `pr stina licoes da biblia ${wd} ${dd}`,
+    `pr arilton licao ${wd} ${dd}/${mm}`,
+    `pr lucio bergamo licao ${wd}`,
+    `safeliz pr helio carnassale ${wd} ${dd}.${mm}`,
+    `pr paulo dresch escola sabatina ${wd} ${dd}/${mm}`,
+    `pr samuel ramos escola sabatina ${wd} ${dd}/${mm}`,
+    `pastor escola sabatina ${wd} ${dd}/${mm}/${yyyy}`,
+    `pr escola sabatina ${dd}/${mm}/${yyyy}`,
+    `pastor licao jovens ${wd} ${dd}/${mm}`,
+    ...extraStudyHint,
+    `pastor escola sabatina ${wd} feira ${dd} de ${mes} ${yyyy}`,
+    `pr dudu batista licao adultos ${dd} de ${mes}`,
+    `pastor comentario licao escola sabatina ${wd} ${dd}/${mm}`,
   ];
 }
 
 function isCurrentDayEligibleItem(item: ChristianShort): boolean {
   return (
     item.category !== 'escola_sabatina' ||
-    isCurrentSabbathSchoolLessonForToday({
+    isEligibleSabbathSchoolShort({
       title: item.title,
       description: item.description,
       channelId: item.channelId,
@@ -1751,8 +1746,8 @@ async function fetchLiveYoutubeSearch(
       webFanQueries.push({ q: `${cleanQuery} estudo bíblico adventista`, hint: 'pregacoes', sortByDate: false });
       webFanQueries.push({ q: effectiveQuery, hint: 'pregacoes', sortByDate: false });
     } else if (validCat === 'escola_sabatina') {
-      webFanQueries.push({ q: `${cleanQuery} escola sabatina adultos`, hint: 'escola_sabatina', sortByDate: false });
-      webFanQueries.push({ q: `${cleanQuery} escola sabatina jovens comtexto`, hint: 'escola_sabatina', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} pastor escola sabatina adventista`, hint: 'escola_sabatina', sortByDate: false });
+      webFanQueries.push({ q: `${cleanQuery} pr escola sabatina`, hint: 'escola_sabatina', sortByDate: false });
       webFanQueries.push({ q: effectiveQuery, hint: 'escola_sabatina', sortByDate: false });
     } else if (validCat === 'feliz7play') {
       webFanQueries.push({ q: `${cleanQuery} feliz7play`, hint: 'feliz7play', sortByDate: false });

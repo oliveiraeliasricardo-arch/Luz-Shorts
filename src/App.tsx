@@ -41,7 +41,7 @@ import { getViewportOrientationState } from './utils/screenOrientation';
 import {
   buildDiverseFeed,
   extractFuzzyContentKey,
-  isCurrentSabbathSchoolLessonForToday,
+  isEligibleSabbathSchoolShort,
   isUpcomingOrPremiereEntry,
   normalizeTitleKey,
 } from './shared/curatorCore';
@@ -227,7 +227,7 @@ function isCurrentDayPlayableItem(item: ChristianShort): boolean {
   }
   return (
     item.category !== 'escola_sabatina' ||
-    isCurrentSabbathSchoolLessonForToday({
+    isEligibleSabbathSchoolShort({
       title: item.title,
       description: item.description,
       channelId: item.channelId,
@@ -257,7 +257,9 @@ function readCachedFeedSnapshot(): ChristianShort[] {
           typeof (entry as { embedUrl?: unknown }).embedUrl === 'string')
       ) {
         const normalized = normalizeLegacySnapshotItem(entry);
-        if (normalized) result.push(normalized);
+        if (normalized && isCurrentDayPlayableItem(normalized)) {
+          result.push(normalized);
+        }
       }
     }
     return result;

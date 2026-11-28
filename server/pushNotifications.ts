@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { PushSubscription } from 'web-push';
 import {
-  isCurrentSabbathSchoolLessonForToday,
+  isEligibleSabbathSchoolShort,
   isUpcomingOrPremiereEntry,
 } from '../src/shared/curatorCore.ts';
 import type { ChristianShort, ContentCategory } from '../src/types/shorts.ts';
@@ -40,7 +40,7 @@ function isNotificationEligibleVideo(item: ChristianShort): boolean {
   }
   return (
     item.category !== 'escola_sabatina' ||
-    isCurrentSabbathSchoolLessonForToday({
+    isEligibleSabbathSchoolShort({
       title: item.title,
       description: item.description,
       channelId: item.channelId,
