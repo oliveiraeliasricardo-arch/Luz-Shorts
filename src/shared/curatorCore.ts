@@ -1837,6 +1837,21 @@ function getTodaySaoPauloYmd(): string {
   }
 }
 
+const PT_MONTH_INDEX: Record<string, number> = {
+  janeiro: 1,
+  fevereiro: 2,
+  marco: 3,
+  abril: 4,
+  maio: 5,
+  junho: 6,
+  julho: 7,
+  agosto: 8,
+  setembro: 9,
+  outubro: 10,
+  novembro: 11,
+  dezembro: 12,
+};
+
 export function isUpcomingOrPremiereEntry(
   title: string,
   description: string,
@@ -1851,11 +1866,15 @@ export function isUpcomingOrPremiereEntry(
   const text = `${title} ${descHead}`;
   if (
     /^\s*(?:[\[({#]*\s*)?(?:pr[eé]-?)?estr[eé]ia\b/i.test(title) ||
+    /^\s*(?:[\[({#]*\s*)?(?:trailer|teaser)\b/i.test(title) ||
+    /\b(?:trailer|teaser)\s*(?:oficial)?\s*[-–:|]/i.test(title) ||
+    /[([{]\s*(?:trailer|teaser)\b/i.test(title) ||
+    /[([{]\s*(?:pr[eé]-?)?estr[eé]ia\b/i.test(text) ||
     /(?:^|\s)(?:🔴|🚨)\s*(ao\s+vivo|culto|estr[eé]ia|live)/i.test(title) ||
     /\b(aguardando(\s+a)?\s*estr[eé]ia|pr[eé]-?estr[eé]ia|em\s+estr[eé]ia|vai\s+estrear|estrear[áa]|estreando|assista\s+[àa]\s+estr[eé]ia|come[cç]a\s+em\s+breve|dispon[ií]vel\s+(em|dia|a\s+partir)|lan[cç]amento\s+(dia|em)\s+\d|programad[oa]\s+(para|em)|ao\s+vivo\s+(em|hoje|amanh[ãa]|[àa]s|agora)|live\s+especial\s+.*\s+neste\s+(domingo|s[aá]bado|sexta)|definir\s+lembrete|notificar-me|upcoming\s+premiere|scheduled\s+for)\b/i.test(
       text
     ) ||
-    /\bestr[eé]ia\s*(?:em\s+breve|hoje|amanh[ãa]|dia|às|[àa]s|no\s+youtube|oficial|exclusiva|nacional|mundial|[:|\-!])/i.test(
+    /\b(?:pr[eé]-?)?estr[eé]ia\s*(?:\d{1,2}\b|de\s+\w+|em\s+breve|hoje|amanh[ãa]|dia|às|[àa]s|no\s+|na\s+|youtube|oficial|exclusiv[oa]|nacional|mundial|[:|\-!])/i.test(
       text
     ) ||
     /\bpremieres?(?:\s+(?:in|on|at|soon)\b|\s*[:|\-!])/i.test(text)
@@ -1873,6 +1892,25 @@ export function isUpcomingOrPremiereEntry(
       const ymd = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       if (ymd > todayYmd) {
         return true;
+      }
+    }
+  }
+
+  if (/\b(estr[eé]ia|estrear|lan[cç]amento|dispon[ií]vel|em\s+breve|chega)\b/i.test(text)) {
+    const currentYear = Number(todayYmd.slice(0, 4)) || new Date().getFullYear();
+    const foldedText = normalizeSearchFold(text);
+    const ptDateMatches = foldedText.matchAll(
+      /\b(\d{1,2})\s+de\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+(20\d{2}))?\b/g
+    );
+    for (const m of ptDateMatches) {
+      const day = Number(m[1]);
+      const month = PT_MONTH_INDEX[m[2]] ?? 0;
+      const year = m[3] ? Number(m[3]) : currentYear;
+      if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+        const ymd = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        if (ymd > todayYmd) {
+          return true;
+        }
       }
     }
   }
@@ -2982,14 +3020,15 @@ export function formatFilteredResponse(
 
   const currentDayPool = allItems.filter(
     (item) =>
-      item.category !== 'escola_sabatina' ||
-      isEligibleSabbathSchoolShort({
-        title: item.title,
-        description: item.description,
-        channelId: item.channelId,
-        channelTitle: item.channelTitle,
-        publishedAt: item.publishedAt,
-      })
+      !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt) &&
+      (item.category !== 'escola_sabatina' ||
+        isEligibleSabbathSchoolShort({
+          title: item.title,
+          description: item.description,
+          channelId: item.channelId,
+          channelTitle: item.channelTitle,
+          publishedAt: item.publishedAt,
+        }))
   );
 
   const queryFiltered =

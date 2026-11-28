@@ -363,7 +363,27 @@ function getDiscoveryQueriesForCategory(category: ContentCategory): string[] {
   ];
 }
 
+const UPCOMING_WATCH_TRUE_TTL_MS = 15 * 60 * 1000;
+const UPCOMING_WATCH_FALSE_TTL_MS = 60 * 60 * 1000;
+const MAX_UPCOMING_WATCH_CACHE_SIZE = 3000;
+const upcomingWatchCheckCache = new Map<
+  string,
+  { upcoming: boolean; checkedAtMs: number }
+>();
+const inFlightWatchChecks = new Map<string, Promise<boolean>>();
+
 function isCurrentDayEligibleItem(item: ChristianShort): boolean {
+  if (isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)) {
+    return false;
+  }
+  const watchEntry = upcomingWatchCheckCache.get(item.id);
+  if (
+    watchEntry &&
+    watchEntry.upcoming &&
+    Date.now() - watchEntry.checkedAtMs < UPCOMING_WATCH_TRUE_TTL_MS
+  ) {
+    return false;
+  }
   return (
     item.category !== 'escola_sabatina' ||
     isEligibleSabbathSchoolShort({
@@ -374,6 +394,114 @@ function isCurrentDayEligibleItem(item: ChristianShort): boolean {
       publishedAt: item.publishedAt,
     })
   );
+}
+
+function getFreshWatchUpcomingCached(videoId: string): boolean | null {
+  const entry = upcomingWatchCheckCache.get(videoId);
+  if (!entry) return null;
+  const ttl = entry.upcoming ? UPCOMING_WATCH_TRUE_TTL_MS : UPCOMING_WATCH_FALSE_TTL_MS;
+  if (Date.now() - entry.checkedAtMs >= ttl) {
+    upcomingWatchCheckCache.delete(videoId);
+    return null;
+  }
+  return entry.upcoming;
+}
+
+async function isWatchPageUpcomingPremiere(videoId: string): Promise<boolean> {
+  const cached = getFreshWatchUpcomingCached(videoId);
+  if (cached !== null) return cached;
+
+  const existingPromise = inFlightWatchChecks.get(videoId);
+  if (existingPromise) return existingPromise;
+
+  const checkPromise = (async () => {
+    try {
+      const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; GracaPlay/1.0)',
+          'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) return false;
+      const html = await res.text();
+      const upcoming =
+        /"isUpcoming"\s*:\s*true/i.test(html) ||
+        /"status"\s*:\s*"LIVE_STREAM_OFFLINE"/i.test(html) ||
+        /"liveBroadcastContent"\s*:\s*"(?:upcoming|live)"/i.test(html) ||
+        /"lengthSeconds"\s*:\s*"0"/i.test(html) ||
+        /"reason"\s*:\s*"[^"]*(?:Estreia\s+em|Premieres?\s+in|Acontece\s+em|Come[cç]a\s+em|Em\s+breve|Scheduled\s+for)[^"]*"/i.test(
+          html
+        );
+
+      if (upcomingWatchCheckCache.size >= MAX_UPCOMING_WATCH_CACHE_SIZE) {
+        const oldest = upcomingWatchCheckCache.keys().next().value;
+        if (oldest) upcomingWatchCheckCache.delete(oldest);
+      }
+      upcomingWatchCheckCache.set(videoId, {
+        upcoming,
+        checkedAtMs: Date.now(),
+      });
+      return upcoming;
+    } catch {
+      return false;
+    } finally {
+      inFlightWatchChecks.delete(videoId);
+    }
+  })();
+
+  inFlightWatchChecks.set(videoId, checkPromise);
+  return checkPromise;
+}
+
+async function filterOutUpcomingUnverifiedItems(
+  items: ChristianShort[],
+  options?: { maxChecks?: number; checkNullDurationOnly?: boolean }
+): Promise<ChristianShort[]> {
+  if (items.length === 0) return [];
+  const checkNullOnly = options?.checkNullDurationOnly ?? true;
+  const maxChecks = options?.maxChecks ?? 80;
+
+  const preFiltered = items.filter(isCurrentDayEligibleItem);
+  const toVerify: ChristianShort[] = [];
+  for (const item of preFiltered) {
+    if (checkNullOnly && item.durationSeconds != null && item.durationSeconds > 0) {
+      continue;
+    }
+    const cached = getFreshWatchUpcomingCached(item.id);
+    if (cached === null && toVerify.length < maxChecks) {
+      toVerify.push(item);
+    }
+  }
+
+  if (toVerify.length > 0) {
+    let cursor = 0;
+    const workerCount = Math.min(10, toVerify.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (cursor < toVerify.length) {
+          const current = toVerify[cursor++];
+          await isWatchPageUpcomingPremiere(current.id);
+        }
+      })
+    );
+  }
+
+  const upcomingIds = new Set<string>();
+  const clean: ChristianShort[] = [];
+  for (const item of preFiltered) {
+    if (getFreshWatchUpcomingCached(item.id) === true) {
+      upcomingIds.add(item.id);
+      continue;
+    }
+    clean.push(item);
+  }
+
+  if (upcomingIds.size > 0 && cachedCatalog) {
+    cachedCatalog.items = cachedCatalog.items.filter((item) => !upcomingIds.has(item.id));
+  }
+
+  return clean;
 }
 
 function mergeIntoCatalogPool(
@@ -709,7 +837,7 @@ function createPaginationCursor(
 }
 
 async function fetchFromCuratedRss(pageIndex = 0, timeoutMs = 4200): Promise<ChristianShort[]> {
-  return fetchCuratedRssWithAdapter(async (url) => {
+  const rssItems = await fetchCuratedRssWithAdapter(async (url) => {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GracaPlay/1.0)' },
       signal: AbortSignal.timeout(timeoutMs),
@@ -717,6 +845,26 @@ async function fetchFromCuratedRss(pageIndex = 0, timeoutMs = 4200): Promise<Chr
     if (!res.ok) return null;
     return res.text();
   }, pageIndex);
+
+  const recentCutoffMs = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  const recentOrFeliz: ChristianShort[] = [];
+  const olderOther: ChristianShort[] = [];
+  for (const item of rssItems) {
+    if (!isCurrentDayEligibleItem(item)) continue;
+    const pubMs = Date.parse(item.publishedAt);
+    if (
+      item.category === 'feliz7play' ||
+      (Number.isFinite(pubMs) && pubMs >= recentCutoffMs)
+    ) {
+      recentOrFeliz.push(item);
+    } else {
+      olderOther.push(item);
+    }
+  }
+  const verifiedRecent = await filterOutUpcomingUnverifiedItems(recentOrFeliz, {
+    maxChecks: 90,
+  });
+  return [...verifiedRecent, ...olderOther];
 }
 
 function isYouTubeVideoPlayable(v: {
@@ -920,6 +1068,10 @@ async function hydrateAndVerifyCandidates(
     );
   }
 
+  const hasUnverified = verifiedShorts.some((item) => item.durationSeconds == null);
+  if (hasUnverified) {
+    return filterOutUpcomingUnverifiedItems(verifiedShorts, { maxChecks: 80 });
+  }
   return verifiedShorts;
 }
 
@@ -1307,6 +1459,11 @@ async function fetchYoutubeWebSearch(
                 thumbnailBadgeViewModel?: { text?: string; badgeStyle?: string };
               }>;
             };
+            thumbnailBottomOverlayViewModel?: {
+              badges?: Array<{
+                thumbnailBadgeViewModel?: { text?: string; badgeStyle?: string };
+              }>;
+            };
             thumbnailOverlayTimeStatusRenderer?: {
               style?: string;
               text?: { simpleText?: string; runs?: Array<{ text?: string }> };
@@ -1425,24 +1582,32 @@ async function fetchYoutubeWebSearch(
             let durText = '';
             let hasUpcomingBadge = false;
             for (const ov of lv.contentImage?.thumbnailViewModel?.overlays ?? []) {
-              const badge = ov.thumbnailOverlayBadgeViewModel?.thumbnailBadges?.[0]?.thumbnailBadgeViewModel;
-              const t = badge?.text || '';
-              if (
-                badge?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' ||
-                /\b(estr[eé]ia|em breve|premieres?|upcoming|programad[oa]|aguardando|ao vivo|live)\b/i.test(
-                  t
-                )
-              ) {
-                hasUpcomingBadge = true;
-                break;
+              const overlayBadges = [
+                ...(ov.thumbnailOverlayBadgeViewModel?.thumbnailBadges ?? []),
+                ...(ov.thumbnailBottomOverlayViewModel?.badges ?? []),
+              ];
+              for (const b of overlayBadges) {
+                const badge = b.thumbnailBadgeViewModel;
+                const t = badge?.text || '';
+                if (
+                  badge?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' ||
+                  badge?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_UPCOMING' ||
+                  /\b(estr[eé]ia|em breve|premieres?|upcoming|programad[oa]|aguardando|ao vivo|live|notificar)\b/i.test(
+                    t
+                  )
+                ) {
+                  hasUpcomingBadge = true;
+                  break;
+                }
+                if (t && /\d+:\d+/.test(t)) {
+                  durText = t;
+                }
               }
+              if (hasUpcomingBadge) break;
               const ts = ov.thumbnailOverlayTimeStatusRenderer;
               if (ts?.style === 'UPCOMING' || ts?.style === 'LIVE') {
                 hasUpcomingBadge = true;
                 break;
-              }
-              if (t && /\d+:\d+/.test(t)) {
-                durText = t;
               }
             }
             const relPubText = allMetaTexts.find((t) => /\b(h[aá]\s+\d+|\d+\s+\w+\s+ago)\b/i.test(t));
@@ -1572,6 +1737,7 @@ async function fetchYoutubeWebSearch(
 
     const fallback: ChristianShort[] = [];
     for (const c of candidates.values()) {
+      if (isUpcomingOrPremiereEntry(c.title, c.description, c.publishedAt)) continue;
       const classified = classifyShort(
         c.channelId,
         c.channelTitle,
@@ -2830,9 +2996,10 @@ export async function fetchLatestNewVideoCandidates(): Promise<ChristianShort[]>
     }
   }
 
-  return [...merged.values()]
+  const sortedCandidates = [...merged.values()]
     .filter(isCurrentDayEligibleItem)
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+  return filterOutUpcomingUnverifiedItems(sortedCandidates, { maxChecks: 40 });
 }
 
 export async function getCuratedChristianShorts(options: {
@@ -3338,8 +3505,13 @@ export async function getCuratedChristianShorts(options: {
 
     const validPrefCat = normalizedSearchCat;
     const orderedSearch = deduplicateShorts(
-      rankSearchResults([...mergedSearch.values()], trimmedQuery, validPrefCat).filter(
-        isCurrentDayEligibleItem
+      rankSearchResults(
+        await filterOutUpcomingUnverifiedItems(
+          [...mergedSearch.values()].filter(isCurrentDayEligibleItem),
+          { maxChecks: 30 }
+        ),
+        trimmedQuery,
+        validPrefCat
       ),
       { allowSameSongVariants: true }
     );
@@ -3378,13 +3550,24 @@ export async function getCuratedChristianShorts(options: {
     return searchPayload;
   }
 
-  const leanFeedItems = selectBalancedFeedSlice(
-    combinedItems,
+  const candidatePoolForSlice =
+    validReqCat === 'feliz7play'
+      ? await filterOutUpcomingUnverifiedItems(
+          combinedItems.filter((item) => item.category === 'feliz7play'),
+          { maxChecks: 60 }
+        )
+      : combinedItems;
+
+  let leanFeedItems = selectBalancedFeedSlice(
+    candidatePoolForSlice,
     clientExcludeSet,
     45,
     randomOffsetParam,
     effectiveSeed
   );
+  if (leanFeedItems.some((item) => item.durationSeconds == null)) {
+    leanFeedItems = await filterOutUpcomingUnverifiedItems(leanFeedItems, { maxChecks: 50 });
+  }
   return formatFilteredResponse(
     leanFeedItems,
     sourceMode,
@@ -3889,10 +4072,13 @@ export async function getMoreChristianShorts(options: {
       }
     }
   }
-  const safeFresh = fresh.filter(
-    (item) =>
-      !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt) &&
-      isCurrentDayEligibleItem(item)
+  const safeFresh = await filterOutUpcomingUnverifiedItems(
+    fresh.filter(
+      (item) =>
+        !isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt) &&
+        isCurrentDayEligibleItem(item)
+    ),
+    { maxChecks: 40 }
   );
   const diverse = buildDiverseFeed(safeFresh, true, effectiveSeed);
 
@@ -3915,7 +4101,13 @@ export async function lookupSingleShort(videoId: string): Promise<ChristianShort
 
   if (cachedCatalog) {
     const found = cachedCatalog.items.find((item) => item.id === videoId);
-    if (found) return found;
+    if (found) {
+      if (!isCurrentDayEligibleItem(found)) return null;
+      if (found.durationSeconds == null && (await isWatchPageUpcomingPremiere(found.id))) {
+        return null;
+      }
+      return found;
+    }
   }
 
   const apiKey = process.env.YOUTUBE_API_KEY?.trim() || '';
@@ -4010,6 +4202,7 @@ export async function lookupSingleShort(videoId: string): Promise<ChristianShort
     const title = data.title || '';
     const author = data.author_name || '';
     if (isUpcomingOrPremiereEntry(title, '', '')) return null;
+    if (await isWatchPageUpcomingPremiere(videoId)) return null;
     const classified = classifyShort('', author, title, '');
     if (!classified) return null;
 
