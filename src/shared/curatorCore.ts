@@ -1411,7 +1411,7 @@ function hasChristianRelevance(
 }
 
 const STRICT_TALK_BLOCK_RE =
-  /\b(podcast|prega[cç][aã]o|serm[aã]o|devocional|medita[cç][aã]o|escola sabatina|li[cç][aã]o|fonte de alegria|sob suas asas|protagonistas|entrevista|bate-?papo|react|reagindo|como tocar|tutorial|aula de|v[ií]deo ?aula|cifra|making of|bastidores|not[ií]cia|reportagem|relat[oó]rio|informativo|document[aá]rio|s[eé]ri[ae] b[ií]blica|crescimento espiritual|compartilheesperan[cç]a|epis[oó]dio|ep\.?\s*\d+|t\d+e\d+|retrospectiva)\b/i;
+  /\b(podcast|prega[cç][aã]o|serm[aã]o|devocional|medita[cç][aã]o|escola sabatina|li[cç][aã]o|fonte de alegria|sob suas asas|protagonistas|entrevista|bate-?papo|react|reagindo|como tocar|tutorial|aula|v[ií]deo ?aula|preceito|cifra|making of|bastidores|not[ií]cia|reportagem|relat[oó]rio|informativo|document[aá]rio|s[eé]ri[ae] b[ií]blica|crescimento espiritual|compartilheesperan[cç]a|epis[oó]dio|ep\.?\s*\d+|t\d+e\d+|retrospectiva)\b/i;
 
 function looksLikeWorshipSong(
   title: string,
@@ -2142,7 +2142,10 @@ export async function fetchFastBootstrapRssWithAdapter(
     );
   }
 
-  const extraPlaylist = RSS_LOUVOR_PLAYLISTS[0];
+  const hinarioRssPlaylists = RSS_LOUVOR_PLAYLISTS.slice(0, 6);
+  const extraPlaylist =
+    hinarioRssPlaylists[Math.floor(Math.random() * hinarioRssPlaylists.length)] ??
+    RSS_LOUVOR_PLAYLISTS[0];
   if (extraPlaylist) {
     tasks.push(
       (async () => {
@@ -2456,12 +2459,21 @@ export function deduplicateShorts(
 
 type LouvorSubBucket = 'hinario' | 'cd_jovem' | 'adoradores_nt' | 'gospel_geral';
 
+export function isNovoHinarioAdventistaItem(item: {
+  channelId?: string;
+  channelTitle?: string;
+  title?: string;
+}): boolean {
+  if (item.channelId === 'UCQhkLOO40bmTMeLcbspKW8A') {
+    return true;
+  }
+  const text = `${item.title || ''} ${item.channelTitle || ''}`;
+  return /\b(n(o|ô)vo\s+hin[aá]rio|hin[aá]rio\s+adventista)\b/i.test(text);
+}
+
 function classifyLouvorSubBucket(item: ChristianShort): LouvorSubBucket {
   const text = `${item.title} ${item.channelTitle}`;
-  if (
-    item.channelId === 'UCQhkLOO40bmTMeLcbspKW8A' ||
-    /\b(n(o|ô)vo hin[aá]rio|hin[aá]rio adventista|hino\s*\d+)\b/i.test(text)
-  ) {
+  if (isNovoHinarioAdventistaItem(item)) {
     return 'hinario';
   }
   if (
@@ -2800,25 +2812,64 @@ function buildCategoryStream(
     shuffleInPlace(freshSubQueues, rng);
   }
   const hinarioQueue = buildRoundRobinChannelQueue(subBuckets.hinario, randomize, rng);
-  const subQueues: ChristianShort[][] = [...freshSubQueues, hinarioQueue];
+  // Prioritize official Casa Publicadora Brasileira Novo Hinário hymns ahead of third-party covers
+  if (hinarioQueue.length > 1) {
+    const officialHinario = hinarioQueue.filter((i) => i.channelId === 'UCQhkLOO40bmTMeLcbspKW8A');
+    const coverHinario = hinarioQueue.filter((i) => i.channelId !== 'UCQhkLOO40bmTMeLcbspKW8A');
+    hinarioQueue.length = 0;
+    let oIdx = 0;
+    let cIdx = 0;
+    while (oIdx < officialHinario.length || cIdx < coverHinario.length) {
+      if (oIdx < officialHinario.length) hinarioQueue.push(officialHinario[oIdx++]);
+      if (oIdx < officialHinario.length) hinarioQueue.push(officialHinario[oIdx++]);
+      if (cIdx < coverHinario.length) hinarioQueue.push(coverHinario[cIdx++]);
+    }
+  }
 
   const result: ChristianShort[] = [];
   let lastChannelId: string | null = null;
-  let more = true;
-  while (more) {
-    more = false;
-    for (const sq of subQueues) {
+  let nonHinarioStreak = 0;
+  // Place first Novo Hinário hymn around position 3-5 so it appears early while diverse worship leads
+  const firstHinarioAfter = randomize ? 2 + Math.floor(rng() * 3) : 3;
+  let hinarioInsertedCount = 0;
+
+  const popNextFromQueue = (sq: ChristianShort[]): ChristianShort | undefined => {
+    if (sq.length === 0) return undefined;
+    const pickIdx = Math.max(0, sq.findIndex((i) => i.channelId !== lastChannelId));
+    const [picked] = sq.splice(pickIdx, 1);
+    return picked;
+  };
+
+  while (freshSubQueues.some((q) => q.length > 0) || hinarioQueue.length > 0) {
+    let emittedInRound = false;
+    for (const sq of freshSubQueues) {
       if (sq.length === 0) continue;
-      more = true;
-      const activeBuckets = subQueues.filter((q) => q.length > 0);
-      const pickIdx =
-        activeBuckets.length > 1
-          ? Math.max(0, sq.findIndex((i) => i.channelId !== lastChannelId))
-          : 0;
-      const [picked] = sq.splice(pickIdx, 1);
+      const picked = popNextFromQueue(sq);
       if (picked) {
         result.push(picked);
         lastChannelId = picked.channelId;
+        nonHinarioStreak += 1;
+        emittedInRound = true;
+      }
+
+      const hinarioThreshold = hinarioInsertedCount === 0 ? firstHinarioAfter : 4;
+      if (hinarioQueue.length > 0 && nonHinarioStreak >= hinarioThreshold) {
+        const hinarioPick = popNextFromQueue(hinarioQueue);
+        if (hinarioPick) {
+          result.push(hinarioPick);
+          lastChannelId = hinarioPick.channelId;
+          nonHinarioStreak = 0;
+          hinarioInsertedCount += 1;
+        }
+      }
+    }
+
+    if (!emittedInRound && hinarioQueue.length > 0) {
+      const hinarioPick = popNextFromQueue(hinarioQueue);
+      if (hinarioPick) {
+        result.push(hinarioPick);
+        lastChannelId = hinarioPick.channelId;
+        hinarioInsertedCount += 1;
       }
     }
   }

@@ -18,6 +18,7 @@ import {
   getDiversityActorKey,
   getSaoPauloDateInfo,
   isEligibleSabbathSchoolShort,
+  isNovoHinarioAdventistaItem,
   isSearchSuggestionSafe,
   isUpcomingOrPremiereEntry,
   normalizeContentCategory,
@@ -448,9 +449,42 @@ function selectBalancedFeedSlice(
       return;
     }
 
+    // Reserve a balanced slice of Novo Hinário Adventista hymns inside Louvores (~15%)
+    // so official hymns always appear alongside diverse contemporary & Adventist worship
+    const reservedHinario: ChristianShort[] = [];
+    let workingList = list;
+    if (cat === 'louvores') {
+      const officialHinarioCandidates = list.filter(
+        (item) => isNovoHinarioAdventistaItem(item) && item.channelId === 'UCQhkLOO40bmTMeLcbspKW8A'
+      );
+      const otherHinarioCandidates = list.filter(
+        (item) => isNovoHinarioAdventistaItem(item) && item.channelId !== 'UCQhkLOO40bmTMeLcbspKW8A'
+      );
+      const targetHinarioQuota = Math.min(7, officialHinarioCandidates.length + otherHinarioCandidates.length);
+      if (targetHinarioQuota > 0) {
+        const rotatedOfficial = [...officialHinarioCandidates];
+        if (rotatedOfficial.length > 1 && entropy > 0) {
+          const shift = entropy % rotatedOfficial.length;
+          rotatedOfficial.push(...rotatedOfficial.splice(0, shift));
+        }
+        const rotatedOther = [...otherHinarioCandidates];
+        if (rotatedOther.length > 1 && entropy > 0) {
+          const shift = (entropy * 3) % rotatedOther.length;
+          rotatedOther.push(...rotatedOther.splice(0, shift));
+        }
+        const officialTarget = Math.min(rotatedOfficial.length, Math.max(4, Math.ceil(targetHinarioQuota * 0.7)));
+        reservedHinario.push(...rotatedOfficial.slice(0, officialTarget));
+        if (reservedHinario.length < targetHinarioQuota) {
+          reservedHinario.push(...rotatedOther.slice(0, targetHinarioQuota - reservedHinario.length));
+        }
+        const reservedIds = new Set(reservedHinario.map((i) => i.id));
+        workingList = list.filter((i) => !reservedIds.has(i.id));
+      }
+    }
+
     // Group by speaker/channel so no single pastor or channel monopolizes a 45-item slice
     const byActor = new Map<string, ChristianShort[]>();
-    for (const item of list) {
+    for (const item of workingList) {
       const actorKey = getDiversityActorKey(item);
       const bucket = byActor.get(actorKey) ?? [];
       bucket.push(item);
@@ -519,10 +553,11 @@ function selectBalancedFeedSlice(
     const channelPickedCounts = new Map<string, number>();
     const maxPrimaryPerChannel = cat === 'pregacoes' ? 4 : 7;
 
+    const targetSliceLimit = Math.max(0, perCategoryLimit - reservedHinario.length);
     let addedRound = true;
-    while (picked.length < perCategoryLimit && addedRound) {
+    while (picked.length < targetSliceLimit && addedRound) {
       addedRound = false;
-      for (let bIdx = 0; bIdx < actorBuckets.length && picked.length < perCategoryLimit; bIdx++) {
+      for (let bIdx = 0; bIdx < actorBuckets.length && picked.length < targetSliceLimit; bIdx++) {
         const bucket = actorBuckets[bIdx];
         const countForActor = actorPickedCounts.get(bIdx) ?? 0;
         if (countForActor >= maxPrimaryPerActor) continue;
@@ -546,12 +581,12 @@ function selectBalancedFeedSlice(
     // Drain unused bucket items round-robin only if primary fair pass didn't fill the slice,
     // while keeping a ceiling per actor in pregacoes when multiple speakers exist so one pastor never dominates.
     const maxTotalPerActor =
-      cat === 'pregacoes' && actorBuckets.length >= 6 ? 5 : perCategoryLimit;
-    if (picked.length < perCategoryLimit) {
+      cat === 'pregacoes' && actorBuckets.length >= 6 ? 5 : targetSliceLimit;
+    if (picked.length < targetSliceLimit) {
       let extraAdded = true;
-      while (picked.length < perCategoryLimit && extraAdded) {
+      while (picked.length < targetSliceLimit && extraAdded) {
         extraAdded = false;
-        for (let bIdx = 0; bIdx < actorBuckets.length && picked.length < perCategoryLimit; bIdx++) {
+        for (let bIdx = 0; bIdx < actorBuckets.length && picked.length < targetSliceLimit; bIdx++) {
           const countForActor = actorPickedCounts.get(bIdx) ?? 0;
           if (countForActor >= maxTotalPerActor) continue;
           const bucket = actorBuckets[bIdx];
@@ -565,10 +600,14 @@ function selectBalancedFeedSlice(
       }
       if (picked.length < 18) {
         for (const item of overflow) {
-          if (picked.length >= Math.min(perCategoryLimit, 24)) break;
+          if (picked.length >= Math.min(targetSliceLimit, 24)) break;
           picked.push(item);
         }
       }
+    }
+
+    if (reservedHinario.length > 0) {
+      picked.push(...reservedHinario);
     }
 
     rotatedByCat[cat] = buildDiverseFeed(
@@ -1013,7 +1052,7 @@ async function fetchFromYoutubeApi(
     (p) => !exhaustedPlaylistIds.has(p)
   );
   const specialBatch = [
-    ...pickRotatedPlaylists(hinarioPool, advancePlaylists ? 2 : 1),
+    ...pickRotatedPlaylists(hinarioPool, 2),
     ...pickRotatedPlaylists(cdJovemFresh.length > 0 ? cdJovemFresh : CD_JOVEM_PLAYLISTS, advancePlaylists ? 3 : 2),
     ...pickRotatedPlaylists(adoradoresFresh.length > 0 ? adoradoresFresh : ADORADORES_PLAYLISTS, advancePlaylists ? 3 : 2),
   ];
@@ -3173,13 +3212,33 @@ export async function getCuratedChristianShorts(options: {
     }
     const recentUnseen: ChristianShort[] = [];
     const archiveUnseen: ChristianShort[] = [];
+    const hinarioArchiveCandidates: ChristianShort[] = [];
     for (const item of combinedUnseenMap.values()) {
       const pubMs = Date.parse(item.publishedAt);
       if (Number.isFinite(pubMs) && pubMs >= recentCutoffMs) {
         recentUnseen.push(item);
+      } else if (item.category === 'louvores' && isNovoHinarioAdventistaItem(item)) {
+        hinarioArchiveCandidates.push(item);
       } else {
         archiveUnseen.push(item);
       }
+    }
+    if (hinarioArchiveCandidates.length > 0) {
+      const officialHinario = hinarioArchiveCandidates.filter(
+        (i) => i.channelId === 'UCQhkLOO40bmTMeLcbspKW8A'
+      );
+      const otherHinario = hinarioArchiveCandidates.filter(
+        (i) => i.channelId !== 'UCQhkLOO40bmTMeLcbspKW8A'
+      );
+      const shiftOfficial =
+        officialHinario.length > 1 ? Math.abs(requestEntropy) % officialHinario.length : 0;
+      if (shiftOfficial > 0) {
+        officialHinario.push(...officialHinario.splice(0, shiftOfficial));
+      }
+      const orderedHinarioArchive = [...officialHinario, ...otherHinario];
+      const promoteCount = Math.min(9, orderedHinarioArchive.length);
+      recentUnseen.push(...orderedHinarioArchive.slice(0, promoteCount));
+      archiveUnseen.push(...orderedHinarioArchive.slice(promoteCount));
     }
     poolItems = buildTieredDiverseFeed([recentUnseen, archiveUnseen], true, effectiveSeed);
   }
