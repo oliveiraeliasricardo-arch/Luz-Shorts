@@ -5,6 +5,8 @@ import {
   fetchCuratedRssWithAdapter,
   fetchFastBootstrapRssWithAdapter,
   formatFilteredResponse,
+  isEligibleSabbathSchoolShort,
+  isUpcomingOrPremiereEntry,
 } from '../shared/curatorCore';
 
 export function isNativeCapacitorApp(): boolean {
@@ -40,8 +42,27 @@ export async function fetchFastNativeSeed(
   seed?: number
 ): Promise<ShortsApiResponse> {
   const excludeSet = new Set(excludeIds);
-  const rawItems = await fetchFastBootstrapRssWithAdapter((url) =>
-    nativeFetchXml(url, 2800)
+  const rawItems = await fetchFastBootstrapRssWithAdapter(
+    (url) => nativeFetchXml(url, 2000),
+    {
+      graceMs: 140,
+      isEligibleItem: (item) => {
+        if (excludeSet.has(item.id) || item.category === 'feliz7play') return false;
+        if (isUpcomingOrPremiereEntry(item.title, item.description, item.publishedAt)) {
+          return false;
+        }
+        if (item.category === 'escola_sabatina') {
+          return isEligibleSabbathSchoolShort({
+            title: item.title,
+            description: item.description,
+            channelId: item.channelId,
+            channelTitle: item.channelTitle,
+            publishedAt: item.publishedAt,
+          });
+        }
+        return true;
+      },
+    }
   );
   const unseen = rawItems.filter((item) => !excludeSet.has(item.id));
   const diverseItems = buildDiverseFeed(unseen, true, seed);

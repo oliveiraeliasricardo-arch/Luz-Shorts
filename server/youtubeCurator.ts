@@ -3342,15 +3342,16 @@ export async function getCuratedChristianShorts(options: {
     let reopenAdditions: ChristianShort[] = [];
     if (!hasImmediateFeed && (totalUnseenInPool < 60 || lowMainCategoryStock || lowPreacherDiversity || options.forceRefresh)) {
       const waitBudgetMs =
-        validReqCat && unseenCountByCat[validReqCat] < 8
-          ? 3200
-          : options.forceRefresh && totalUnseenInPool >= 80
-          ? 1100
-          : lowMainCategoryStock || lowPreacherDiversity
+        validReqCat && unseenCountByCat[validReqCat] < 6
+          ? 2400
+          : totalUnseenInPool < 10
           ? 2000
-          : 1400;
+          : options.forceRefresh && totalUnseenInPool >= 80
+          ? 850
+          : 700;
+      const replenishPromise = runReopenReplenish();
       reopenAdditions = await raceWithTimeout(
-        runReopenReplenish(),
+        replenishPromise,
         waitBudgetMs,
         [] as ChristianShort[]
       );
@@ -3565,8 +3566,24 @@ export async function getCuratedChristianShorts(options: {
     randomOffsetParam,
     effectiveSeed
   );
-  if (leanFeedItems.some((item) => item.durationSeconds == null)) {
-    leanFeedItems = await filterOutUpcomingUnverifiedItems(leanFeedItems, { maxChecks: 50 });
+  const recentWatchCutoffMs = Date.now() - 72 * 60 * 60 * 1000;
+  const recentNullItems = leanFeedItems.filter((item) => {
+    if (item.durationSeconds != null) return false;
+    if (item.category === 'feliz7play') return true;
+    const pubMs = Date.parse(item.publishedAt);
+    return !Number.isFinite(pubMs) || pubMs >= recentWatchCutoffMs;
+  });
+  if (recentNullItems.length > 0) {
+    const recentChecked = await filterOutUpcomingUnverifiedItems(recentNullItems, { maxChecks: 16 });
+    const keptRecentIds = new Set(recentChecked.map((item) => item.id));
+    const recentTargetIds = new Set(recentNullItems.map((item) => item.id));
+    leanFeedItems = leanFeedItems.filter(
+      (item) => !recentTargetIds.has(item.id) || keptRecentIds.has(item.id)
+    );
+  }
+  const olderNullItems = leanFeedItems.filter((item) => item.durationSeconds == null);
+  if (olderNullItems.length > 0) {
+    void filterOutUpcomingUnverifiedItems(olderNullItems, { maxChecks: 25 }).catch(() => {});
   }
   return formatFilteredResponse(
     leanFeedItems,

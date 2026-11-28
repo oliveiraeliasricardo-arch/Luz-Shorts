@@ -846,32 +846,35 @@ export function App() {
         }
 
         if (!data) {
-          // Two-stage fast native bootstrap when APK starts cold without cached feed
+          // Two-stage parallel native bootstrap when APK starts cold without cached feed
           if (!forceRefresh && !hasInitialCache) {
+            const fullDataPromise = fetchShortsOnNativeDevice(
+              false,
+              0,
+              excludeIds,
+              seed,
+              randomOffset
+            );
             const seedData = await fetchFastNativeSeed(excludeIds, seed);
             if (seedData.items.length > 0) {
               await applyFeedPayload(seedData, false, false);
               setLoading(false);
-              const fullData = await fetchShortsOnNativeDevice(
-                false,
-                0,
-                excludeIds,
-                seed,
-                randomOffset
-              );
+              const fullData = await fullDataPromise;
               if (fullData.items.length > 0) {
                 await applyFeedPayload(fullData, false, true);
               }
               return;
             }
+            data = await fullDataPromise;
+          } else {
+            data = await fetchShortsOnNativeDevice(
+              forceRefresh,
+              0,
+              excludeIds,
+              seed,
+              randomOffset
+            );
           }
-          data = await fetchShortsOnNativeDevice(
-            forceRefresh,
-            0,
-            excludeIds,
-            seed,
-            randomOffset
-          );
         }
 
         await applyFeedPayload(data, forceRefresh, hasInitialCache);

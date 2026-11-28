@@ -2150,34 +2150,37 @@ const RSS_LOUVOR_PLAYLISTS: Array<{
 ];
 
 export async function fetchFastBootstrapRssWithAdapter(
-  fetchXml: (url: string) => Promise<string | null>
+  fetchXml: (url: string) => Promise<string | null>,
+  options?: {
+    isEligibleItem?: (item: ChristianShort) => boolean;
+    graceMs?: number;
+  }
 ): Promise<ChristianShort[]> {
   const categories: ContentCategory[] = [
     'pregacoes',
-    'escola_sabatina',
     'louvores',
     'testemunhos',
+    'escola_sabatina',
     'feliz7play',
   ];
   const tasks: Array<Promise<ChristianShort[]>> = [];
+  const addedChannelIds = new Set<string>();
 
   for (const cat of categories) {
-    const spec = ALL_CURATED_CHANNELS.find((c) => c.defaultCategory === cat);
-    if (!spec) continue;
-    const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
-    const allowFull =
-      cat === 'louvores' ||
-      cat === 'feliz7play' ||
-      cat === 'pregacoes' ||
-      cat === 'testemunhos' ||
-      cat === 'escola_sabatina';
-    tasks.push(
-      (async () => {
-        const xml = await fetchXml(url);
-        if (!xml || !xml.includes('<entry>')) return [];
-        return parseChannelRssXml(xml, spec, false, allowFull);
-      })()
-    );
+    const matching = ALL_CURATED_CHANNELS.filter((c) => c.defaultCategory === cat);
+    const limit = cat === 'pregacoes' || cat === 'louvores' ? 2 : 1;
+    for (const spec of matching.slice(0, limit)) {
+      if (addedChannelIds.has(spec.id)) continue;
+      addedChannelIds.add(spec.id);
+      const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${spec.id}`;
+      tasks.push(
+        (async () => {
+          const xml = await fetchXml(url);
+          if (!xml || !xml.includes('<entry>')) return [];
+          return parseChannelRssXml(xml, spec, false, true);
+        })()
+      );
+    }
   }
 
   const hinarioRssPlaylists = RSS_LOUVOR_PLAYLISTS.slice(0, 6);
@@ -2196,17 +2199,67 @@ export async function fetchFastBootstrapRssWithAdapter(
     );
   }
 
-  const responses = await Promise.allSettled(tasks);
-  const deduped = new Map<string, ChristianShort>();
-  for (const res of responses) {
-    if (res.status !== 'fulfilled') continue;
-    for (const item of res.value) {
-      if (!deduped.has(item.id)) {
-        deduped.set(item.id, item);
+  const isEligible = options?.isEligibleItem;
+  if (!isEligible) {
+    const responses = await Promise.allSettled(tasks);
+    const deduped = new Map<string, ChristianShort>();
+    for (const res of responses) {
+      if (res.status !== 'fulfilled') continue;
+      for (const item of res.value) {
+        if (!deduped.has(item.id)) {
+          deduped.set(item.id, item);
+        }
       }
     }
+    return [...deduped.values()];
   }
-  return [...deduped.values()];
+
+  const graceMs = options?.graceMs ?? 140;
+  return new Promise<ChristianShort[]>((resolve) => {
+    const deduped = new Map<string, ChristianShort>();
+    let settledCount = 0;
+    let eligibleCount = 0;
+    let resolved = false;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+        graceTimer = null;
+      }
+      resolve([...deduped.values()]);
+    };
+
+    for (const task of tasks) {
+      task
+        .then((items) => {
+          for (const item of items) {
+            if (!deduped.has(item.id)) {
+              deduped.set(item.id, item);
+              if (isEligible(item)) {
+                eligibleCount += 1;
+              }
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          settledCount += 1;
+          if (resolved) return;
+          if (settledCount >= tasks.length || eligibleCount >= 6) {
+            finish();
+          } else if (eligibleCount >= 1 && !graceTimer) {
+            graceTimer = setTimeout(finish, graceMs);
+          }
+        });
+    }
+
+    if (tasks.length === 0) {
+      finish();
+    }
+  });
 }
 
 export async function fetchCuratedRssWithAdapter(

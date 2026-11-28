@@ -113,7 +113,7 @@ export function loadYouTubeIframeApi(): Promise<YTNamespace> {
 
     pollTimer = window.setInterval(() => {
       tryResolve();
-    }, 40);
+    }, 12);
 
     timeoutTimer = window.setTimeout(() => {
       if (!settled && !tryResolve()) {

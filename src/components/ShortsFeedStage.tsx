@@ -148,6 +148,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
   const [isDragging, setIsDragging] = useState(false);
   const [isSliding, setIsSliding] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [showBufferingSpinner, setShowBufferingSpinner] = useState(false);
   const [feedbackState, setFeedbackState] = useState<'play' | 'pause' | null>(null);
 
   const activeShort = items[activeIndex] ?? items[0] ?? null;
@@ -232,32 +233,37 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
     setDuration(nextFallbackDuration > 0 ? nextFallbackDuration : 0);
   }, []);
 
-  const silenceCurrentVideoImmediately = useCallback(() => {
-    hasEnteredPlayableStateRef.current = false;
-    setIsVideoVisible(false);
-    setIsPlaying(false);
-    resetPlaybackClock(0);
-    if (autoplayCheckTimerRef.current) {
-      window.clearTimeout(autoplayCheckTimerRef.current);
-      autoplayCheckTimerRef.current = null;
-    }
-    if (premiereGuardTimerRef.current) {
-      window.clearTimeout(premiereGuardTimerRef.current);
-      premiereGuardTimerRef.current = null;
-    }
-    if (errorSkipTimerRef.current) {
-      window.clearTimeout(errorSkipTimerRef.current);
-      errorSkipTimerRef.current = null;
-    }
-    const player = playerRef.current;
-    if (!player) return;
-    try {
-      player.mute();
-      player.stopVideo();
-    } catch {
-      // Ignore if player is still initializing
-    }
-  }, [resetPlaybackClock]);
+  const silenceCurrentVideoImmediately = useCallback(
+    (stopPlayer = true) => {
+      hasEnteredPlayableStateRef.current = false;
+      setIsVideoVisible(false);
+      setIsPlaying(false);
+      setShowBufferingSpinner(false);
+      resetPlaybackClock(0);
+      if (autoplayCheckTimerRef.current) {
+        window.clearTimeout(autoplayCheckTimerRef.current);
+        autoplayCheckTimerRef.current = null;
+      }
+      if (premiereGuardTimerRef.current) {
+        window.clearTimeout(premiereGuardTimerRef.current);
+        premiereGuardTimerRef.current = null;
+      }
+      if (errorSkipTimerRef.current) {
+        window.clearTimeout(errorSkipTimerRef.current);
+        errorSkipTimerRef.current = null;
+      }
+      if (!stopPlayer) return;
+      const player = playerRef.current;
+      if (!player) return;
+      try {
+        player.mute();
+        player.stopVideo();
+      } catch {
+        // Ignore if player is still initializing
+      }
+    },
+    [resetPlaybackClock]
+  );
 
   const jumpToSlide = useCallback(
     (nextIndex: number) => {
@@ -265,11 +271,12 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       if (clamped === activeIndexRef.current) return;
 
       const isAdjacent = Math.abs(clamped - activeIndexRef.current) === 1;
-      silenceCurrentVideoImmediately();
+      // Avoid calling player.stopVideo() right before loadVideoById so the media pipeline stays warm
+      silenceCurrentVideoImmediately(false);
       onAudioUnlockedRef.current();
 
       if (isAdjacent) {
-        triggerSlideWindow(360);
+        triggerSlideWindow(320);
       }
       onActiveIndexChangeRef.current(clamped);
     },
@@ -318,7 +325,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
       }
 
       try {
-        const shouldStartUnmuted = audioUnlockedRef.current || isNativeCapacitorApp();
+        const isNative = isNativeCapacitorApp();
+        const shouldStartUnmuted = audioUnlockedRef.current || isNative;
         if (shouldStartUnmuted) {
           player.unMute();
           player.setVolume(100);
@@ -330,15 +338,15 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
           const alreadyStarted = YTStates
             ? initialState === YTStates.PLAYING || initialState === YTStates.BUFFERING
             : initialState === 1 || initialState === 3;
-          // Let playerVars autoplay=1 proceed without restarting an active load; only kick CUED/PAUSED/UNSTARTED
-          if (!alreadyStarted && initialState !== -1) {
+          // Kick UNSTARTED (-1), CUED (5), and PAUSED (2) immediately at onReady without waiting
+          if (!alreadyStarted) {
             player.playVideo();
           }
         } else {
           player.loadVideoById({ videoId, startSeconds: 0 });
         }
 
-        // Fallback if browser blocks unmuted autoplay before first user gesture
+        // Fast fallback if browser blocks unmuted autoplay before first user gesture
         autoplayCheckTimerRef.current = window.setTimeout(() => {
           if (activeVideoIdRef.current !== videoId) return;
           try {
@@ -346,16 +354,39 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
             const isStarted = YTStates
               ? state === YTStates.PLAYING || state === YTStates.BUFFERING
               : state === 1 || state === 3;
-            if (!isStarted && !audioUnlockedRef.current) {
-              player.mute();
-              player.playVideo();
-            } else if (isStarted && shouldStartUnmuted) {
+            if (!isStarted) {
+              if (isNative) {
+                player.unMute();
+                player.setVolume(100);
+                player.playVideo();
+                autoplayCheckTimerRef.current = window.setTimeout(() => {
+                  if (activeVideoIdRef.current !== videoId) return;
+                  try {
+                    const retryState = player.getPlayerState();
+                    const startedAfterRetry = YTStates
+                      ? retryState === YTStates.PLAYING || retryState === YTStates.BUFFERING
+                      : retryState === 1 || retryState === 3;
+                    if (!startedAfterRetry && !audioUnlockedRef.current) {
+                      player.mute();
+                      player.playVideo();
+                    }
+                  } catch {
+                    // Ignore transient state errors
+                  }
+                }, 260);
+              } else if (!audioUnlockedRef.current) {
+                player.mute();
+                player.playVideo();
+              } else {
+                player.playVideo();
+              }
+            } else if (shouldStartUnmuted) {
               onAudioUnlockedRef.current();
             }
           } catch {
             // Ignore transient state errors
           }
-        }, 550);
+        }, 200);
 
         // Guard against upcoming Premieres/lives that render a countdown screen
         // (stays UNSTARTED=-1 or CUED=5 with duration 0 and never enters BUFFERING/PLAYING)
@@ -420,14 +451,33 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
     [resetPlaybackClock]
   );
 
-  // Sync baseline duration whenever active slide changes
+  // Sync baseline duration & delay buffering spinner slightly so instant starts don't flash a spinner
   useEffect(() => {
     setDuration(fallbackDuration);
     setCurrentTime(0);
     setScrubSeconds(null);
     isScrubbingRef.current = false;
     seekGraceRef.current = null;
+    setShowBufferingSpinner(false);
+
+    if (!activeVideoId) return;
+    const timer = window.setTimeout(() => {
+      setShowBufferingSpinner(true);
+    }, 280);
+    return () => window.clearTimeout(timer);
   }, [activeVideoId, fallbackDuration]);
+
+  // Pre-decode thumbnails for adjacent next/prev slides so swiping feels instantaneous
+  useEffect(() => {
+    if (typeof Image === 'undefined' || items.length <= 1) return;
+    const candidates = [items[activeIndex + 1], items[activeIndex + 2], items[activeIndex - 1]];
+    for (const candidate of candidates) {
+      if (!candidate?.thumbnailUrl) continue;
+      const img = new Image();
+      img.referrerPolicy = 'no-referrer';
+      img.src = candidate.thumbnailUrl;
+    }
+  }, [activeIndex, items]);
 
   // Boot ONE single persistent YouTube IFrame Player once inside an imperative host container
   // so it can move seamlessly into a Document Picture-in-Picture window without reloading.
@@ -536,7 +586,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                 }
                 setIsPlaying(true);
                 setIsVideoVisible(true);
-                if (audioUnlockedRef.current) {
+                setShowBufferingSpinner(false);
+                if (audioUnlockedRef.current || isNativeCapacitorApp()) {
                   try {
                     event.target.unMute();
                     event.target.setVolume(100);
@@ -1694,7 +1745,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
 
       {/* Persistent Single YouTube Player Layer */}
       <div
-        className={`absolute inset-0 z-10 pointer-events-none transition-opacity duration-150 ${
+        className={`absolute inset-0 z-10 pointer-events-none transition-opacity duration-75 ${
           keepPlayerLayerPainted ? 'opacity-100' : 'opacity-0'
         }`}
       >
@@ -1767,7 +1818,7 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
             >
               {/* Full-Frame Thumbnail Poster */}
               <div
-                className={`absolute inset-0 bg-black transition-opacity duration-200 ${
+                className={`absolute inset-0 bg-black transition-opacity duration-100 ${
                   hidePosterForVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
                 }`}
               >
@@ -1793,8 +1844,8 @@ export const ShortsFeedStage: React.FC<ShortsFeedStageProps> = React.memo(({
                 className="absolute inset-0 z-10 w-full h-full cursor-pointer focus:outline-none"
               />
 
-              {/* Subtle buffering indicator while YouTube player connects */}
-              {isCurrent && !isVideoVisible && !hasError && !isScrollingMotion && !isDocPipActive && !feedbackState && (
+              {/* Subtle buffering indicator while YouTube player connects (delayed 280ms so instant loads skip it) */}
+              {isCurrent && !isVideoVisible && showBufferingSpinner && !hasError && !isScrollingMotion && !isDocPipActive && !feedbackState && (
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"

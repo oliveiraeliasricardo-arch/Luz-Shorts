@@ -643,6 +643,9 @@ public class MainActivity extends BridgeActivity {
     WebSettings settings = webView.getSettings();
     if (settings != null) {
       settings.setMediaPlaybackRequiresUserGesture(false);
+      settings.setDomStorageEnabled(true);
+      settings.setDatabaseEnabled(true);
+      settings.setCacheMode(WebSettings.LOAD_DEFAULT);
     }
     webView.addJavascriptInterface(new PipJsBridge(), "GracaPlayNativePip");
     webView.addJavascriptInterface(new OrientationJsBridge(), "GracaPlayOrientation");
